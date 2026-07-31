@@ -1,14 +1,18 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using Microsoft.Data.SqlClient;
+
+[assembly: InternalsVisibleTo("DBVC.Core.Tests")]
 
 namespace DBVC.Core
 {
     public class StateTracker
     {
         private readonly ConfigManager _configManager;
-        private readonly ConcurrentDictionary<string, string> _stateCache = new ConcurrentDictionary<string, string>();
+        private readonly ConcurrentDictionary<string, string> _stateCache = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         public StateTracker() : this(new ConfigManager())
         {
@@ -22,7 +26,7 @@ namespace DBVC.Core
         public void RefreshState(string serverName, string databaseName)
         {
             var mapping = _configManager.GetMapping(serverName, databaseName);
-            if (mapping == null) return;
+            if (string.IsNullOrWhiteSpace(mapping)) return;
 
             try
             {
@@ -34,20 +38,37 @@ namespace DBVC.Core
                 cmd.CommandText = "SELECT ObjectName, EventType FROM DBVC_ChangeLog ORDER BY EventDate DESC";
                 
                 using var reader = cmd.ExecuteReader();
+                var rows = new List<(string ObjectName, string EventType)>();
                 while (reader.Read())
                 {
                     var objName = reader.GetString(0);
                     var evType = reader.GetString(1);
-                    _stateCache[$"{serverName}.{databaseName}.{objName}"] = evType;
+                    rows.Add((objName, evType));
                 }
+                ProcessChangeLogRows(serverName, databaseName, rows);
             }
-            catch (SqlException)
+            catch (SqlException ex)
             {
                 // Graceful fail if DB/table doesn't exist yet
+                Debug.WriteLine($"StateTracker.RefreshState SqlException: {ex.Message}");
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Graceful fail on connection or driver errors
+                // Graceful fail on connection or driver errors with diagnostics
+                Debug.WriteLine($"StateTracker.RefreshState Exception: {ex.Message}");
+            }
+        }
+
+        internal void ProcessChangeLogRows(string serverName, string databaseName, IEnumerable<(string ObjectName, string EventType)> rows)
+        {
+            var seenObjects = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (objName, evType) in rows)
+            {
+                var key = $"{serverName}.{databaseName}.{objName}";
+                if (seenObjects.Add(key))
+                {
+                    _stateCache[key] = evType;
+                }
             }
         }
         
