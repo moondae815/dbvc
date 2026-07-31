@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using DBVC.Core.Models;
@@ -30,8 +31,9 @@ namespace DBVC.Core
             {
                 localGitPath = _configManager.GetMapping(serverName, databaseName);
             }
-            catch
+            catch (Exception ex)
             {
+                Debug.WriteLine($"Config error in GetMapping for '{serverName}.{databaseName}': {ex.Message}");
                 return false;
             }
 
@@ -57,6 +59,7 @@ namespace DBVC.Core
 
                 if (db == null)
                 {
+                    Debug.WriteLine($"Database '{databaseName}' not found on server '{serverName}'.");
                     return false;
                 }
 
@@ -71,13 +74,16 @@ namespace DBVC.Core
                     }
                 };
 
+                HashSet<string>? targetObjects = objectNames != null && objectNames.Count > 0
+                    ? new HashSet<string>(objectNames, StringComparer.OrdinalIgnoreCase)
+                    : null;
+
                 // For MVP, iterate Tables as a proof of concept.
                 foreach (Table tb in db.Tables)
                 {
                     if (tb.IsSystemObject) continue;
 
-                    if (objectNames != null && objectNames.Count > 0 &&
-                        !objectNames.Contains(tb.Name, StringComparer.OrdinalIgnoreCase))
+                    if (targetObjects != null && !targetObjects.Contains(tb.Name))
                     {
                         continue;
                     }
@@ -90,12 +96,14 @@ namespace DBVC.Core
 
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                Debug.WriteLine($"Error during SMO scripting for '{serverName}.{databaseName}': {ex}");
                 return false;
             }
         }
     }
 }
+
 
 
