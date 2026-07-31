@@ -1,8 +1,10 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/DBVC.Core/DBVC.Core.csproj" />
+    <Project Path="src/DBVC.Vsix/DBVC.Vsix.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DBVC.Core.Tests/DBVC.Core.Tests.csproj" />
+    <Project Path="tests/DBVC.Vsix.Tests/DBVC.Vsix.Tests.csproj" />
   </Folder>
 </Solution>
