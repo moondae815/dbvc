@@ -47,12 +47,12 @@ namespace DBVC.Core
         {
             if (string.IsNullOrWhiteSpace(connectionString)) throw new ArgumentException("Invalid connection string", nameof(connectionString));
 
-            using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("InstallTrigger.sql");
+            using var stream = typeof(StateTracker).Assembly.GetManifestResourceStream("InstallTrigger.sql");
             if (stream == null) throw new FileNotFoundException("InstallTrigger.sql not found in embedded resources.");
             using var reader = new StreamReader(stream);
             var script = reader.ReadToEnd();
 
-            var batches = script.Split(new[] { "\r\nGO", "\nGO", "GO\r\n", "GO\n" }, StringSplitOptions.RemoveEmptyEntries);
+            var batches = System.Text.RegularExpressions.Regex.Split(script, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Multiline);
 
             using var conn = new SqlConnection(connectionString);
             conn.Open();

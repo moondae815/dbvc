@@ -106,5 +106,13 @@ namespace DBVC.Core.Tests
             var tracker = new StateTracker();
             Assert.Throws<System.ArgumentException>(() => tracker.InitializeDatabase(""));
         }
+
+        [Test]
+        public void InitializeDatabase_LoadsEmbeddedScriptAndAttemptsConnection_WhenConnectionStringIsProvided()
+        {
+            var tracker = new StateTracker();
+            var ex = Assert.Catch<System.Exception>(() => tracker.InitializeDatabase("Server=dummy;Database=dummy;Integrated Security=True;TrustServerCertificate=True;"));
+            Assert.That(ex, Is.Not.InstanceOf<System.IO.FileNotFoundException>());
+        }
     }
 }
