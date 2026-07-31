@@ -46,5 +46,16 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(vm.Changes.Count, Is.EqualTo(0));
         }
+
+        [Test]
+        public void SelectedChange_CanBeSetAndRetrieved()
+        {
+            var vm = new ViewChangesViewModel();
+            var item = new ChangeItemViewModel { ObjectName = "dbo.Table1", State = "Modified" };
+            
+            vm.SelectedChange = item;
+
+            Assert.That(vm.SelectedChange, Is.EqualTo(item));
+        }
     }
 }

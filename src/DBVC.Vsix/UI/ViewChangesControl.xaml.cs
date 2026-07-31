@@ -5,10 +5,14 @@ namespace DBVC.Vsix.UI
 {
     public partial class ViewChangesControl : UserControl
     {
-        public ViewChangesControl()
+        public ViewChangesControl() : this(new ViewChangesViewModel())
+        {
+        }
+
+        public ViewChangesControl(ViewChangesViewModel viewModel)
         {
             InitializeComponent();
-            this.DataContext = new ViewChangesViewModel();
+            this.DataContext = viewModel;
         }
     }
 }

@@ -12,13 +12,13 @@
 
         <!-- Top Area -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="5">
-            <Button Content="Refresh" Width="70" Margin="0,0,10,0"/>
+            <Button Content="Refresh" Command="{Binding RefreshCommand}" Width="70" Margin="0,0,10,0"/>
             <TextBox Text="{Binding CommitMessage}" Width="200" Margin="0,0,10,0"/>
             <Button Content="Commit" Width="70" />
         </StackPanel>
 
         <!-- Middle Area -->
-        <ListView Grid.Row="1" ItemsSource="{Binding Changes}">
+        <ListView Grid.Row="1" ItemsSource="{Binding Changes}" SelectedItem="{Binding SelectedChange}">
             <ListView.View>
                 <GridView>
                     <GridViewColumn Header="Stage">

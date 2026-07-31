@@ -19,6 +19,17 @@ namespace DBVC.Vsix.ViewModels
 
         public ObservableCollection<ChangeItemViewModel> Changes { get; } = new ObservableCollection<ChangeItemViewModel>();
 
+        private ChangeItemViewModel? _selectedChange;
+        public ChangeItemViewModel? SelectedChange
+        {
+            get => _selectedChange;
+            set
+            {
+                _selectedChange = value;
+                OnPropertyChanged();
+            }
+        }
+
         public System.Windows.Input.ICommand RefreshCommand { get; }
 
         public ViewChangesViewModel()
