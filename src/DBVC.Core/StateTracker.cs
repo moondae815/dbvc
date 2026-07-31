@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.IO;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using Microsoft.Data.SqlClient;
 
@@ -21,6 +23,46 @@ namespace DBVC.Core
         public StateTracker(ConfigManager configManager)
         {
             _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
+        }
+
+        public bool IsInitialized(string connectionString)
+        {
+            if (string.IsNullOrWhiteSpace(connectionString)) return false;
+            try
+            {
+                using var conn = new SqlConnection(connectionString);
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT COUNT(*) FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND type in (N'U')";
+                var result = cmd.ExecuteScalar();
+                return result != null && Convert.ToInt32(result) > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public void InitializeDatabase(string connectionString)
+        {
+            if (string.IsNullOrWhiteSpace(connectionString)) throw new ArgumentException("Invalid connection string", nameof(connectionString));
+
+            using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("InstallTrigger.sql");
+            if (stream == null) throw new FileNotFoundException("InstallTrigger.sql not found in embedded resources.");
+            using var reader = new StreamReader(stream);
+            var script = reader.ReadToEnd();
+
+            var batches = script.Split(new[] { "\r\nGO", "\nGO", "GO\r\n", "GO\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+            using var conn = new SqlConnection(connectionString);
+            conn.Open();
+            foreach (var batch in batches)
+            {
+                if (string.IsNullOrWhiteSpace(batch)) continue;
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = batch;
+                cmd.ExecuteNonQuery();
+            }
         }
 
         public void RefreshState(string serverName, string databaseName)

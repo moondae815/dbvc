@@ -92,5 +92,19 @@ namespace DBVC.Core.Tests
             Assert.That(tracker.GetObjectState("Server1", "DB1", "dbo.Customers"), Is.EqualTo("CREATE_TABLE"));
             Assert.That(tracker.GetObjectState("Server1", "DB1", "dbo.Products"), Is.EqualTo("Clean"));
         }
+
+        [Test]
+        public void IsInitialized_ReturnsFalse_WhenNoTable()
+        {
+            var tracker = new StateTracker();
+            Assert.That(tracker.IsInitialized("fake_connection_string"), Is.False);
+        }
+
+        [Test]
+        public void InitializeDatabase_ThrowsArgumentException_WhenConnectionStringIsEmpty()
+        {
+            var tracker = new StateTracker();
+            Assert.Throws<System.ArgumentException>(() => tracker.InitializeDatabase(""));
+        }
     }
 }
