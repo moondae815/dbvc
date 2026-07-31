@@ -1,6 +1,5 @@
 using NUnit.Framework;
 using DBVC.Vsix.Services;
-using DBVC.Core;
 
 namespace DBVC.Vsix.Tests.Services
 {
