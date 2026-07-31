@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
@@ -14,6 +15,14 @@ namespace DBVC.Vsix.ViewModels
                 _commitMessage = value;
                 OnPropertyChanged();
             }
+        }
+
+        public ObservableCollection<ChangeItemViewModel> Changes { get; } = new ObservableCollection<ChangeItemViewModel>();
+
+        public void Refresh()
+        {
+            Changes.Clear();
+            // Real implementation will call StateTracker, left for next tasks or integration
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
