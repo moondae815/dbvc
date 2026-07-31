@@ -8,6 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="AvalonEdit" Version="6.3.0.90" />
+    <PackageReference Include="DiffPlex" Version="1.7.2" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\DBVC.Core\DBVC.Core.csproj" />
   </ItemGroup>
 
