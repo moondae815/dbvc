@@ -1,3 +1,5 @@
+using System;
+
 namespace DBVC.Core
 {
     public class GitManager
@@ -10,7 +12,7 @@ namespace DBVC.Core
 
         public GitManager(ConfigManager configManager)
         {
-            _configManager = configManager;
+            _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
         }
 
         public string GetStatus(string repoPath)

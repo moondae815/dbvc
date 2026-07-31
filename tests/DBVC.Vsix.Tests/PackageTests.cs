@@ -33,5 +33,46 @@ namespace DBVC.Vsix.Tests
             Assert.That(pkg.SmoManager, Is.SameAs(smo));
             Assert.That(pkg.StateTracker, Is.SameAs(state));
         }
+
+        [Test]
+        public void Package_Constructor_ThrowsArgumentNullException_WhenConfigManagerIsNull()
+        {
+            var config = new ConfigManager();
+            var git = new GitManager(config);
+            var smo = new SmoManager();
+            var state = new StateTracker();
+
+            Assert.Throws<System.ArgumentNullException>(() => new DbvcPackage(null!, git, smo, state));
+        }
+
+        [Test]
+        public void Package_Constructor_ThrowsArgumentNullException_WhenGitManagerIsNull()
+        {
+            var config = new ConfigManager();
+            var smo = new SmoManager();
+            var state = new StateTracker();
+
+            Assert.Throws<System.ArgumentNullException>(() => new DbvcPackage(config, null!, smo, state));
+        }
+
+        [Test]
+        public void Package_Constructor_ThrowsArgumentNullException_WhenSmoManagerIsNull()
+        {
+            var config = new ConfigManager();
+            var git = new GitManager(config);
+            var state = new StateTracker();
+
+            Assert.Throws<System.ArgumentNullException>(() => new DbvcPackage(config, git, null!, state));
+        }
+
+        [Test]
+        public void Package_Constructor_ThrowsArgumentNullException_WhenStateTrackerIsNull()
+        {
+            var config = new ConfigManager();
+            var git = new GitManager(config);
+            var smo = new SmoManager();
+
+            Assert.Throws<System.ArgumentNullException>(() => new DbvcPackage(config, git, smo, null!));
+        }
     }
 }

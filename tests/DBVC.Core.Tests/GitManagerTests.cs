@@ -41,5 +41,11 @@ namespace DBVC.Core.Tests
             var result = manager.Commit("dummy/path", "dbo/Tables/TestTable.sql", "Initial commit");
             Assert.That(result, Is.True);
         }
+
+        [Test]
+        public void Constructor_ThrowsArgumentNullException_WhenConfigManagerIsNull()
+        {
+            Assert.Throws<System.ArgumentNullException>(() => new GitManager(null!));
+        }
     }
 }
