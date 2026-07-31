@@ -1,4 +1,5 @@
 using System;
+using LibGit2Sharp;
 
 namespace DBVC.Core
 {
@@ -32,6 +33,29 @@ namespace DBVC.Core
 
         public bool Commit(string repoPath, string filePath, string message)
         {
+            return true;
+        }
+
+        public bool CommitChanges(string serverName, string databaseName, string message)
+        {
+            if (_configManager == null) return false;
+            var repoPath = _configManager.GetMapping(serverName, databaseName);
+            if (string.IsNullOrEmpty(repoPath)) return false;
+
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "*");
+                
+                var signature = new Signature("DBVC User", "dbvc@example.com", DateTimeOffset.Now);
+                repo.Commit(message, signature, signature);
+            }
+
+            return true;
+        }
+
+        public bool PullChanges(string serverName, string databaseName)
+        {
+            // Stubbed for now
             return true;
         }
     }
