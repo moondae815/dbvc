@@ -26,6 +26,11 @@ namespace DBVC.Core
             _mappings[key] = mapping;
         }
 
+        public void AddMapping(string serverName, string databaseName, string gitPath)
+        {
+            AddMapping(new MappingConfig { ServerName = serverName, DatabaseName = databaseName, GitPath = gitPath });
+        }
+
         public string GetMapping(string serverName, string databaseName)
         {
             if (string.IsNullOrWhiteSpace(serverName))
