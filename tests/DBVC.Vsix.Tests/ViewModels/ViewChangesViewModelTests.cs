@@ -33,5 +33,18 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(vm.Changes.Count, Is.EqualTo(0));
         }
+
+        [Test]
+        public void RefreshCommand_IsNotNullAndExecutesRefresh()
+        {
+            var vm = new ViewChangesViewModel();
+            vm.Changes.Add(new ChangeItemViewModel { ObjectName = "dbo.Table1", State = "Modified" });
+            Assert.That(vm.RefreshCommand, Is.Not.Null);
+            Assert.That(vm.RefreshCommand.CanExecute(null), Is.True);
+
+            vm.RefreshCommand.Execute(null);
+
+            Assert.That(vm.Changes.Count, Is.EqualTo(0));
+        }
     }
 }

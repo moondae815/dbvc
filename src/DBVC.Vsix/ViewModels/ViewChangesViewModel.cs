@@ -19,6 +19,13 @@ namespace DBVC.Vsix.ViewModels
 
         public ObservableCollection<ChangeItemViewModel> Changes { get; } = new ObservableCollection<ChangeItemViewModel>();
 
+        public System.Windows.Input.ICommand RefreshCommand { get; }
+
+        public ViewChangesViewModel()
+        {
+            RefreshCommand = new Commands.RelayCommand(Refresh);
+        }
+
         public void Refresh()
         {
             Changes.Clear();
