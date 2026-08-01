@@ -11,6 +11,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -23,9 +24,25 @@
             <Button Content="Connect" Command="{Binding ConnectCommand}" Width="80"/>
         </StackPanel>
 
-        <Grid Grid.Row="1" Visibility="{Binding IsInitialized, Converter={StaticResource BoolToVis}}">
+        <!--
+            경고 배너. 초기화 여부와 무관하게 보여야 매핑되지 않은 DB에서도
+            저장소를 연결할 수 있다.
+        -->
+        <Border Grid.Row="1" Background="#FFF4CE" BorderBrush="#E0C77A" BorderThickness="1"
+                Padding="8,5" Margin="5,5,5,0"
+                Visibility="{Binding HasWarning, Converter={StaticResource BoolToVis}}">
+            <DockPanel LastChildFill="True">
+                <Button DockPanel.Dock="Right" Content="저장소 연결..." Width="110" Margin="8,0,0,0"
+                        Command="{Binding ConnectRepositoryCommand}"
+                        Visibility="{Binding IsMapped, Converter={StaticResource InverseBoolToVis}}"
+                        ToolTip="이 데이터베이스의 스크립트를 보관할 Git 저장소 폴더를 지정합니다."/>
+                <TextBlock Text="{Binding WarningMessage}" Foreground="#6B5A00"
+                           TextWrapping="Wrap" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </DockPanel>
+        </Border>
+
+        <Grid Grid.Row="2" Visibility="{Binding IsInitialized, Converter={StaticResource BoolToVis}}">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="5" />
@@ -45,15 +62,8 @@
                         ToolTip="선택한 객체가 마지막으로 커밋되기 직전 코드를 단일 .sql 파일로 병합합니다." />
             </StackPanel>
 
-            <!-- 매핑 누락 / 부분 실패 경고 -->
-            <Border Grid.Row="1" Background="#FFF4CE" BorderBrush="#E0C77A" BorderThickness="1"
-                    Padding="8,5" Margin="5,0,5,5"
-                    Visibility="{Binding HasWarning, Converter={StaticResource BoolToVis}}">
-                <TextBlock Text="{Binding WarningMessage}" Foreground="#6B5A00" TextWrapping="Wrap" FontWeight="SemiBold"/>
-            </Border>
-
             <!-- Middle Area -->
-            <ListView Grid.Row="2" ItemsSource="{Binding Changes}" SelectedItem="{Binding SelectedChange}">
+            <ListView Grid.Row="1" ItemsSource="{Binding Changes}" SelectedItem="{Binding SelectedChange}">
                 <ListView.View>
                     <GridView>
                         <GridViewColumn Header="Stage">
@@ -69,10 +79,10 @@
                 </ListView.View>
             </ListView>
 
-            <GridSplitter Grid.Row="3" Height="5" HorizontalAlignment="Stretch" />
+            <GridSplitter Grid.Row="2" Height="5" HorizontalAlignment="Stretch" />
 
             <!-- Bottom Area -->
-            <Grid Grid.Row="4">
+            <Grid Grid.Row="3">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="5" />
@@ -85,14 +95,11 @@
             </Grid>
         </Grid>
 
-        <!-- The Setup Overlay -->
-        <Grid Grid.Row="1" Visibility="{Binding IsInitialized, Converter={StaticResource InverseBoolToVis}}" Background="#F0F0F0">
+        <!-- The Setup Overlay. 경고는 위 배너가 담당하므로 여기서 중복 표시하지 않는다. -->
+        <Grid Grid.Row="2" Visibility="{Binding IsInitialized, Converter={StaticResource InverseBoolToVis}}" Background="#F0F0F0">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                 <TextBlock Text="This database is not initialized for DBVC." FontSize="16" Margin="0,0,0,20" Foreground="#333333"/>
                 <Button Content="Setup DBVC" Command="{Binding SetupCommand}" Width="150" Height="40" FontSize="14" Cursor="Hand"/>
-                <TextBlock Text="{Binding WarningMessage}" Foreground="#B00020" TextWrapping="Wrap"
-                           MaxWidth="360" Margin="0,16,0,0" TextAlignment="Center"
-                           Visibility="{Binding HasWarning, Converter={StaticResource BoolToVis}}"/>
             </StackPanel>
         </Grid>
     </Grid>
