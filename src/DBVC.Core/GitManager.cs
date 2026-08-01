@@ -1,10 +1,21 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using DBVC.Core.Models;
 using LibGit2Sharp;
 
 namespace DBVC.Core
 {
+    /// <summary>
+    /// <c>LibGit2Sharp</c>를 사용해 로컬 Git 저장소를 제어한다. 외부 git CLI에 의존하지 않는다.
+    /// </summary>
     public class GitManager
     {
+        private const string DefaultAuthorName = "DBVC User";
+        private const string DefaultAuthorEmail = "dbvc@example.com";
+
         private readonly ConfigManager? _configManager;
 
         public GitManager()
@@ -16,48 +27,235 @@ namespace DBVC.Core
             _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
         }
 
+        /// <summary>
+        /// 저장소의 작업 트리 상태를 요약한다.
+        /// 유효한 Git 저장소가 아니면 <c>"Unknown"</c>을 반환한다.
+        /// </summary>
         public string GetStatus(string repoPath)
         {
-            return "Clean";
+            if (!IsValidRepository(repoPath)) return "Unknown";
+
+            try
+            {
+                using var repo = new Repository(repoPath);
+                return repo.RetrieveStatus(UntrackedInclusiveOptions).IsDirty ? "Modified" : "Clean";
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"GitManager.GetStatus failed for '{repoPath}': {ex.Message}");
+                return "Unknown";
+            }
         }
 
         public string GetStatusForDatabase(string serverName, string databaseName)
         {
-            if (_configManager == null)
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            return repoPath == null ? "Unknown" : GetStatus(repoPath);
+        }
+
+        /// <summary>
+        /// 작업 트리에서 변경된(수정/추가/삭제/미추적) 파일의 저장소 상대 경로를 반환한다.
+        /// 경로 구분자는 Git 규약대로 슬래시('/')이다.
+        /// </summary>
+        public IReadOnlyList<string> GetChangedFiles(string repoPath)
+        {
+            if (!IsValidRepository(repoPath)) return new List<string>();
+
+            try
             {
-                return "Clean";
+                using var repo = new Repository(repoPath);
+                return repo.RetrieveStatus(UntrackedInclusiveOptions)
+                    .Where(entry => entry.State != FileStatus.Ignored && entry.State != FileStatus.Unaltered)
+                    .Select(entry => entry.FilePath)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
             }
-            string? repoPath = _configManager.GetMapping(serverName, databaseName);
-            if (string.IsNullOrEmpty(repoPath)) return "Clean";
-            return GetStatus(repoPath!);
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"GitManager.GetChangedFiles failed for '{repoPath}': {ex.Message}");
+                return new List<string>();
+            }
         }
 
-        public bool Commit(string repoPath, string filePath, string message)
+        public IReadOnlyList<string> GetChangedFilesForDatabase(string serverName, string databaseName)
         {
-            return true;
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            return repoPath == null ? new List<string>() : GetChangedFiles(repoPath);
         }
 
-        public bool CommitChanges(string serverName, string databaseName, string message)
+        /// <summary>
+        /// 변경사항을 스테이징하고 커밋한다.
+        /// </summary>
+        /// <param name="relativePaths">
+        /// 커밋할 파일의 저장소 상대 경로. <c>null</c>이면 모든 변경을 스테이징한다.
+        /// </param>
+        /// <returns>커밋이 생성되면 true, 매핑이 없거나 스테이징할 변경이 없으면 false.</returns>
+        public bool CommitChanges(string serverName, string databaseName, string message, IEnumerable<string>? relativePaths = null)
         {
-            if (_configManager == null) return false;
-            var repoPath = _configManager.GetMapping(serverName, databaseName);
-            if (string.IsNullOrEmpty(repoPath)) return false;
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null) return false;
 
-            using (var repo = new Repository(repoPath))
+            using var repo = new Repository(repoPath);
+
+            var paths = relativePaths?.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+            if (paths == null)
             {
                 Commands.Stage(repo, "*");
-                
-                var signature = new Signature("DBVC User", "dbvc@example.com", DateTimeOffset.Now);
-                repo.Commit(message, signature, signature);
+            }
+            else
+            {
+                if (paths.Count == 0) return false;
+                Commands.Stage(repo, paths);
+            }
+
+            if (!HasStagedChanges(repo))
+            {
+                // 빈 커밋은 LibGit2Sharp에서 EmptyCommitException을 던진다.
+                // UI에서 예외로 노출할 일이 아니므로 false로 알린다.
+                return false;
+            }
+
+            var signature = BuildSignature(repo);
+            repo.Commit(message ?? string.Empty, signature, signature);
+            return true;
+        }
+
+        /// <summary>
+        /// 원격 저장소의 변경을 병합한다. 충돌이 발생하면 병합을 중단하고
+        /// <see cref="MergeConflictException"/>을 던져 DB가 오염되지 않도록 한다.
+        /// </summary>
+        public bool PullChanges(string serverName, string databaseName)
+        {
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null) return false;
+
+            using var repo = new Repository(repoPath);
+
+            if (!repo.Network.Remotes.Any())
+            {
+                throw new InvalidOperationException($"'{repoPath}' 저장소에 원격(remote)이 설정되어 있지 않아 Pull할 수 없습니다.");
+            }
+
+            var headBefore = repo.Head.Tip;
+            var signature = BuildSignature(repo);
+
+            var result = Commands.Pull(repo, signature, new PullOptions());
+
+            if (result.Status == MergeStatus.Conflicts)
+            {
+                AbortMerge(repo, headBefore);
+                throw new MergeConflictException(
+                    $"'{repoPath}' 저장소에서 Pull 중 병합 충돌이 발생하여 Pull을 중단했습니다. " +
+                    "Git 클라이언트에서 충돌을 해결한 뒤 다시 시도하세요.");
             }
 
             return true;
         }
 
-        public bool PullChanges(string serverName, string databaseName)
+        /// <summary>
+        /// 특정 파일의 커밋 이력을 최신순으로 반환한다. (설계 3.2 History)
+        /// </summary>
+        public IReadOnlyList<CommitInfo> GetHistory(string serverName, string databaseName, string relativeFilePath)
         {
-            // Stubbed for now
-            return true;
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null || string.IsNullOrWhiteSpace(relativeFilePath)) return new List<CommitInfo>();
+
+            try
+            {
+                using var repo = new Repository(repoPath);
+                return repo.Commits
+                    .QueryBy(NormalizePath(relativeFilePath))
+                    .Select(entry => new CommitInfo
+                    {
+                        Sha = entry.Commit.Sha,
+                        Message = entry.Commit.Message,
+                        Author = entry.Commit.Author.Name,
+                        Date = entry.Commit.Author.When
+                    })
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"GitManager.GetHistory failed for '{relativeFilePath}': {ex.Message}");
+                return new List<CommitInfo>();
+            }
+        }
+
+        /// <summary>
+        /// HEAD 시점의 파일 내용을 반환한다. 저장소에 없는 신규 객체면 <c>null</c>을 반환한다.
+        /// </summary>
+        public string? GetFileContentAtHead(string serverName, string databaseName, string relativeFilePath)
+        {
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null || string.IsNullOrWhiteSpace(relativeFilePath)) return null;
+
+            try
+            {
+                using var repo = new Repository(repoPath);
+                var tip = repo.Head.Tip;
+                if (tip == null) return null;
+
+                var entry = tip[NormalizePath(relativeFilePath)];
+                if (entry?.Target is Blob blob)
+                {
+                    return blob.GetContentText();
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"GitManager.GetFileContentAtHead failed for '{relativeFilePath}': {ex.Message}");
+                return null;
+            }
+        }
+
+        private static StatusOptions UntrackedInclusiveOptions => new StatusOptions
+        {
+            IncludeUntracked = true,
+            RecurseUntrackedDirs = true
+        };
+
+        private string? ResolveRepoPath(string serverName, string databaseName)
+        {
+            if (_configManager == null) return null;
+            var repoPath = _configManager.GetMapping(serverName, databaseName);
+            return string.IsNullOrWhiteSpace(repoPath) ? null : repoPath;
+        }
+
+        private static bool IsValidRepository(string repoPath)
+        {
+            return !string.IsNullOrWhiteSpace(repoPath)
+                && Directory.Exists(repoPath)
+                && Repository.IsValid(repoPath);
+        }
+
+        private static bool HasStagedChanges(Repository repo)
+        {
+            var headTree = repo.Head.Tip?.Tree;
+            using var changes = repo.Diff.Compare<TreeChanges>(headTree, DiffTargets.Index);
+            return changes.Any();
+        }
+
+        private static void AbortMerge(Repository repo, Commit? headBefore)
+        {
+            // Hard reset이 인덱스의 충돌 항목과 병합 진행 상태를 함께 정리한다.
+            // 미추적 파일은 건드리지 않는다. 아직 커밋되지 않은 SMO 추출물이 있을 수 있다.
+            if (headBefore != null)
+            {
+                repo.Reset(ResetMode.Hard, headBefore);
+            }
+        }
+
+        private static Signature BuildSignature(Repository repo)
+        {
+            // 사용자의 git config를 우선 사용하고, 없을 때만 DBVC 기본값으로 대체한다.
+            return repo.Config.BuildSignature(DateTimeOffset.Now)
+                ?? new Signature(DefaultAuthorName, DefaultAuthorEmail, DateTimeOffset.Now);
+        }
+
+        private static string NormalizePath(string path)
+        {
+            return path.Replace('\\', '/');
         }
     }
 }
