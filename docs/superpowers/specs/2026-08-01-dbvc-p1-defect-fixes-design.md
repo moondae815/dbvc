@@ -167,7 +167,7 @@ static DiffPane DiffTextBuilder.Build(IEnumerable<DiffPiece>? lines)
 * DiffPlex `ChangeType` 매핑: `Unchanged`→`Unchanged`, `Inserted`→`Inserted`, `Deleted`→`Deleted`, `Modified`→`Modified`, `Imaginary`→`Padding`
 * `DiffPiece.Text`가 `null`인 줄(= `Imaginary`)은 빈 문자열이 된다
 * 줄은 `\n`으로 잇고 마지막 줄 뒤에 개행을 넣지 않는다
-* 입력이 `null`이거나 비면 `Text`는 빈 문자열, `LineKinds`는 빈 목록이다
+* 입력이 `null`이거나 비면 `Text`는 빈 문자열이고 `LineKinds`는 `Unchanged` 한 개다 — 빈 문서도 한 줄이기 때문이다
 
 WPF·파일 시스템에 의존하지 않는 순수 함수이므로 전량 단위 테스트 대상이다.
 

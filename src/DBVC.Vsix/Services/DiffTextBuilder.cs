@@ -49,6 +49,11 @@ namespace DBVC.Vsix.Services
                 kinds.Add(MapChangeType(line.Type));
             }
 
+            // 빈 문서도 실제로는 0줄이 아니라 1줄(내용 없는 한 줄)이다.
+            // Text.Split('\n')과 AvalonEdit의 TextDocument도 그렇게 취급하므로,
+            // 줄 번호로 색을 찾는 렌더러가 어긋나지 않도록 kinds를 비워 두지 않는다.
+            if (kinds.Count == 0) kinds.Add(DiffLineKind.Unchanged);
+
             return new DiffPane { Text = builder.ToString(), LineKinds = kinds };
         }
 

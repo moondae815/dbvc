@@ -68,12 +68,19 @@ namespace DBVC.Vsix.Tests.Services
         }
 
         [Test]
-        public void Build_ReturnsAnEmptyPane_ForNullOrEmptyInput()
+        public void Build_ReturnsOneUnchangedLineKind_ForNullOrEmptyInput()
         {
-            Assert.That(DiffTextBuilder.Build(null).Text, Is.Empty);
-            Assert.That(DiffTextBuilder.Build(null).LineKinds, Is.Empty);
-            Assert.That(DiffTextBuilder.Build(new List<DiffPiece>()).Text, Is.Empty);
-            Assert.That(DiffTextBuilder.Build(new List<DiffPiece>()).LineKinds, Is.Empty);
+            // 빈 문서도 실제로는 1줄(내용 없는 한 줄)이다. Text.Split('\n')도 그렇게 센다.
+            // LineKinds가 비어 있으면 줄 번호로 색을 찾는 렌더러와 개수가 어긋난다.
+            var fromNull = DiffTextBuilder.Build(null);
+            Assert.That(fromNull.Text, Is.Empty);
+            Assert.That(fromNull.LineKinds, Is.EqualTo(new[] { DiffLineKind.Unchanged }));
+            Assert.That(fromNull.LineKinds.Count, Is.EqualTo(fromNull.Text.Split('\n').Length));
+
+            var fromEmptyList = DiffTextBuilder.Build(new List<DiffPiece>());
+            Assert.That(fromEmptyList.Text, Is.Empty);
+            Assert.That(fromEmptyList.LineKinds, Is.EqualTo(new[] { DiffLineKind.Unchanged }));
+            Assert.That(fromEmptyList.LineKinds.Count, Is.EqualTo(fromEmptyList.Text.Split('\n').Length));
         }
     }
 }
