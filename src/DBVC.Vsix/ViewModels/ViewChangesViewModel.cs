@@ -256,16 +256,19 @@ namespace DBVC.Vsix.ViewModels
             var mapping = _configManager.TryGetMapping(ServerName!, DatabaseName!);
             if (mapping == null) return;
 
-            // 충돌이 나면 GitManager가 hard reset으로 병합을 되돌리는데,
-            // 그때 추적 중인 파일의 미커밋 변경도 함께 사라진다. 먼저 알린다.
+            // GetChangedFiles는 미추적 파일도 포함하지만, 충돌 시 AbortMerge의 hard reset은
+            // 미추적 파일을 건드리지 않는다. 그리고 미커밋 변경이 있으면 병합 자체가 거부될 수도 있다
+            // (LibGit2Sharp가 병합 상태를 만들기 전에 CheckoutConflictException을 던지는 경우).
+            // 그래서 "이 개수만큼 사라진다"고 단정하지 않고 두 가능성을 모두 알린다.
             var pending = _gitManager.GetChangedFiles(mapping.GitPath);
             if (pending.Count > 0)
             {
                 var proceed = _notifier.Confirm(
                     "DBVC Pull",
                     $"커밋하지 않은 변경 {pending.Count}개가 있습니다." + Environment.NewLine +
-                    "Pull 중 충돌이 발생하면 병합을 되돌리면서 이 변경도 함께 사라집니다." + Environment.NewLine +
-                    "(Refresh로 데이터베이스에서 다시 추출할 수 있습니다)" + Environment.NewLine + Environment.NewLine +
+                    "받아올 변경과 겹치면 Pull이 거부되거나, 병합이 진행되다 충돌해 되돌아가면서" + Environment.NewLine +
+                    "추적 중인 파일의 변경이 함께 사라질 수 있습니다." + Environment.NewLine +
+                    "(DBVC가 추출한 내용은 Refresh로 다시 만들 수 있습니다)" + Environment.NewLine + Environment.NewLine +
                     "계속하시겠습니까?");
 
                 // 취소는 오류가 아니다.
@@ -288,7 +291,12 @@ namespace DBVC.Vsix.ViewModels
             }
             catch (Exception ex)
             {
-                _notifier.ShowError("DBVC Pull 실패", ex.Message);
+                // 예: 미커밋 변경이 받아올 변경과 겹치면 병합 상태가 만들어지기도 전에
+                // libgit2가 원문 메시지로 예외를 던진다. 원인을 특정해 감싸는 작업은
+                // DBVC.Core의 후속 과제이므로, 여기서는 흔한 원인을 안내만 덧붙인다.
+                var hint = "받아올 변경과 겹치는 미커밋 변경이 있으면 Pull이 거부될 수 있습니다." + Environment.NewLine +
+                    "해당 변경을 커밋하거나 되돌린 뒤 다시 시도하세요.";
+                _notifier.ShowError("DBVC Pull 실패", ex.Message + Environment.NewLine + Environment.NewLine + hint);
                 return;
             }
 
@@ -297,6 +305,12 @@ namespace DBVC.Vsix.ViewModels
                 "DBVC Pull",
                 "원격 저장소의 변경을 가져왔습니다." + Environment.NewLine +
                 "받은 스크립트를 확인한 뒤 필요하면 데이터베이스에 적용하세요.");
+
+            // History.Load와 SelectionChanged는 Git/작업 트리를 읽기만 할 뿐 SMO를 호출하지 않는다.
+            // 그래서 위의 "Refresh 금지" 규칙과 충돌하지 않는다 — 오히려 Pull의 목적(새 커밋 반영)을
+            // 이루려면 방금 받은 커밋 로그와 Diff를 화면에 즉시 보여줘야 한다.
+            History.Load(ServerName, DatabaseName, SelectedChange?.RelativePath);
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
         }
 
         // ---------- 저장소 매핑 ----------
