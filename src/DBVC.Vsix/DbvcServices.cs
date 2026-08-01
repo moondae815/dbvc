@@ -16,6 +16,13 @@ namespace DBVC.Vsix
         public ISmoManager SmoManager { get; }
         public IStateTracker StateTracker { get; }
 
+        /// <summary>
+        /// 확장 전체가 공유하는 인스턴스.
+        /// 도구 창과 패키지가 각자 <see cref="ConfigManager"/>를 만들면 같은 mappings.json에
+        /// 서로 다른 메모리 상태를 쓰게 되므로 하나만 둔다.
+        /// </summary>
+        public static DbvcServices Default { get; } = new DbvcServices();
+
         public DbvcServices() : this(new ConfigManager())
         {
         }

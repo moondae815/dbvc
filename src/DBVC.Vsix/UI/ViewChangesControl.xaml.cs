@@ -10,7 +10,8 @@ namespace DBVC.Vsix.UI
         private readonly ViewChangesViewModel _viewModel;
         private readonly DiffService _diffService;
 
-        public ViewChangesControl() : this(new ViewChangesViewModel(), null)
+        public ViewChangesControl()
+            : this(DbvcServices.Default.CreateViewChangesViewModel(), DbvcServices.Default.CreateDiffService())
         {
         }
 

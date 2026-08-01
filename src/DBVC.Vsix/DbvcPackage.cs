@@ -20,12 +20,10 @@ namespace DBVC.Vsix
     {
         public const string PackageGuidString = "3f2a1c40-8b16-4d1e-9a5e-2b7c6d4e9f01";
 
-        private DbvcServices? _services;
-
         /// <summary>
-        /// 패키지가 소유한 코어 매니저들. 도구 창과 명령이 공유한다.
+        /// 도구 창과 명령이 공유하는 코어 매니저들.
         /// </summary>
-        public DbvcServices Services => _services ??= new DbvcServices();
+        public DbvcServices Services => DbvcServices.Default;
 
         protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
         {

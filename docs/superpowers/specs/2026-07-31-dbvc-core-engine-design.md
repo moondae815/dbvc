@@ -42,6 +42,22 @@
   * **상태 비교:** 로컬 Git 저장소의 상태(`repo.RetrieveStatus()`)와 DB 로그를 종합하여 각 객체의 최종 상태(Modified, Added, Deleted, Clean)를 결정.
   * **스레드 안전성:** 내부 상태 캐시는 비동기적(UI Thread 외부)으로 갱신될 수 있으므로 `ConcurrentDictionary` 등의 Thread-safe 구조를 유지.
 
+#### 3.3.1. `DBVC_ChangeLog` 스키마 요건
+"아직 커밋되지 않은 이벤트만 조회"하려면 로그 테이블에 동기화 상태를 표현할 수단이 필요하다.
+
+| 컬럼 | 용도 |
+| --- | --- |
+| `PostTime` | 이벤트 발생 시각. 조회 정렬 기준. **`EventDate`가 아니다.** |
+| `IsProcessed` | 동기화 워터마크. 커밋된 객체의 행은 `1`로 표시되어 이후 조회에서 제외된다. |
+| `SchemaName` | `EVENTDATA()`의 `SchemaName`. `[Schema]/[ObjectType]/[Name].sql` 경로 유도에 필요하다. |
+
+#### 3.3.2. 상태 결정 규칙
+* `EventType`의 원시값(`CREATE_TABLE` 등)은 UI에 노출하지 않고 다음으로 매핑한다.
+  * `CREATE_*` → `Added`, `DROP_*` → `Deleted`, 그 외(`ALTER_*`, `RENAME`) → `Modified`
+* DDL 로그와 Git 작업 트리 상태의 **합집합**을 취한다. 트리거 설치 이전에 변경된 객체는 로그에 없지만 Git에는 남으므로 목록에서 누락되면 안 된다.
+* 같은 객체가 양쪽에 있으면 DB의 DDL 로그를 우선한다.
+* 캐시는 새로고침마다 서버/DB 단위로 **교체**한다. 병합하면 커밋 후에도 이전 상태가 잔존한다.
+
 ## 4. Testing Strategy
 * **Unit Tests:** `LibGit2Sharp` 및 `SMO` 로직은 외부 의존성이 크므로, 실제 임시(Temp) 폴더와 Local Git Repo를 생성하여 Integration-style의 단위 테스트를 작성(`tests/DBVC.Core.Tests`).
 * **Test Database:** SMO 추출 테스트를 위해 `LocalDB` 또는 테스트 전용 SQL 인스턴스를 활용한 TDD 고려 (테스트 환경에 맞춰 구성).

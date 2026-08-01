@@ -10,8 +10,8 @@ namespace DBVC.Vsix.UI
         {
             Caption = "DBVC View Changes";
 
-            // ToolWindowPane은 VS 셸이 매개변수 없이 생성하므로 여기서 서비스를 구성한다.
-            var services = new DbvcServices();
+            // ToolWindowPane은 VS 셸이 매개변수 없이 생성하므로 공유 인스턴스를 사용한다.
+            var services = DbvcServices.Default;
             Content = new ViewChangesControl(services.CreateViewChangesViewModel(), services.CreateDiffService());
         }
     }

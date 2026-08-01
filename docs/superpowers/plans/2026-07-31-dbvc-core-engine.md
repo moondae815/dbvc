@@ -4,6 +4,12 @@
 
 **Goal:** Implement the DBVC Core Engine managers (SmoManager, GitManager, StateTracker) with their actual business logic (SMO, LibGit2Sharp, ADO.NET).
 
+> **정정 (구현 후):** 아래 Task 4의 코드 예시는 `ORDER BY EventDate DESC`를 사용하지만
+> `DBVC_ChangeLog`에는 `EventDate` 컬럼이 없다(실제 컬럼은 `PostTime`). 이 예시를 그대로
+> 따르면 정상 초기화된 DB에서도 조회가 항상 `SqlException`으로 실패한다.
+> 실제 조회 조건은 `WHERE IsProcessed = 0 ORDER BY PostTime DESC, Id DESC`이며,
+> 자세한 내용은 core-engine 설계 문서 3.3.1을 참고할 것.
+
 **Architecture:** We are replacing the previous stubs in `src/DBVC.Core` with functional implementations that interact with SQL Server (SMO), Local Git Repo (LibGit2Sharp), and the DDL Trigger Log Table (Microsoft.Data.SqlClient).
 
 **Tech Stack:** C#, .NET 4.8 / .NET Standard 2.0, LibGit2Sharp, Microsoft.SqlServer.SqlManagementObjects, Microsoft.Data.SqlClient, NUnit
