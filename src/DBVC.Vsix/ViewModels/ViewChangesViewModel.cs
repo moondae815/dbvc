@@ -65,6 +65,7 @@ namespace DBVC.Vsix.ViewModels
             _cleaner = cleaner ?? new WorkingTreeCleaner();
             _folderDialog = folderDialog ?? new FolderBrowserDialogAdapter();
             _scriptExporter = new ScriptExporter(_configManager, _gitManager);
+            History = new ObjectHistoryViewModel(_gitManager);
 
             RefreshCommand = new RelayCommand(Refresh);
             SetupCommand = new RelayCommand(Setup);
@@ -115,6 +116,7 @@ namespace DBVC.Vsix.ViewModels
             DatabaseName = databaseName;
 
             Changes.Clear();
+            SelectedChange = null;
             _lastChangeRecords = new List<ChangeRecord>();
 
             if (!HasContext)
@@ -207,12 +209,16 @@ namespace DBVC.Vsix.ViewModels
                 if (ReferenceEquals(_selectedChange, value)) return;
                 _selectedChange = value;
                 OnPropertyChanged();
+                History.Load(ServerName, DatabaseName, value?.RelativePath);
                 SelectionChanged?.Invoke(this, EventArgs.Empty);
             }
         }
 
         /// <summary>선택된 객체가 바뀌면 뷰가 Diff를 다시 렌더링하도록 알린다.</summary>
         public event EventHandler? SelectionChanged;
+
+        /// <summary>선택된 객체의 커밋 이력. (Feature 7)</summary>
+        public ObjectHistoryViewModel History { get; }
 
         public ICommand RefreshCommand { get; }
         public ICommand SetupCommand { get; }
@@ -350,6 +356,7 @@ namespace DBVC.Vsix.ViewModels
         public void Refresh()
         {
             Changes.Clear();
+            SelectedChange = null;
             _lastChangeRecords = new List<ChangeRecord>();
             _failedCleanupPaths.Clear();
             RaiseActionCanExecuteChanged();

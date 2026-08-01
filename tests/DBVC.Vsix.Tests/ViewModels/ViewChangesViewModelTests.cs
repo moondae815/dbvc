@@ -63,6 +63,9 @@ namespace DBVC.Vsix.Tests.ViewModels
             _cleaner = new Mock<IWorkingTreeCleaner>();
             _cleaner.Setup(c => c.RemoveDeletedObjectFiles(It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()))
                 .Returns(new CleanupResult());
+
+            _git.Setup(g => g.GetHistory(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+                .Returns(new List<CommitInfo>());
         }
 
         private ViewChangesViewModel NewViewModel()
@@ -494,6 +497,67 @@ namespace DBVC.Vsix.Tests.ViewModels
             _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
             Assert.That(_notifier.Errors, Is.Not.Empty,
                 "유효하지 않은 경로를 저장하면 이후 모든 동작이 조용히 실패합니다");
+        }
+
+        // ---------- 객체 이력 ----------
+
+        [Test]
+        public void SelectedChange_LoadsTheHistoryOfTheSelectedObject()
+        {
+            _git.Setup(g => g.GetHistory(Server, Database, "dbo/Tables/Users.sql"))
+                .Returns(new List<CommitInfo>
+                {
+                    new CommitInfo { Sha = "a3f9c2b1d4", Message = "인덱스 추가", Author = "Tester", Date = DateTimeOffset.Now }
+                });
+            var vm = NewConnectedViewModel();
+
+            vm.SelectedChange = new ChangeItemViewModel
+            {
+                ObjectName = "dbo.Users",
+                RelativePath = "dbo/Tables/Users.sql"
+            };
+
+            Assert.That(vm.History.Entries, Has.Count.EqualTo(1));
+            Assert.That(vm.History.Entries[0].ShortSha, Is.EqualTo("a3f9c2b"));
+        }
+
+        [Test]
+        public void SelectedChange_ClearsTheHistory_WhenTheSelectionIsCleared()
+        {
+            _git.Setup(g => g.GetHistory(Server, Database, "dbo/Tables/Users.sql"))
+                .Returns(new List<CommitInfo>
+                {
+                    new CommitInfo { Sha = "a3f9c2b1d4", Message = "인덱스 추가", Author = "Tester", Date = DateTimeOffset.Now }
+                });
+            var vm = NewConnectedViewModel();
+            vm.SelectedChange = new ChangeItemViewModel { ObjectName = "dbo.Users", RelativePath = "dbo/Tables/Users.sql" };
+
+            vm.SelectedChange = null;
+
+            Assert.That(vm.History.Entries, Is.Empty);
+        }
+
+        [Test]
+        public void Refresh_ClearsTheSelection()
+        {
+            var vm = NewConnectedViewModel();
+            vm.SelectedChange = new ChangeItemViewModel { ObjectName = "dbo.Users", RelativePath = "dbo/Tables/Users.sql" };
+
+            vm.Refresh();
+
+            Assert.That(vm.SelectedChange, Is.Null,
+                "목록을 비웠는데 선택이 남으면 Diff와 이력이 목록에 없는 객체를 가리킵니다");
+        }
+
+        [Test]
+        public void SetContext_ClearsTheSelection()
+        {
+            var vm = NewConnectedViewModel();
+            vm.SelectedChange = new ChangeItemViewModel { ObjectName = "dbo.Users", RelativePath = "dbo/Tables/Users.sql" };
+
+            vm.SetContext(Server, Database);
+
+            Assert.That(vm.SelectedChange, Is.Null);
         }
 
         // ---------- Pull ----------
