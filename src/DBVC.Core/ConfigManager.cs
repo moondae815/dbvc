@@ -12,7 +12,7 @@ namespace DBVC.Core
     /// SQL Server 데이터베이스와 로컬 Git 저장소의 매핑을 관리한다.
     /// 매핑은 설계 문서(4.2)에 따라 <c>%APPDATA%\DBVC\mappings.json</c>에 영속화된다.
     /// </summary>
-    public class ConfigManager
+    public class ConfigManager : IConfigManager
     {
         private readonly ConcurrentDictionary<string, MappingConfig> _mappings = new ConcurrentDictionary<string, MappingConfig>(StringComparer.OrdinalIgnoreCase);
         private readonly string _configFilePath;

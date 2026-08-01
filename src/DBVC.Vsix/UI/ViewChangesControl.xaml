@@ -12,6 +12,7 @@
         <Grid Visibility="{Binding IsInitialized, Converter={StaticResource BoolToVis}}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="5" />
                 <RowDefinition Height="*" />
@@ -20,12 +21,21 @@
             <!-- Top Area -->
             <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="5">
                 <Button Content="Refresh" Command="{Binding RefreshCommand}" Width="70" Margin="0,0,10,0"/>
-                <TextBox Text="{Binding CommitMessage}" Width="200" Margin="0,0,10,0"/>
-                <Button Content="Commit" Width="70" />
+                <TextBox Text="{Binding CommitMessage, UpdateSourceTrigger=PropertyChanged}"
+                         Width="240" Margin="0,0,10,0"
+                         IsEnabled="{Binding IsMapped}"/>
+                <Button Content="Commit" Command="{Binding CommitCommand}" Width="70" />
             </StackPanel>
 
+            <!-- 매핑 누락 / 부분 실패 경고 -->
+            <Border Grid.Row="1" Background="#FFF4CE" BorderBrush="#E0C77A" BorderThickness="1"
+                    Padding="8,5" Margin="5,0,5,5"
+                    Visibility="{Binding HasWarning, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="{Binding WarningMessage}" Foreground="#6B5A00" TextWrapping="Wrap" FontWeight="SemiBold"/>
+            </Border>
+
             <!-- Middle Area -->
-            <ListView Grid.Row="1" ItemsSource="{Binding Changes}" SelectedItem="{Binding SelectedChange}">
+            <ListView Grid.Row="2" ItemsSource="{Binding Changes}" SelectedItem="{Binding SelectedChange}">
                 <ListView.View>
                     <GridView>
                         <GridViewColumn Header="Stage">
@@ -41,16 +51,16 @@
                 </ListView.View>
             </ListView>
 
-            <GridSplitter Grid.Row="2" Height="5" HorizontalAlignment="Stretch" />
+            <GridSplitter Grid.Row="3" Height="5" HorizontalAlignment="Stretch" />
 
             <!-- Bottom Area -->
-            <Grid Grid.Row="3">
+            <Grid Grid.Row="4">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="5" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                
+
                 <avalonEdit:TextEditor x:Name="OldTextEditor" Grid.Column="0" IsReadOnly="True" SyntaxHighlighting="TSQL" />
                 <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" />
                 <avalonEdit:TextEditor x:Name="NewTextEditor" Grid.Column="2" IsReadOnly="True" SyntaxHighlighting="TSQL" />
@@ -62,6 +72,9 @@
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                 <TextBlock Text="This database is not initialized for DBVC." FontSize="16" Margin="0,0,0,20" Foreground="#333333"/>
                 <Button Content="Setup DBVC" Command="{Binding SetupCommand}" Width="150" Height="40" FontSize="14" Cursor="Hand"/>
+                <TextBlock Text="{Binding WarningMessage}" Foreground="#B00020" TextWrapping="Wrap"
+                           MaxWidth="360" Margin="0,16,0,0" TextAlignment="Center"
+                           Visibility="{Binding HasWarning, Converter={StaticResource BoolToVis}}"/>
             </StackPanel>
         </Grid>
     </Grid>

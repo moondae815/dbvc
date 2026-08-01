@@ -11,18 +11,18 @@ namespace DBVC.Core
     /// <summary>
     /// <c>LibGit2Sharp</c>를 사용해 로컬 Git 저장소를 제어한다. 외부 git CLI에 의존하지 않는다.
     /// </summary>
-    public class GitManager
+    public class GitManager : IGitManager
     {
         private const string DefaultAuthorName = "DBVC User";
         private const string DefaultAuthorEmail = "dbvc@example.com";
 
-        private readonly ConfigManager? _configManager;
+        private readonly IConfigManager? _configManager;
 
         public GitManager()
         {
         }
 
-        public GitManager(ConfigManager configManager)
+        public GitManager(IConfigManager configManager)
         {
             _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
         }

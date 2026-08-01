@@ -14,11 +14,11 @@ namespace DBVC.Core
     /// <summary>
     /// SMO를 사용해 데이터베이스 객체의 CREATE 스크립트를 로컬 저장소로 추출한다.
     /// </summary>
-    public class SmoManager
+    public class SmoManager : ISmoManager
     {
-        private readonly ConfigManager _configManager;
+        private readonly IConfigManager _configManager;
 
-        public SmoManager(ConfigManager? configManager = null)
+        public SmoManager(IConfigManager? configManager = null)
         {
             _configManager = configManager ?? new ConfigManager();
         }

@@ -16,7 +16,7 @@ namespace DBVC.Core
     /// <c>DBVC_ChangeLog</c>의 DDL 이벤트와 로컬 Git 저장소 상태를 종합해
     /// 객체별 변경 상태 캐시를 관리한다. (설계 3.3)
     /// </summary>
-    public class StateTracker
+    public class StateTracker : IStateTracker
     {
         /// <summary>
         /// 설계상 DBVC가 "초기화됨"이려면 ChangeLog 테이블과 DDL 트리거가 모두 있어야 한다.
@@ -45,8 +45,8 @@ SET IsProcessed = 1
 WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
   AND (ISNULL(SchemaName, N'dbo') = @schemaName)";
 
-        private readonly ConfigManager _configManager;
-        private readonly GitManager _gitManager;
+        private readonly IConfigManager _configManager;
+        private readonly IGitManager _gitManager;
 
         /// <summary>서버/DB 단위의 변경 목록 캐시. UI 스레드 밖에서 갱신될 수 있어 thread-safe 구조를 쓴다.</summary>
         private readonly ConcurrentDictionary<string, IReadOnlyList<ChangeRecord>> _changesByDatabase =
@@ -56,11 +56,11 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
         {
         }
 
-        public StateTracker(ConfigManager configManager) : this(configManager, null)
+        public StateTracker(IConfigManager configManager) : this(configManager, null)
         {
         }
 
-        public StateTracker(ConfigManager configManager, GitManager? gitManager)
+        public StateTracker(IConfigManager configManager, IGitManager? gitManager)
         {
             _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
             _gitManager = gitManager ?? new GitManager(_configManager);
