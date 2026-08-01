@@ -121,6 +121,32 @@ namespace DBVC.Core.Tests
             Assert.That(manager.GetStatusForDatabase("LocalServer", "SalesDB"), Is.EqualTo("Clean"));
         }
 
+        // ---------- IsRepository ----------
+
+        [Test]
+        public void IsRepository_ReturnsTrue_ForAnInitializedRepository()
+        {
+            Assert.That(new GitManager().IsRepository(NewRepoWithCommit()), Is.True);
+        }
+
+        [Test]
+        public void IsRepository_ReturnsFalse_ForAPlainDirectory()
+        {
+            var path = NewTempDir();
+            Directory.CreateDirectory(path);
+
+            Assert.That(new GitManager().IsRepository(path), Is.False,
+                "git init되지 않은 폴더를 매핑하면 이후 모든 동작이 조용히 실패합니다");
+        }
+
+        [Test]
+        public void IsRepository_ReturnsFalse_ForAMissingPath()
+        {
+            Assert.That(
+                new GitManager().IsRepository(Path.Combine(Path.GetTempPath(), "nope_" + Guid.NewGuid().ToString("N"))),
+                Is.False);
+        }
+
         // ---------- GetChangedFiles ----------
 
         [Test]

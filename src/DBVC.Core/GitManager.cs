@@ -28,6 +28,11 @@ namespace DBVC.Core
         }
 
         /// <summary>
+        /// 해당 경로가 유효한 Git 저장소인지 확인한다. 매핑 등록 전 검증에 쓴다.
+        /// </summary>
+        public bool IsRepository(string path) => IsValidRepository(path);
+
+        /// <summary>
         /// 저장소의 작업 트리 상태를 요약한다.
         /// 유효한 Git 저장소가 아니면 <c>"Unknown"</c>을 반환한다.
         /// </summary>

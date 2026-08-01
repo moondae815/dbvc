@@ -28,6 +28,7 @@ namespace DBVC.Core
 
     public interface IGitManager
     {
+        bool IsRepository(string path);
         string GetStatus(string repoPath);
         string GetStatusForDatabase(string serverName, string databaseName);
         IReadOnlyList<string> GetChangedFiles(string repoPath);
