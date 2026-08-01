@@ -9,6 +9,15 @@ DBVC는 SQL Server Management Studio (SSMS) 21을 위한 데이터베이스 형�
 - **WPF 기반 차이점 뷰어 (View Changes Tool Window):**
   - 변경된 항목들의 목록을 손쉽게 확인하고 선택할 수 있습니다.
   - `AvalonEdit` 및 `DiffPlex`를 활용하여 변경 전(Old)과 변경 후(New)의 SQL 코드를 T-SQL 문법 하이라이팅이 적용된 형태의 좌우 분할(Side-by-Side) 뷰로 직관적으로 비교할 수 있습니다.
+- **배포/롤백 스크립트 생성:** 선택한 객체들의 DDL을 단일 `.sql` 파일로 병합합니다. 배포 스크립트는 현재 DB 기준 최신 코드를, 롤백 스크립트는 각 객체가 마지막으로 커밋되기 직전의 코드를 담습니다.
+- **SQL 에디터 컨텍스트 메뉴:** 에디터에서 객체 이름을 선택하고 우클릭하면 저장소 버전과 바로 비교할 수 있습니다.
+
+### 기능 커버리지
+14개 MVP 기능 중 **Object Explorer 상태 아이콘 오버레이(Feature 10)는 미구현**입니다.
+SSMS Object Explorer의 아이콘 오버레이에는 공개 확장점이 없고 필요한 어셈블리가 NuGet에 배포되지 않아,
+검증 가능한 형태로 구현할 수 없다고 판단했습니다.
+사유와 선행 조건은 [docs/superpowers/plans/2026-08-01-dbvc-object-explorer-overlay.md](docs/superpowers/plans/2026-08-01-dbvc-object-explorer-overlay.md)에 정리되어 있습니다.
+변경 상태는 View Changes 도구 창에서 모두 확인할 수 있습니다.
 
 ## 아키텍처 및 기술 스택
 DBVC는 성능과 유지보수성을 위해 비즈니스 로직(Core)과 UI(Vsix) 계층이 분리되어 있습니다.
