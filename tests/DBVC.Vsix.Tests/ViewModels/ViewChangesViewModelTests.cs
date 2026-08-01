@@ -547,6 +547,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             vm.PullCommand.Execute(null);
 
+            Assert.That(_notifier.ConfirmCallCount, Is.EqualTo(1), "물어봤는데 거절한 것과 아예 안 물어본 것을 구분해야 합니다");
             _git.Verify(g => g.PullChanges(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
             Assert.That(_notifier.Errors, Is.Empty, "취소는 오류가 아닙니다");
         }
@@ -562,6 +563,8 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(_notifier.Errors, Has.Count.EqualTo(1));
             Assert.That(_notifier.Errors[0], Does.Contain("충돌"));
+            Assert.That(_notifier.ErrorCalls[0].Title, Does.Contain("중단"),
+                "병합 충돌 분기는 '실패'가 아니라 '중단' 타이틀을 써야 합니다 - 이 분기가 삭제되면 실패해야 합니다");
         }
 
         [Test]
@@ -598,6 +601,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             vm.PullCommand.Execute(null);
 
+            _git.Verify(g => g.PullChanges(Server, Database), Times.Once, "Pull이 실제로 성공했다는 전제 자체를 확인해야 합니다");
             _smo.Verify(
                 s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>?>()),
                 Times.Never,
@@ -920,11 +924,23 @@ namespace DBVC.Vsix.Tests.ViewModels
             public List<string> Errors { get; } = new List<string>();
             public List<string> Infos { get; } = new List<string>();
 
+            /// <summary>
+            /// ShowError에 실제로 전달된 (title, message) 쌍.
+            /// Errors는 message만 담아 기존 테스트를 그대로 두는데, 그것만으로는
+            /// title이 다른 두 catch 분기(예: 병합 충돌 vs. 예기치 못한 실패)를
+            /// 구분해서 검증할 수 없다.
+            /// </summary>
+            public List<(string Title, string Message)> ErrorCalls { get; } = new List<(string, string)>();
+
             /// <summary>Confirm의 응답. 기본이 "계속"이라 기존 테스트의 동작이 바뀌지 않는다.</summary>
             public bool ConfirmResult { get; set; } = true;
             public int ConfirmCallCount { get; private set; }
 
-            public void ShowError(string title, string message) => Errors.Add(message);
+            public void ShowError(string title, string message)
+            {
+                Errors.Add(message);
+                ErrorCalls.Add((title, message));
+            }
 
             public void ShowInfo(string title, string message) => Infos.Add(message);
 
