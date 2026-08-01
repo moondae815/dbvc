@@ -282,6 +282,56 @@ namespace DBVC.Core.Tests
                 "선택되지 않은 파일은 커밋되지 않고 남아 있어야 합니다");
         }
 
+        [Test]
+        public void CommitChanges_CommitsTheDeletion_WhenTheFileIsGoneFromTheWorkingTree()
+        {
+            // 드롭된 객체 파일 정리 기능(WorkingTreeCleaner) 전체가 이 동작에 기대고 있다:
+            // Commands.Stage(repo, explicitPaths)가 작업 트리에 없는 경로에 대해 삭제를 스테이징해야 한다.
+            var repoPath = NewRepoWithCommit();
+            File.Delete(Path.Combine(repoPath, "dbo", "Tables", "Users.sql"));
+            var git = NewGitManager("localhost", "testdb", repoPath);
+
+            var result = git.CommitChanges("localhost", "testdb", "Drop Users", new[] { "dbo/Tables/Users.sql" });
+
+            Assert.That(result, Is.True);
+            using var repo = new Repository(repoPath);
+            Assert.That(repo.Head.Tip.Tree["dbo/Tables/Users.sql"], Is.Null,
+                "삭제된 파일이 새 HEAD 트리에는 남아 있으면 안 됩니다");
+        }
+
+        [Test]
+        public void CommitChanges_CommitsTheDeletionAlongsideAModification_InTheSameCall()
+        {
+            // 조용한 소실 시나리오를 Git 계층에서 검증한다: 삭제 하나와 수정 하나를
+            // 명시적 경로로 한 번에 커밋해도 삭제는 반영되고 수정 내용도 그대로 담겨야 한다.
+            var repoPath = NewRepoWithCommit();
+            WriteRepoFile(repoPath, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);");
+            using (var setupRepo = new Repository(repoPath))
+            {
+                Commands.Stage(setupRepo, "*");
+                setupRepo.Commit("add orders", TestSignature, TestSignature);
+            }
+
+            File.Delete(Path.Combine(repoPath, "dbo", "Tables", "Users.sql"));
+            WriteRepoFile(repoPath, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT, Name NVARCHAR(50));");
+
+            var git = NewGitManager("localhost", "testdb", repoPath);
+
+            var result = git.CommitChanges("localhost", "testdb", "Drop Users, modify Orders",
+                new[] { "dbo/Tables/Users.sql", "dbo/Tables/Orders.sql" });
+
+            Assert.That(result, Is.True);
+            using var repo = new Repository(repoPath);
+            Assert.That(repo.Head.Tip.Tree["dbo/Tables/Users.sql"], Is.Null,
+                "삭제는 함께 커밋된 수정과 무관하게 반영되어야 합니다");
+
+            var ordersEntry = repo.Head.Tip.Tree["dbo/Tables/Orders.sql"];
+            Assert.That(ordersEntry, Is.Not.Null);
+            var ordersBlob = (Blob)ordersEntry.Target;
+            Assert.That(ordersBlob.GetContentText(), Is.EqualTo("CREATE TABLE Orders (Id INT, Name NVARCHAR(50));"),
+                "같은 커밋에 포함된 수정 내용도 그대로 반영되어야 합니다");
+        }
+
         // ---------- GetHistory ----------
 
         [Test]
