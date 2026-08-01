@@ -57,5 +57,20 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(vm.SelectedChange, Is.EqualTo(item));
         }
+
+        [Test]
+        public void IsInitialized_DefaultsToFalse()
+        {
+            var vm = new ViewChangesViewModel();
+            Assert.That(vm.IsInitialized, Is.False);
+        }
+
+        [Test]
+        public void SetupCommand_SetsIsInitializedToTrue()
+        {
+            var vm = new ViewChangesViewModel();
+            vm.SetupCommand.Execute(null);
+            Assert.That(vm.IsInitialized, Is.True);
+        }
     }
 }

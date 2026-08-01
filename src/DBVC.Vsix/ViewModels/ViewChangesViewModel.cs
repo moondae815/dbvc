@@ -6,6 +6,17 @@ namespace DBVC.Vsix.ViewModels
 {
     public class ViewChangesViewModel : INotifyPropertyChanged
     {
+        private bool _isInitialized;
+        public bool IsInitialized
+        {
+            get => _isInitialized;
+            set
+            {
+                _isInitialized = value;
+                OnPropertyChanged();
+            }
+        }
+
         private string? _commitMessage;
         public string? CommitMessage
         {
@@ -31,10 +42,19 @@ namespace DBVC.Vsix.ViewModels
         }
 
         public System.Windows.Input.ICommand RefreshCommand { get; }
+        public System.Windows.Input.ICommand SetupCommand { get; }
 
         public ViewChangesViewModel()
         {
             RefreshCommand = new Commands.RelayCommand(Refresh);
+            SetupCommand = new Commands.RelayCommand(Setup);
+        }
+
+        private void Setup()
+        {
+            // Real implementation will call StateTracker.InitializeDatabase(connString)
+            IsInitialized = true;
+            Refresh();
         }
 
         public void Refresh()
