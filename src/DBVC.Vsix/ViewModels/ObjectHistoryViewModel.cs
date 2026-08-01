@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using DBVC.Core;
@@ -79,7 +80,7 @@ namespace DBVC.Vsix.ViewModels
                 ShortSha = Shorten(commit.Sha),
                 Message = FirstLine(commit.Message),
                 Author = commit.Author ?? string.Empty,
-                Date = commit.Date.ToString("yyyy-MM-dd HH:mm")
+                Date = commit.Date.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)
             };
         }
 

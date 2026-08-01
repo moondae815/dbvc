@@ -67,6 +67,17 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
+        public void Load_KeepsAShaOfExactlySevenCharactersAsIs()
+        {
+            GivenHistory(Commit("abc1234", "경계값"));
+            var vm = NewViewModel();
+
+            vm.Load(Server, Database, RelativePath);
+
+            Assert.That(vm.Entries.Single().ShortSha, Is.EqualTo("abc1234"));
+        }
+
+        [Test]
         public void Load_ShowsOnlyTheFirstLineOfTheCommitMessage()
         {
             GivenHistory(Commit("abc1234567", "제목 줄\n\n본문 설명이 이어진다"));
@@ -76,6 +87,18 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(vm.Entries.Single().Message, Is.EqualTo("제목 줄"),
                 "목록 한 행에 여러 줄이 들어가면 표가 무너집니다");
+        }
+
+        [Test]
+        public void Load_ShowsOnlyTheFirstLineOfTheCommitMessage_WhenLineEndingsAreCrlf()
+        {
+            GivenHistory(Commit("abc1234567", "제목 줄\r\n\r\n본문 설명이 이어진다"));
+            var vm = NewViewModel();
+
+            vm.Load(Server, Database, RelativePath);
+
+            Assert.That(vm.Entries.Single().Message, Is.EqualTo("제목 줄"),
+                "Windows에서 만든 커밋은 CRLF 줄바꿈을 사용합니다");
         }
 
         [Test]
