@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using DBVC.Core;
@@ -8,33 +9,21 @@ namespace DBVC.Core.Tests
     [TestFixture]
     public class StateTrackerTests
     {
-        [Test]
-        public void GetPendingChanges_ReturnsList()
+        private static ConfigManager NewIsolatedConfig()
         {
-            var tracker = new StateTracker();
-            var changes = tracker.GetPendingChanges("conn");
-            Assert.That(changes, Is.Not.Null);
+            var path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                "dbvc_cfg_" + System.Guid.NewGuid().ToString("N"),
+                "mappings.json");
+            return new ConfigManager(path);
         }
 
-        [Test]
-        public void RefreshState_HandlesMissingDatabaseGracefully()
-        {
-            var config = new ConfigManager();
-            config.AddMapping(new MappingConfig { ServerName = "localhost", DatabaseName = "nonexistent_db", GitPath = "path" });
-            var tracker = new StateTracker(config);
+        private static StateTracker NewTracker() => new StateTracker(NewIsolatedConfig());
 
-            // Should not throw, should handle SqlException internally
-            Assert.DoesNotThrow(() => tracker.RefreshState("localhost", "nonexistent_db"));
-        }
+        private static ChangeLogRow Row(long id, string schema, string name, string objectType, string eventType)
+            => new ChangeLogRow { Id = id, SchemaName = schema, ObjectName = name, ObjectType = objectType, EventType = eventType };
 
-        [Test]
-        public void GetObjectState_ReturnsCleanByDefault()
-        {
-            var config = new ConfigManager();
-            var tracker = new StateTracker(config);
-            var state = tracker.GetObjectState("localhost", "db", "dbo.TestTable");
-            Assert.That(state, Is.EqualTo("Clean"));
-        }
+        // ---------- 생성자 ----------
 
         [Test]
         public void StateTracker_Constructor_ThrowsArgumentNullException_WhenConfigManagerIsNull()
@@ -42,70 +31,245 @@ namespace DBVC.Core.Tests
             Assert.Throws<System.ArgumentNullException>(() => new StateTracker(null!));
         }
 
+        // ---------- EventType -> 상태 매핑 ----------
+
         [Test]
-        public void ProcessChangeLogRows_PreservesNewestEvent_WhenMultipleEventsForSameObjectExist()
+        [TestCase("CREATE_TABLE", "Added")]
+        [TestCase("CREATE_PROCEDURE", "Added")]
+        [TestCase("ALTER_TABLE", "Modified")]
+        [TestCase("ALTER_PROCEDURE", "Modified")]
+        [TestCase("RENAME", "Modified")]
+        [TestCase("DROP_TABLE", "Deleted")]
+        [TestCase("DROP_VIEW", "Deleted")]
+        public void MapEventTypeToState_TranslatesDdlEventsToUiStates(string eventType, string expected)
         {
-            var tracker = new StateTracker();
-            // Order BY EventDate DESC -> Newest event first (ALTER_TABLE), older event second (CREATE_TABLE)
+            // ChangeItemViewModel.State의 계약은 Modified/Added/Deleted이며
+            // DDL 로그의 원시 EventType을 그대로 노출해서는 안 된다.
+            Assert.That(StateTracker.MapEventTypeToState(eventType), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void MapEventTypeToState_DefaultsToModified_ForUnrecognizedEvents()
+        {
+            Assert.That(StateTracker.MapEventTypeToState("SOMETHING_ELSE"), Is.EqualTo("Modified"));
+        }
+
+        // ---------- 변경 집합 구성 ----------
+
+        [Test]
+        public void BuildChangeSet_KeepsNewestEventPerObject()
+        {
+            var tracker = NewTracker();
+            // 조회는 PostTime DESC이므로 최신 이벤트가 먼저 온다.
             var rows = new[]
             {
-                ("dbo.TestTable", "ALTER_TABLE"),
-                ("dbo.TestTable", "CREATE_TABLE")
+                Row(20, "dbo", "TestTable", "TABLE", "ALTER_TABLE"),
+                Row(10, "dbo", "TestTable", "TABLE", "CREATE_TABLE")
             };
 
-            tracker.ProcessChangeLogRows("LocalServer", "TestDB", rows);
+            var changes = tracker.BuildChangeSet(rows, null);
 
-            var state = tracker.GetObjectState("LocalServer", "TestDB", "dbo.TestTable");
-            Assert.That(state, Is.EqualTo("ALTER_TABLE"), "Should preserve the newest event (first encountered in DESC order)");
+            Assert.That(changes.Count, Is.EqualTo(1));
+            Assert.That(changes[0].State, Is.EqualTo("Modified"));
+            Assert.That(changes[0].LastLogId, Is.EqualTo(20));
+        }
+
+        [Test]
+        public void BuildChangeSet_DerivesRepositoryRelativePathFromSchemaAndObjectType()
+        {
+            var tracker = NewTracker();
+
+            var changes = tracker.BuildChangeSet(new[] { Row(1, "sales", "usp_GetOrders", "PROCEDURE", "ALTER_PROCEDURE") }, null);
+
+            Assert.That(changes[0].RelativePath, Is.EqualTo("sales/StoredProcedures/usp_GetOrders.sql"));
+            Assert.That(changes[0].QualifiedName, Is.EqualTo("sales.usp_GetOrders"));
+        }
+
+        [Test]
+        public void BuildChangeSet_IncludesFilesThatAreDirtyInGitButAbsentFromTheDdlLog()
+        {
+            // 설계 3.3: Git 상태와 DB 로그를 "종합"한다.
+            // 트리거 설치 이전에 만들어진 객체는 로그에 없지만 Git에는 변경으로 남는다.
+            var tracker = NewTracker();
+            var gitStates = new Dictionary<string, string>
+            {
+                ["dbo/Views/vw_Legacy.sql"] = "Added"
+            };
+
+            var changes = tracker.BuildChangeSet(System.Array.Empty<ChangeLogRow>(), gitStates);
+
+            Assert.That(changes.Count, Is.EqualTo(1));
+            Assert.That(changes[0].QualifiedName, Is.EqualTo("dbo.vw_Legacy"));
+            Assert.That(changes[0].State, Is.EqualTo("Added"));
+            Assert.That(changes[0].RelativePath, Is.EqualTo("dbo/Views/vw_Legacy.sql"));
+        }
+
+        [Test]
+        public void BuildChangeSet_PrefersDdlLogState_WhenObjectAppearsInBothSources()
+        {
+            var tracker = NewTracker();
+            var gitStates = new Dictionary<string, string>
+            {
+                ["dbo/Tables/Users.sql"] = "Modified"
+            };
+
+            var changes = tracker.BuildChangeSet(new[] { Row(5, "dbo", "Users", "TABLE", "DROP_TABLE") }, gitStates);
+
+            Assert.That(changes.Count, Is.EqualTo(1), "같은 객체가 두 소스에 있어도 중복되면 안 됩니다");
+            Assert.That(changes[0].State, Is.EqualTo("Deleted"), "DB의 DDL 로그가 최종 상태의 근거입니다");
+        }
+
+        [Test]
+        public void BuildChangeSet_ReturnsEmpty_WhenNeitherSourceHasChanges()
+        {
+            var tracker = NewTracker();
+            Assert.That(tracker.BuildChangeSet(System.Array.Empty<ChangeLogRow>(), null), Is.Empty);
+        }
+
+        // ---------- 캐시 ----------
+
+        [Test]
+        public void ApplyChangeSet_MakesStatesVisibleThroughGetObjectState()
+        {
+            var tracker = NewTracker();
+            var changes = tracker.BuildChangeSet(new[]
+            {
+                Row(1, "dbo", "Orders", "TABLE", "ALTER_TABLE"),
+                Row(2, "dbo", "Customers", "TABLE", "CREATE_TABLE")
+            }, null);
+
+            tracker.ApplyChangeSet("Server1", "DB1", changes);
+
+            Assert.That(tracker.GetObjectState("Server1", "DB1", "dbo.Orders"), Is.EqualTo("Modified"));
+            Assert.That(tracker.GetObjectState("Server1", "DB1", "dbo.Customers"), Is.EqualTo("Added"));
+            Assert.That(tracker.GetObjectState("Server1", "DB1", "dbo.Products"), Is.EqualTo("Clean"));
+        }
+
+        [Test]
+        public void ApplyChangeSet_DropsStaleEntriesFromThePreviousRefresh()
+        {
+            // 커밋 후 새로고침하면 더 이상 변경이 아닌 객체는 사라져야 한다.
+            var tracker = NewTracker();
+            tracker.ApplyChangeSet("S", "DB", tracker.BuildChangeSet(new[] { Row(1, "dbo", "Old", "TABLE", "ALTER_TABLE") }, null));
+            Assert.That(tracker.GetObjectState("S", "DB", "dbo.Old"), Is.EqualTo("Modified"));
+
+            tracker.ApplyChangeSet("S", "DB", tracker.BuildChangeSet(new[] { Row(2, "dbo", "New", "TABLE", "ALTER_TABLE") }, null));
+
+            Assert.That(tracker.GetObjectState("S", "DB", "dbo.Old"), Is.EqualTo("Clean"),
+                "이전 새로고침의 잔여 상태가 남아 있으면 안 됩니다");
+            Assert.That(tracker.GetObjectState("S", "DB", "dbo.New"), Is.EqualTo("Modified"));
+        }
+
+        [Test]
+        public void ApplyChangeSet_DoesNotAffectOtherDatabases()
+        {
+            var tracker = NewTracker();
+            tracker.ApplyChangeSet("S", "DB1", tracker.BuildChangeSet(new[] { Row(1, "dbo", "T1", "TABLE", "ALTER_TABLE") }, null));
+            tracker.ApplyChangeSet("S", "DB2", tracker.BuildChangeSet(new[] { Row(2, "dbo", "T2", "TABLE", "ALTER_TABLE") }, null));
+
+            Assert.That(tracker.GetObjectState("S", "DB1", "dbo.T1"), Is.EqualTo("Modified"));
+            Assert.That(tracker.GetObjectState("S", "DB2", "dbo.T2"), Is.EqualTo("Modified"));
         }
 
         [Test]
         public void GetObjectState_IsCaseInsensitiveForServerDatabaseAndObjectName()
         {
-            var tracker = new StateTracker();
-            var rows = new[]
-            {
-                ("dbo.Customers", "CREATE_TABLE")
-            };
+            var tracker = NewTracker();
+            tracker.ApplyChangeSet("LocalServer", "SalesDB",
+                tracker.BuildChangeSet(new[] { Row(1, "dbo", "Customers", "TABLE", "CREATE_TABLE") }, null));
 
-            tracker.ProcessChangeLogRows("LocalServer", "SalesDB", rows);
-
-            var stateLower = tracker.GetObjectState("localserver", "salesdb", "dbo.customers");
-            var stateUpper = tracker.GetObjectState("LOCALSERVER", "SALESDB", "DBO.CUSTOMERS");
-
-            Assert.That(stateLower, Is.EqualTo("CREATE_TABLE"));
-            Assert.That(stateUpper, Is.EqualTo("CREATE_TABLE"));
+            Assert.That(tracker.GetObjectState("localserver", "salesdb", "dbo.customers"), Is.EqualTo("Added"));
+            Assert.That(tracker.GetObjectState("LOCALSERVER", "SALESDB", "DBO.CUSTOMERS"), Is.EqualTo("Added"));
         }
 
         [Test]
-        public void ProcessChangeLogRows_PopulatesStateCacheForMultipleObjects()
+        public void GetPendingChanges_ReturnsTheCachedChangeRecords()
         {
-            var tracker = new StateTracker();
-            var rows = new[]
-            {
-                ("dbo.Orders", "ALTER_TABLE"),
-                ("dbo.Customers", "CREATE_TABLE")
-            };
+            var tracker = NewTracker();
+            tracker.ApplyChangeSet("S", "DB",
+                tracker.BuildChangeSet(new[] { Row(1, "dbo", "Orders", "TABLE", "ALTER_TABLE") }, null));
 
-            tracker.ProcessChangeLogRows("Server1", "DB1", rows);
+            var pending = tracker.GetPendingChanges("S", "DB");
 
-            Assert.That(tracker.GetObjectState("Server1", "DB1", "dbo.Orders"), Is.EqualTo("ALTER_TABLE"));
-            Assert.That(tracker.GetObjectState("Server1", "DB1", "dbo.Customers"), Is.EqualTo("CREATE_TABLE"));
-            Assert.That(tracker.GetObjectState("Server1", "DB1", "dbo.Products"), Is.EqualTo("Clean"));
+            Assert.That(pending.Count, Is.EqualTo(1));
+            Assert.That(pending[0].QualifiedName, Is.EqualTo("dbo.Orders"));
+            Assert.That(pending[0].RelativePath, Is.EqualTo("dbo/Tables/Orders.sql"));
         }
 
         [Test]
-        public void IsInitialized_ReturnsFalse_WhenNoTable()
+        public void GetPendingChanges_ReturnsEmpty_ForUnknownDatabase()
         {
-            var tracker = new StateTracker();
-            Assert.That(tracker.IsInitialized("fake_connection_string"), Is.False);
+            Assert.That(NewTracker().GetPendingChanges("nope", "nope"), Is.Empty);
         }
+
+        // ---------- RefreshState ----------
+
+        [Test]
+        public void RefreshState_ReturnsFalse_WhenDatabaseIsNotMapped()
+        {
+            var tracker = NewTracker();
+            Assert.That(tracker.RefreshState("localhost", "unmapped_db"), Is.False);
+        }
+
+        [Test]
+        public void RefreshState_HandlesUnreachableDatabaseGracefully()
+        {
+            var config = NewIsolatedConfig();
+            config.AddMapping("localhost", "nonexistent_db", System.IO.Path.GetTempPath());
+            var tracker = new StateTracker(config);
+
+            bool result = true;
+            Assert.DoesNotThrow(() => result = tracker.RefreshState("localhost", "nonexistent_db"));
+            Assert.That(result, Is.False, "연결 실패는 예외 대신 false로 알려야 합니다");
+        }
+
+        // ---------- 초기화 확인 ----------
+
+        [Test]
+        public void IsInitialized_ReturnsFalse_WhenConnectionStringIsInvalid()
+        {
+            Assert.That(NewTracker().IsInitialized("fake_connection_string"), Is.False);
+        }
+
+        [Test]
+        public void IsInitializedQuery_ChecksBothTheChangeLogTableAndTheDdlTrigger()
+        {
+            // 설계(setup-automation)는 테이블과 트리거가 "둘 다" 있어야 초기화된 것으로 본다.
+            // 테이블만 검사하면 트리거가 삭제된 DB에서 변경 감지가 조용히 멈춘다.
+            var query = StateTracker.IsInitializedQuery;
+
+            Assert.That(query, Does.Contain("sys.objects"));
+            Assert.That(query, Does.Contain("sys.triggers"));
+            Assert.That(query, Does.Contain("DBVC_ChangeLog"));
+            Assert.That(query, Does.Contain("trg_DBVC_DDL_Tracker"));
+        }
+
+        [Test]
+        public void PendingChangesQuery_FiltersOutAlreadyProcessedRowsAndOrdersByPostTime()
+        {
+            // 설계 3.3: "아직 커밋되지 않은(또는 마지막 동기화 이후의)" 로그만 읽는다.
+            var query = StateTracker.PendingChangesQuery;
+
+            Assert.That(query, Does.Contain("IsProcessed"));
+            Assert.That(query, Does.Contain("PostTime"));
+            Assert.That(query, Does.Not.Contain("EventDate"),
+                "DBVC_ChangeLog에는 EventDate 컬럼이 없습니다");
+        }
+
+        // ---------- 설치 스크립트 ----------
 
         [Test]
         public void InitializeDatabase_ThrowsArgumentException_WhenConnectionStringIsEmpty()
         {
-            var tracker = new StateTracker();
-            Assert.Throws<System.ArgumentException>(() => tracker.InitializeDatabase(""));
+            Assert.Throws<System.ArgumentException>(() => NewTracker().InitializeDatabase(""));
+        }
+
+        [Test]
+        public void InitializeDatabase_LoadsEmbeddedScriptAndAttemptsConnection_WhenConnectionStringIsProvided()
+        {
+            var tracker = NewTracker();
+            var ex = Assert.Catch<System.Exception>(() => tracker.InitializeDatabase("Server=dummy;Database=dummy;Integrated Security=True;TrustServerCertificate=True;"));
+            Assert.That(ex, Is.Not.InstanceOf<System.IO.FileNotFoundException>());
         }
 
         [Test]
@@ -121,18 +285,16 @@ namespace DBVC.Core.Tests
         public void InstallScript_PutsCreateTriggerFirstInItsBatch()
         {
             // SQL Server는 CREATE TRIGGER가 배치의 첫 구문일 것을 요구한다.
-            // 이 규칙이 깨지면 설치가 런타임에 실패한다.
             var batches = StateTracker.SplitSqlBatches(StateTracker.ReadInstallScript());
 
             var triggerBatches = batches
                 .Where(b => b.IndexOf("CREATE TRIGGER", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 .ToList();
 
-            Assert.That(triggerBatches, Is.Not.Empty, "CREATE TRIGGER 배치가 있어야 합니다");
+            Assert.That(triggerBatches, Is.Not.Empty);
             foreach (var batch in triggerBatches)
             {
-                Assert.That(batch.TrimStart(), Does.StartWith("CREATE TRIGGER").IgnoreCase,
-                    "CREATE TRIGGER는 배치의 첫 구문이어야 합니다");
+                Assert.That(batch.TrimStart(), Does.StartWith("CREATE TRIGGER").IgnoreCase);
             }
         }
 
@@ -141,10 +303,8 @@ namespace DBVC.Core.Tests
         {
             var script = StateTracker.ReadInstallScript();
 
-            Assert.That(script, Does.Contain("IsProcessed"),
-                "커밋된 변경을 걸러내려면 동기화 워터마크 컬럼이 필요합니다");
-            Assert.That(script, Does.Contain("SchemaName"),
-                "[Schema]/[ObjectType]/[Name].sql 경로를 유도하려면 스키마명이 필요합니다");
+            Assert.That(script, Does.Contain("IsProcessed"));
+            Assert.That(script, Does.Contain("SchemaName"));
         }
 
         [Test]
@@ -152,17 +312,8 @@ namespace DBVC.Core.Tests
         {
             var script = StateTracker.ReadInstallScript();
 
-            // 이미 설치된 DB에도 새 컬럼이 추가되도록 ALTER 경로가 있어야 한다.
             Assert.That(script, Does.Contain("ALTER TABLE").IgnoreCase);
             Assert.That(script, Does.Contain("sys.columns").IgnoreCase);
-        }
-
-        [Test]
-        public void InitializeDatabase_LoadsEmbeddedScriptAndAttemptsConnection_WhenConnectionStringIsProvided()
-        {
-            var tracker = new StateTracker();
-            var ex = Assert.Catch<System.Exception>(() => tracker.InitializeDatabase("Server=dummy;Database=dummy;Integrated Security=True;TrustServerCertificate=True;"));
-            Assert.That(ex, Is.Not.InstanceOf<System.IO.FileNotFoundException>());
         }
     }
 }

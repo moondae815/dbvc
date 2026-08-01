@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DBVC.Core
 {
@@ -66,6 +67,44 @@ namespace DBVC.Core
         public static string GetQualifiedName(string? schema, string objectName)
         {
             return $"{NormalizeSchema(schema)}.{objectName?.Trim()}";
+        }
+
+        private static readonly Dictionary<string, string> ObjectTypeByFolder = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Tables"] = "Table",
+            ["Views"] = "View",
+            ["StoredProcedures"] = "StoredProcedure",
+            ["Functions"] = "UserDefinedFunction",
+            ["Triggers"] = "Trigger",
+            ["Types"] = "UserDefinedType",
+            ["TableTypes"] = "UserDefinedTableType",
+            ["Sequences"] = "Sequence",
+            ["Synonyms"] = "Synonym"
+        };
+
+        /// <summary>
+        /// <c>dbo/Tables/Users.sql</c> 형태의 상대 경로를 스키마/객체 타입/객체명으로 되돌린다.
+        /// 규약에 맞지 않는 경로면 false를 반환한다.
+        /// </summary>
+        public static bool TryParseRelativePath(string? relativePath, out string schema, out string objectType, out string objectName)
+        {
+            schema = DefaultSchema;
+            objectType = UnknownFolder;
+            objectName = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(relativePath)) return false;
+
+            var normalized = relativePath!.Replace('\\', '/');
+            if (!normalized.EndsWith(".sql", StringComparison.OrdinalIgnoreCase)) return false;
+
+            var segments = normalized.Split('/');
+            if (segments.Length != 3) return false;
+            if (segments.Any(string.IsNullOrWhiteSpace)) return false;
+
+            schema = segments[0];
+            objectType = ObjectTypeByFolder.TryGetValue(segments[1], out var mapped) ? mapped : UnknownFolder;
+            objectName = segments[2].Substring(0, segments[2].Length - ".sql".Length);
+            return objectName.Length > 0;
         }
 
         private static string NormalizeSchema(string? schema)

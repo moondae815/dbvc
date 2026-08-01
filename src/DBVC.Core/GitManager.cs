@@ -77,6 +77,55 @@ namespace DBVC.Core
             }
         }
 
+        /// <summary>
+        /// 변경된 파일을 상대 경로 → 상태(<c>Added</c>/<c>Modified</c>/<c>Deleted</c>)로 반환한다.
+        /// StateTracker가 DDL 로그와 종합해 최종 상태를 결정하는 데 사용한다. (설계 3.3)
+        /// </summary>
+        public IReadOnlyDictionary<string, string> GetChangedFileStates(string repoPath)
+        {
+            var states = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (!IsValidRepository(repoPath)) return states;
+
+            try
+            {
+                using var repo = new Repository(repoPath);
+                foreach (var entry in repo.RetrieveStatus(UntrackedInclusiveOptions))
+                {
+                    var state = MapFileStatus(entry.State);
+                    if (state != null)
+                    {
+                        states[entry.FilePath] = state;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"GitManager.GetChangedFileStates failed for '{repoPath}': {ex.Message}");
+            }
+
+            return states;
+        }
+
+        public IReadOnlyDictionary<string, string> GetChangedFileStatesForDatabase(string serverName, string databaseName)
+        {
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            return repoPath == null
+                ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                : GetChangedFileStates(repoPath);
+        }
+
+        private static string? MapFileStatus(FileStatus status)
+        {
+            if (status == FileStatus.Ignored || status == FileStatus.Unaltered) return null;
+
+            if (status.HasFlag(FileStatus.NewInIndex) || status.HasFlag(FileStatus.NewInWorkdir)) return "Added";
+            if (status.HasFlag(FileStatus.DeletedFromIndex) || status.HasFlag(FileStatus.DeletedFromWorkdir)) return "Deleted";
+            if (status.HasFlag(FileStatus.ModifiedInIndex) || status.HasFlag(FileStatus.ModifiedInWorkdir)
+                || status.HasFlag(FileStatus.RenamedInIndex) || status.HasFlag(FileStatus.RenamedInWorkdir)) return "Modified";
+
+            return null;
+        }
+
         public IReadOnlyList<string> GetChangedFilesForDatabase(string serverName, string databaseName)
         {
             var repoPath = ResolveRepoPath(serverName, databaseName);

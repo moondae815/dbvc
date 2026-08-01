@@ -147,6 +147,41 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void GetChangedFileStates_ClassifiesAddedModifiedAndDeleted()
+        {
+            // 기준선: Users.sql과 Temp.sql이 커밋된 상태
+            var repoPath = NewRepoWithCommit();
+            WriteRepoFile(repoPath, "dbo/Tables/Temp.sql", "CREATE TABLE Temp (Id INT);");
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "*");
+                repo.Commit("add temp", TestSignature, TestSignature);
+            }
+
+            // 추적 중인 파일 수정 / 신규 파일 추가 / 추적 중인 파일 삭제
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT, Name NVARCHAR(50));");
+            WriteRepoFile(repoPath, "dbo/Views/vw_Users.sql", "CREATE VIEW vw_Users AS SELECT 1 AS X;");
+            File.Delete(Path.Combine(repoPath, "dbo", "Tables", "Temp.sql"));
+
+            var states = new GitManager().GetChangedFileStates(repoPath);
+
+            Assert.That(states["dbo/Tables/Users.sql"], Is.EqualTo("Modified"));
+            Assert.That(states["dbo/Views/vw_Users.sql"], Is.EqualTo("Added"));
+            Assert.That(states["dbo/Tables/Temp.sql"], Is.EqualTo("Deleted"));
+        }
+
+        [Test]
+        public void GetChangedFileStates_ReportsModified_ForTrackedFileEditedAfterCommit()
+        {
+            var repoPath = NewRepoWithCommit();
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT, Name NVARCHAR(50));");
+
+            var states = new GitManager().GetChangedFileStates(repoPath);
+
+            Assert.That(states["dbo/Tables/Users.sql"], Is.EqualTo("Modified"));
+        }
+
+        [Test]
         public void GetChangedFiles_ReturnsEmpty_WhenPathIsNotARepository()
         {
             var manager = new GitManager();
