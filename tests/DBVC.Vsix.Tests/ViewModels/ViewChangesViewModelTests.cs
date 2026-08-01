@@ -358,6 +358,87 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.WarningMessage, Is.Null);
         }
 
+        // ---------- 정리 실패한 삭제 객체는 커밋에서 제외 (조용한 소실 방지) ----------
+
+        [Test]
+        public void Refresh_DeselectsTheChangeItem_WhenItsWorkingTreeCleanupFailed()
+        {
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                Record("dbo", "Users", "Deleted", "dbo/Tables/Users.sql")
+            });
+            var failed = new CleanupResult();
+            failed.FailedPaths.Add("dbo/Tables/Users.sql");
+            _cleaner.Setup(c => c.RemoveDeletedObjectFiles(It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()))
+                .Returns(failed);
+
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.Changes.Single().IsSelected, Is.False,
+                "정리에 실패한 항목을 체크된 채로 두면 파일이 남아 있는데도 삭제가 커밋된 것처럼 보일 수 있습니다");
+        }
+
+        [Test]
+        public void Commit_ExcludesTheFailedCleanupObject_FromGitManager_EvenWhenReChecked()
+        {
+            // 사용자가 경고 배너를 무시하고 체크박스를 다시 켠 경우를 재현한다.
+            // 체크박스만으로는 부족하므로 Commit이 한 번 더 걸러내야 한다.
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                Record("dbo", "Users", "Deleted", "dbo/Tables/Users.sql"),
+                Record("dbo", "Orders", "Modified", "dbo/Tables/Orders.sql")
+            });
+            var failed = new CleanupResult();
+            failed.FailedPaths.Add("dbo/Tables/Users.sql");
+            _cleaner.Setup(c => c.RemoveDeletedObjectFiles(It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()))
+                .Returns(failed);
+            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(true);
+
+            var vm = NewConnectedViewModel();
+            vm.Changes.Single(c => c.ObjectName == "dbo.Users").IsSelected = true; // 다시 체크
+            vm.Changes.Single(c => c.ObjectName == "dbo.Orders").IsSelected = true;
+            vm.CommitMessage = "Drop Users, modify Orders";
+
+            vm.CommitCommand.Execute(null);
+
+            _git.Verify(g => g.CommitChanges(Server, Database, "Drop Users, modify Orders",
+                It.Is<IEnumerable<string>>(paths => paths.SequenceEqual(new[] { "dbo/Tables/Orders.sql" }))), Times.Once,
+                "정리에 실패한 삭제 객체의 경로가 Git에 넘어가면 삭제되지 않은 파일이 커밋된 것처럼 보입니다");
+        }
+
+        [Test]
+        public void Commit_DoesNotMarkTheFailedCleanupObjectProcessed_EvenWhenAnotherObjectCommitsSuccessfully()
+        {
+            // 조용한 소실 시나리오: 정리 실패한 삭제 객체와 함께 다른 객체를 커밋하면
+            // CommitChanges는 true를 반환한다. 이 true를 근거로 실패한 객체까지
+            // MarkProcessed에 넘기면 DDL 로그 행이 처리 완료로 표시되어 다음 새로고침에서
+            // 파일은 그대로인데 목록에서만 사라진다.
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                Record("dbo", "Users", "Deleted", "dbo/Tables/Users.sql"),
+                Record("dbo", "Orders", "Modified", "dbo/Tables/Orders.sql")
+            });
+            var failed = new CleanupResult();
+            failed.FailedPaths.Add("dbo/Tables/Users.sql");
+            _cleaner.Setup(c => c.RemoveDeletedObjectFiles(It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()))
+                .Returns(failed);
+            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(true);
+
+            var vm = NewConnectedViewModel();
+            vm.Changes.Single(c => c.ObjectName == "dbo.Users").IsSelected = true; // 다시 체크
+            vm.Changes.Single(c => c.ObjectName == "dbo.Orders").IsSelected = true;
+            vm.CommitMessage = "Drop Users, modify Orders";
+
+            vm.CommitCommand.Execute(null);
+
+            _stateTracker.Verify(s => s.MarkProcessed(Server, Database,
+                It.Is<IEnumerable<ChangeRecord>>(records =>
+                    records.All(r => r.QualifiedName != "dbo.Users") &&
+                    records.Any(r => r.QualifiedName == "dbo.Orders"))),
+                Times.Once,
+                "정리에 실패한 삭제가 처리 완료로 표시되면 파일이 남아 있는데도 다음 새로고침에서 조용히 사라집니다");
+        }
+
         // ---------- 저장소 매핑 등록 ----------
 
         [Test]

@@ -34,6 +34,13 @@ namespace DBVC.Vsix.ViewModels
         /// <summary>새로고침 시점의 변경 레코드. 커밋 후 처리 완료 표시에 사용한다.</summary>
         private IReadOnlyList<ChangeRecord> _lastChangeRecords = new List<ChangeRecord>();
 
+        /// <summary>
+        /// 마지막 새로고침에서 작업 트리 정리(삭제된 객체 파일 제거)에 실패한 상대 경로.
+        /// 체크박스만으로는 충분하지 않다 — 사용자가 경고를 무시하고 다시 체크할 수 있으므로,
+        /// Commit에서도 이 목록을 근거로 한 번 더 걸러야 "삭제가 조용히 사라지는" 결함이 재발하지 않는다.
+        /// </summary>
+        private readonly HashSet<string> _failedCleanupPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         public ViewChangesViewModel()
             : this(new ConfigManager(), null, null, null, null)
         {
@@ -286,6 +293,7 @@ namespace DBVC.Vsix.ViewModels
         {
             Changes.Clear();
             _lastChangeRecords = new List<ChangeRecord>();
+            _failedCleanupPaths.Clear();
             RaiseActionCanExecuteChanged();
 
             if (!HasContext) return;
@@ -327,17 +335,24 @@ namespace DBVC.Vsix.ViewModels
                     if (cleanup.HasFailures)
                     {
                         warnings.Add($"삭제된 객체의 파일을 지우지 못했습니다: {string.Join(", ", cleanup.FailedPaths)}");
+                        foreach (var failedPath in cleanup.FailedPaths)
+                        {
+                            _failedCleanupPaths.Add(failedPath);
+                        }
                     }
                 }
 
                 foreach (var record in _lastChangeRecords)
                 {
+                    // 정리에 실패한 항목은 체크를 풀어 사용자에게 제외되었음을 보여준다.
+                    // 파일이 여전히 작업 트리에 남아 있는데 체크된 채면 삭제가 조용히 커밋에서 빠진 것처럼 보인다.
+                    var cleanupFailed = _failedCleanupPaths.Contains(record.RelativePath);
                     Changes.Add(new ChangeItemViewModel
                     {
                         ObjectName = record.QualifiedName,
                         State = record.State,
                         RelativePath = record.RelativePath,
-                        IsSelected = true
+                        IsSelected = !cleanupFailed
                     });
                 }
             }
@@ -365,7 +380,11 @@ namespace DBVC.Vsix.ViewModels
         {
             if (!CanCommit()) return;
 
-            var selected = Changes.Where(c => c.IsSelected).ToList();
+            // 체크박스만으로는 부족하다: 사용자가 정리 실패 경고를 무시하고 다시 체크할 수 있으므로
+            // 여기서 한 번 더 걸러야 삭제되지 않은 파일이 커밋·처리 완료로 표시되는 일을 막는다.
+            var selected = Changes
+                .Where(c => c.IsSelected && !_failedCleanupPaths.Contains(c.RelativePath ?? string.Empty))
+                .ToList();
             var selectedPaths = selected
                 .Select(c => c.RelativePath)
                 .Where(p => !string.IsNullOrWhiteSpace(p))
