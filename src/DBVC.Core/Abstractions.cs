@@ -44,4 +44,13 @@ namespace DBVC.Core
         bool ScriptObjects(string serverName, string databaseName, List<string>? objectNames = null);
         ScriptResult? ScriptObjectsDetailed(string serverName, string databaseName, List<string>? objectNames = null);
     }
+
+    /// <summary>
+    /// 작업 트리를 데이터베이스의 현재 상태에 맞춘다.
+    /// DROP된 객체의 파일이 남아 있으면 Git이 삭제를 감지하지 못한다.
+    /// </summary>
+    public interface IWorkingTreeCleaner
+    {
+        CleanupResult RemoveDeletedObjectFiles(string repoPath, IEnumerable<ChangeRecord> records);
+    }
 }
