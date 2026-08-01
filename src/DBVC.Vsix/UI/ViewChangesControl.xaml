@@ -49,18 +49,22 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <!-- Top Area -->
-            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="5">
-                <Button Content="Refresh" Command="{Binding RefreshCommand}" Width="70" Margin="0,0,10,0"/>
+            <!--
+                Top Area. 버튼이 늘어 좁게 도킹하면 잘리므로 WrapPanel로 줄바꿈되게 한다.
+            -->
+            <WrapPanel Grid.Row="0" Orientation="Horizontal" Margin="5">
+                <Button Content="Refresh" Command="{Binding RefreshCommand}" Width="70" Margin="0,0,10,4"/>
                 <TextBox Text="{Binding CommitMessage, UpdateSourceTrigger=PropertyChanged}"
-                         Width="240" Margin="0,0,10,0"
+                         Width="240" Margin="0,0,10,4"
                          IsEnabled="{Binding IsMapped}"/>
-                <Button Content="Commit" Command="{Binding CommitCommand}" Width="70" Margin="0,0,16,0" />
-                <Button Content="Deployment Script" Command="{Binding GenerateDeploymentScriptCommand}" Width="130" Margin="0,0,6,0"
+                <Button Content="Commit" Command="{Binding CommitCommand}" Width="70" Margin="0,0,10,4" />
+                <Button Content="Pull" Command="{Binding PullCommand}" Width="70" Margin="0,0,16,4"
+                        ToolTip="원격 저장소의 변경을 로컬 저장소로 가져옵니다. 데이터베이스에는 적용하지 않습니다." />
+                <Button Content="Deployment Script" Command="{Binding GenerateDeploymentScriptCommand}" Width="130" Margin="0,0,6,4"
                         ToolTip="선택한 객체의 현재 DDL을 단일 .sql 파일로 병합합니다." />
-                <Button Content="Rollback Script" Command="{Binding GenerateRollbackScriptCommand}" Width="120"
+                <Button Content="Rollback Script" Command="{Binding GenerateRollbackScriptCommand}" Width="120" Margin="0,0,0,4"
                         ToolTip="선택한 객체가 마지막으로 커밋되기 직전 코드를 단일 .sql 파일로 병합합니다." />
-            </StackPanel>
+            </WrapPanel>
 
             <!-- Middle Area -->
             <ListView Grid.Row="1" ItemsSource="{Binding Changes}" SelectedItem="{Binding SelectedChange}">
@@ -81,18 +85,41 @@
 
             <GridSplitter Grid.Row="2" Height="5" HorizontalAlignment="Stretch" />
 
-            <!-- Bottom Area -->
-            <Grid Grid.Row="3">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="5" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
+            <!-- Bottom Area: 선택된 객체에 대한 두 가지 뷰 -->
+            <TabControl Grid.Row="3">
+                <TabItem Header="Diff">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="5" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
 
-                <avalonEdit:TextEditor x:Name="OldTextEditor" Grid.Column="0" IsReadOnly="True" SyntaxHighlighting="TSQL" />
-                <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" />
-                <avalonEdit:TextEditor x:Name="NewTextEditor" Grid.Column="2" IsReadOnly="True" SyntaxHighlighting="TSQL" />
-            </Grid>
+                        <avalonEdit:TextEditor x:Name="OldTextEditor" Grid.Column="0" IsReadOnly="True" SyntaxHighlighting="TSQL" />
+                        <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" />
+                        <avalonEdit:TextEditor x:Name="NewTextEditor" Grid.Column="2" IsReadOnly="True" SyntaxHighlighting="TSQL" />
+                    </Grid>
+                </TabItem>
+
+                <TabItem Header="History">
+                    <Grid>
+                        <ListView ItemsSource="{Binding History.Entries}">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="Date" Width="130" DisplayMemberBinding="{Binding Date}"/>
+                                    <GridViewColumn Header="Author" Width="110" DisplayMemberBinding="{Binding Author}"/>
+                                    <GridViewColumn Header="Message" Width="320" DisplayMemberBinding="{Binding Message}"/>
+                                    <GridViewColumn Header="SHA" Width="80" DisplayMemberBinding="{Binding ShortSha}"/>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+
+                        <TextBlock Text="이력이 없습니다." Foreground="#808080"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Visibility="{Binding History.IsEmpty, Converter={StaticResource BoolToVis}}"/>
+                    </Grid>
+                </TabItem>
+            </TabControl>
         </Grid>
 
         <!-- The Setup Overlay. 경고는 위 배너가 담당하므로 여기서 중복 표시하지 않는다. -->
