@@ -65,6 +65,8 @@ namespace DBVC.Vsix.Services
                 case ChangeType.Deleted: return DiffLineKind.Deleted;
                 case ChangeType.Modified: return DiffLineKind.Modified;
                 case ChangeType.Imaginary: return DiffLineKind.Padding;
+                // 의도적인 선택이다: 향후 DiffPlex가 새 ChangeType을 추가해도 예외를 던지지 않고
+                // 강조 없이 그대로 렌더링한다.
                 default: return DiffLineKind.Unchanged;
             }
         }
