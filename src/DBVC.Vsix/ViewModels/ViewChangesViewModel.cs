@@ -27,6 +27,7 @@ namespace DBVC.Vsix.ViewModels
         private readonly ISmoManager _smoManager;
         private readonly IUserNotifier _notifier;
         private readonly IFileSaveDialog _saveDialog;
+        private readonly IFolderBrowseDialog _folderDialog;
         private readonly IWorkingTreeCleaner _cleaner;
         private readonly ScriptExporter _scriptExporter;
 
@@ -45,7 +46,8 @@ namespace DBVC.Vsix.ViewModels
             ISmoManager? smoManager,
             IUserNotifier? notifier,
             IFileSaveDialog? saveDialog = null,
-            IWorkingTreeCleaner? cleaner = null)
+            IWorkingTreeCleaner? cleaner = null,
+            IFolderBrowseDialog? folderDialog = null)
         {
             _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
             _gitManager = gitManager ?? new GitManager(_configManager);
@@ -54,12 +56,14 @@ namespace DBVC.Vsix.ViewModels
             _notifier = notifier ?? new MessageBoxNotifier();
             _saveDialog = saveDialog ?? new SaveFileDialogAdapter();
             _cleaner = cleaner ?? new WorkingTreeCleaner();
+            _folderDialog = folderDialog ?? new FolderBrowserDialogAdapter();
             _scriptExporter = new ScriptExporter(_configManager, _gitManager);
 
             RefreshCommand = new RelayCommand(Refresh);
             SetupCommand = new RelayCommand(Setup);
             CommitCommand = new RelayCommand(Commit, CanCommit);
             ConnectCommand = new RelayCommand(() => SetContext(ServerName, DatabaseName), () => HasContext);
+            ConnectRepositoryCommand = new RelayCommand(ConnectRepository, CanConnectRepository);
             GenerateDeploymentScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Deployment), CanGenerateScript);
             GenerateRollbackScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Rollback), CanGenerateScript);
         }
@@ -152,7 +156,7 @@ namespace DBVC.Vsix.ViewModels
                 if (_isMapped == value) return;
                 _isMapped = value;
                 OnPropertyChanged();
-                RaiseCommitCanExecuteChanged();
+                RaiseActionCanExecuteChanged();
             }
         }
 
@@ -180,7 +184,7 @@ namespace DBVC.Vsix.ViewModels
                 if (_commitMessage == value) return;
                 _commitMessage = value;
                 OnPropertyChanged();
-                RaiseCommitCanExecuteChanged();
+                RaiseActionCanExecuteChanged();
             }
         }
 
@@ -212,11 +216,44 @@ namespace DBVC.Vsix.ViewModels
         /// </summary>
         public ICommand ConnectCommand { get; }
 
+        /// <summary>
+        /// 활성 데이터베이스에 Git 저장소를 매핑한다.
+        /// 매핑이 없으면 추출도 커밋도 불가능하므로 여기가 첫 설정 경로다.
+        /// </summary>
+        public ICommand ConnectRepositoryCommand { get; }
+
         /// <summary>선택된 객체들의 현재 DDL을 단일 스크립트로 내보낸다. (Feature 8)</summary>
         public ICommand GenerateDeploymentScriptCommand { get; }
 
         /// <summary>선택된 객체들의 마지막 커밋 직전 코드를 단일 스크립트로 내보낸다. (Feature 9)</summary>
         public ICommand GenerateRollbackScriptCommand { get; }
+
+        // ---------- 저장소 매핑 ----------
+
+        private bool CanConnectRepository() => HasContext && !IsMapped;
+
+        private void ConnectRepository()
+        {
+            if (!CanConnectRepository()) return;
+
+            var path = _folderDialog.PromptForFolder(
+                $"'{ServerName}.{DatabaseName}'의 스크립트를 보관할 Git 저장소 폴더를 선택하세요.", null);
+
+            // 사용자가 취소한 경우다. 오류가 아니다.
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            if (!_gitManager.IsRepository(path!))
+            {
+                // 유효하지 않은 경로를 저장하면 이후 모든 동작이 조용히 실패한다.
+                _notifier.ShowError("DBVC", $"'{path}'은(는) Git 저장소가 아닙니다. git init된 폴더를 선택하세요.");
+                return;
+            }
+
+            _configManager.AddMapping(ServerName!, DatabaseName!, path!);
+
+            // 매핑·초기화 상태를 다시 판정하고 목록을 새로고침한다.
+            SetContext(ServerName, DatabaseName);
+        }
 
         // ---------- Setup ----------
 
@@ -249,7 +286,7 @@ namespace DBVC.Vsix.ViewModels
         {
             Changes.Clear();
             _lastChangeRecords = new List<ChangeRecord>();
-            RaiseCommitCanExecuteChanged();
+            RaiseActionCanExecuteChanged();
 
             if (!HasContext) return;
 
@@ -310,7 +347,7 @@ namespace DBVC.Vsix.ViewModels
             }
 
             WarningMessage = warnings.Count > 0 ? string.Join(" / ", warnings) : null;
-            RaiseCommitCanExecuteChanged();
+            RaiseActionCanExecuteChanged();
         }
 
         // ---------- Commit ----------
@@ -449,17 +486,18 @@ namespace DBVC.Vsix.ViewModels
             return records;
         }
 
-        private void RaiseCommitCanExecuteChanged()
+        private void RaiseActionCanExecuteChanged()
         {
             (CommitCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GenerateDeploymentScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GenerateRollbackScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (ConnectRepositoryCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
 
         private void RaiseConnectCanExecuteChanged()
         {
             (ConnectCommand as RelayCommand)?.RaiseCanExecuteChanged();
-            RaiseCommitCanExecuteChanged();
+            RaiseActionCanExecuteChanged();
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

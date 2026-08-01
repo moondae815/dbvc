@@ -24,6 +24,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         private RecordingNotifier _notifier = null!;
         private RecordingSaveDialog _saveDialog = null!;
         private Mock<IWorkingTreeCleaner> _cleaner = null!;
+        private RecordingFolderDialog _folderDialog = null!;
         private readonly List<string> _tempDirs = new List<string>();
 
         [TearDown]
@@ -43,6 +44,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         public void SetUp()
         {
             _saveDialog = new RecordingSaveDialog();
+            _folderDialog = new RecordingFolderDialog();
             _config = new Mock<IConfigManager>();
             _stateTracker = new Mock<IStateTracker>();
             _git = new Mock<IGitManager>();
@@ -65,7 +67,8 @@ namespace DBVC.Vsix.Tests.ViewModels
         private ViewChangesViewModel NewViewModel()
         {
             return new ViewChangesViewModel(
-                _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog, _cleaner.Object);
+                _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
+                _cleaner.Object, _folderDialog);
         }
 
         private ViewChangesViewModel NewConnectedViewModel()
@@ -353,6 +356,62 @@ namespace DBVC.Vsix.Tests.ViewModels
             var vm = NewConnectedViewModel();
 
             Assert.That(vm.WarningMessage, Is.Null);
+        }
+
+        // ---------- 저장소 매핑 등록 ----------
+
+        [Test]
+        public void ConnectRepositoryCommand_IsEnabled_OnlyWhenTheDatabaseIsNotYetMapped()
+        {
+            var mapped = NewConnectedViewModel();
+            Assert.That(mapped.ConnectRepositoryCommand.CanExecute(null), Is.False,
+                "이미 매핑되어 있으면 저장소를 다시 연결할 이유가 없습니다");
+
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            var unmapped = NewConnectedViewModel();
+            Assert.That(unmapped.ConnectRepositoryCommand.CanExecute(null), Is.True);
+        }
+
+        [Test]
+        public void ConnectRepositoryCommand_SavesTheMapping_WhenTheChosenFolderIsAGitRepository()
+        {
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _git.Setup(g => g.IsRepository(@"C:\chosen-repo")).Returns(true);
+            _folderDialog.PathToReturn = @"C:\chosen-repo";
+            var vm = NewConnectedViewModel();
+
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            _config.Verify(c => c.AddMapping(Server, Database, @"C:\chosen-repo"), Times.Once);
+        }
+
+        [Test]
+        public void ConnectRepositoryCommand_DoesNothing_WhenTheUserCancels()
+        {
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _folderDialog.PathToReturn = null;
+            var vm = NewConnectedViewModel();
+
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            Assert.That(_folderDialog.CallCount, Is.EqualTo(1));
+            _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            Assert.That(_notifier.Errors, Is.Empty, "취소는 오류가 아닙니다");
+        }
+
+        [Test]
+        public void ConnectRepositoryCommand_RefusesAFolderThatIsNotAGitRepository()
+        {
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _git.Setup(g => g.IsRepository(It.IsAny<string>())).Returns(false);
+            _folderDialog.PathToReturn = @"C:\not-a-repo";
+            var vm = NewConnectedViewModel();
+
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            Assert.That(_notifier.Errors, Is.Not.Empty,
+                "유효하지 않은 경로를 저장하면 이후 모든 동작이 조용히 실패합니다");
         }
 
         // ---------- Commit ----------
@@ -671,6 +730,18 @@ namespace DBVC.Vsix.Tests.ViewModels
             public List<string> Errors { get; } = new List<string>();
 
             public void ShowError(string title, string message) => Errors.Add(message);
+        }
+
+        private sealed class RecordingFolderDialog : IFolderBrowseDialog
+        {
+            public string? PathToReturn { get; set; }
+            public int CallCount { get; private set; }
+
+            public string? PromptForFolder(string description, string? initialPath)
+            {
+                CallCount++;
+                return PathToReturn;
+            }
         }
     }
 }
