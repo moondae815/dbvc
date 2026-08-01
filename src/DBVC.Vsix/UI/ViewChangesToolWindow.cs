@@ -12,7 +12,7 @@ namespace DBVC.Vsix.UI
 
             // ToolWindowPane은 VS 셸이 매개변수 없이 생성하므로 공유 인스턴스를 사용한다.
             var services = DbvcServices.Default;
-            Content = new ViewChangesControl(services.CreateViewChangesViewModel(), services.CreateDiffService());
+            Content = new ViewChangesControl(services.SharedViewChangesViewModel, services.CreateDiffService());
         }
     }
 }

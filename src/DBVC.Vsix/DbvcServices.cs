@@ -48,6 +48,14 @@ namespace DBVC.Vsix
             StateTracker = stateTracker ?? throw new ArgumentNullException(nameof(stateTracker));
         }
 
+        private ViewChangesViewModel? _sharedViewModel;
+
+        /// <summary>
+        /// 도구 창이 표시 중인 ViewModel. SQL 에디터 컨텍스트 메뉴처럼
+        /// 창 밖에서 목록을 조작해야 하는 명령이 같은 인스턴스를 봐야 한다.
+        /// </summary>
+        public ViewChangesViewModel SharedViewChangesViewModel => _sharedViewModel ??= CreateViewChangesViewModel();
+
         public ViewChangesViewModel CreateViewChangesViewModel(IUserNotifier? notifier = null)
         {
             return new ViewChangesViewModel(ConfigManager, StateTracker, GitManager, SmoManager, notifier);

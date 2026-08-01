@@ -342,6 +342,25 @@ namespace DBVC.Vsix.ViewModels
             }
         }
 
+        // ---------- 외부에서 객체 선택 (SQL 에디터 컨텍스트 메뉴) ----------
+
+        /// <summary>
+        /// 지정한 객체를 변경 목록에서 찾아 선택한다.
+        /// 찾지 못하면 기존 선택을 유지하고 false를 반환한다.
+        /// </summary>
+        public bool TrySelectObject(string? schema, string name)
+        {
+            var match = ObjectNameResolver.FindMatch(_lastChangeRecords, schema, name);
+            if (match == null) return false;
+
+            var item = Changes.FirstOrDefault(c =>
+                string.Equals(c.ObjectName, match.QualifiedName, StringComparison.OrdinalIgnoreCase));
+            if (item == null) return false;
+
+            SelectedChange = item;
+            return true;
+        }
+
         // ---------- Deployment / Rollback 스크립트 ----------
 
         private bool CanGenerateScript()

@@ -422,6 +422,61 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.CommitCommand.CanExecute(null), Is.True);
         }
 
+        // ---------- SQL 에디터에서 객체 선택 (Feature 11/12) ----------
+
+        private ViewChangesViewModel NewViewModelWithChanges(params ChangeRecord[] records)
+        {
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(records.ToList());
+            var vm = NewConnectedViewModel();
+            vm.RefreshCommand.Execute(null);
+            return vm;
+        }
+
+        [Test]
+        public void TrySelectObject_SelectsTheMatchingChangeItem()
+        {
+            var vm = NewViewModelWithChanges(
+                Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql"),
+                Record("sales", "Orders", "Modified", "sales/Tables/Orders.sql"));
+
+            var selected = vm.TrySelectObject("sales", "Orders");
+
+            Assert.That(selected, Is.True);
+            Assert.That(vm.SelectedChange!.ObjectName, Is.EqualTo("sales.Orders"));
+        }
+
+        [Test]
+        public void TrySelectObject_PrefersDbo_WhenTheSchemaIsNotSpecified()
+        {
+            var vm = NewViewModelWithChanges(
+                Record("app", "Users", "Modified", "app/Tables/Users.sql"),
+                Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql"));
+
+            Assert.That(vm.TrySelectObject(null, "Users"), Is.True);
+            Assert.That(vm.SelectedChange!.ObjectName, Is.EqualTo("dbo.Users"));
+        }
+
+        [Test]
+        public void TrySelectObject_ReturnsFalse_WhenTheObjectHasNoPendingChange()
+        {
+            var vm = NewViewModelWithChanges(Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql"));
+
+            Assert.That(vm.TrySelectObject("dbo", "Nope"), Is.False);
+            Assert.That(vm.SelectedChange, Is.Null, "찾지 못했으면 기존 선택을 바꾸지 않아야 합니다");
+        }
+
+        [Test]
+        public void TrySelectObject_RaisesSelectionChanged_SoTheDiffViewRefreshes()
+        {
+            var vm = NewViewModelWithChanges(Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql"));
+            int raised = 0;
+            vm.SelectionChanged += (_, __) => raised++;
+
+            vm.TrySelectObject("dbo", "Users");
+
+            Assert.That(raised, Is.EqualTo(1));
+        }
+
         // ---------- Deployment / Rollback 스크립트 ----------
 
         /// <summary>변경 목록 1건이 있고 작업 트리에 해당 파일이 있는 VM을 만든다.</summary>

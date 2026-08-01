@@ -32,6 +32,7 @@ namespace DBVC.Vsix
             // 명령 등록은 UI 스레드에서 이루어져야 한다.
             await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
             await ViewChangesCommand.InitializeAsync(this);
+            await CompareWithRepositoryCommand.InitializeAsync(this);
         }
     }
 }
