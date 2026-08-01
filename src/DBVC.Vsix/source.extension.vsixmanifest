@@ -6,9 +6,6 @@
     <Description xml:space="preserve">Database Version Control (DBVC) plugin for SQL Server Management Studio 21.</Description>
     <MoreInfo>https://github.com/dbvc/dbvc</MoreInfo>
     <License>LICENSE</License>
-    <GettingStartedGuide>README.md</GettingStartedGuide>
-    <Icon>Resources\Package.png</Icon>
-    <PreviewImage>Resources\PackagePreview.png</PreviewImage>
     <Tags>SQL, SSMS, Git, Version Control, Database</Tags>
   </Metadata>
   <Installation InstalledByMsi="false" AllUsers="true">
@@ -21,6 +18,6 @@
     <Prerequisite Id="Microsoft.VisualStudio.Component.CoreEditor" Version="[17.0, 18.0)" DisplayName="Visual Studio core editor" />
   </Prerequisites>
   <Assets>
-    <Asset Type="Microsoft.VisualStudio.VsPackage" Path="DBVC.Vsix.pkgdef" />
+    <Asset Type="Microsoft.VisualStudio.VsPackage" d:Source="Project" d:ProjectName="%CurrentProject%" Path="|%CurrentProject%;PkgdefProjectOutputGroup|" />
   </Assets>
 </PackageManifest>

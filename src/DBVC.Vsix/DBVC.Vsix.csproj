@@ -21,12 +21,30 @@
     <PackageReference Include="Microsoft.VisualStudio.Shell.15.0" Version="17.14.40264" />
   </ItemGroup>
 
+  <!--
+    VSIX 패키징(.vsct 컴파일, pkgdef 생성)은 Windows의 Visual Studio SDK가 필요하다.
+    다른 OS에서는 C# 컴파일과 단위 테스트만 수행되도록 조건부로 참조한다.
+  -->
+  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
+    <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="17.10.2185">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
+    <VSCTCompile Include="DbvcPackage.vsct">
+      <ResourceName>Menus.ctmenu</ResourceName>
+    </VSCTCompile>
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\DBVC.Core\DBVC.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="source.extension.vsixmanifest" />
+    <None Include="DbvcPackage.vsct" Condition="'$(OS)' != 'Windows_NT'" />
   </ItemGroup>
 
 </Project>

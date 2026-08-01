@@ -140,6 +140,32 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.WarningMessage, Is.Null.Or.Empty);
         }
 
+        [Test]
+        public void ConnectCommand_AppliesTheEnteredServerAndDatabase()
+        {
+            var vm = NewViewModel();
+            vm.ServerName = Server;
+            vm.DatabaseName = Database;
+
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.IsMapped, Is.True);
+            _stateTracker.Verify(s => s.IsInitialized(It.IsAny<string>()), Times.Once);
+        }
+
+        [Test]
+        public void ConnectCommand_CannotExecute_UntilBothServerAndDatabaseAreEntered()
+        {
+            var vm = NewViewModel();
+            Assert.That(vm.ConnectCommand.CanExecute(null), Is.False);
+
+            vm.ServerName = Server;
+            Assert.That(vm.ConnectCommand.CanExecute(null), Is.False);
+
+            vm.DatabaseName = Database;
+            Assert.That(vm.ConnectCommand.CanExecute(null), Is.True);
+        }
+
         // ---------- Setup ----------
 
         [Test]

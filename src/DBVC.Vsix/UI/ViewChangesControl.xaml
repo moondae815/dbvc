@@ -9,7 +9,21 @@
     </UserControl.Resources>
 
     <Grid>
-        <Grid Visibility="{Binding IsInitialized, Converter={StaticResource BoolToVis}}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 대상 데이터베이스 지정 -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="5,5,5,0">
+            <TextBlock Text="Server:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <TextBox Text="{Binding ServerName, UpdateSourceTrigger=PropertyChanged}" Width="140" Margin="0,0,10,0"/>
+            <TextBlock Text="Database:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <TextBox Text="{Binding DatabaseName, UpdateSourceTrigger=PropertyChanged}" Width="140" Margin="0,0,10,0"/>
+            <Button Content="Connect" Command="{Binding ConnectCommand}" Width="80"/>
+        </StackPanel>
+
+        <Grid Grid.Row="1" Visibility="{Binding IsInitialized, Converter={StaticResource BoolToVis}}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -68,7 +82,7 @@
         </Grid>
 
         <!-- The Setup Overlay -->
-        <Grid Visibility="{Binding IsInitialized, Converter={StaticResource InverseBoolToVis}}" Background="#F0F0F0">
+        <Grid Grid.Row="1" Visibility="{Binding IsInitialized, Converter={StaticResource InverseBoolToVis}}" Background="#F0F0F0">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                 <TextBlock Text="This database is not initialized for DBVC." FontSize="16" Margin="0,0,0,20" Foreground="#333333"/>
                 <Button Content="Setup DBVC" Command="{Binding SetupCommand}" Width="150" Height="40" FontSize="14" Cursor="Hand"/>

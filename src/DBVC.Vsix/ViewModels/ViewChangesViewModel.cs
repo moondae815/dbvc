@@ -50,12 +50,36 @@ namespace DBVC.Vsix.ViewModels
             RefreshCommand = new RelayCommand(Refresh);
             SetupCommand = new RelayCommand(Setup);
             CommitCommand = new RelayCommand(Commit, CanCommit);
+            ConnectCommand = new RelayCommand(() => SetContext(ServerName, DatabaseName), () => HasContext);
         }
 
         // ---------- 연결 컨텍스트 ----------
 
-        public string? ServerName { get; private set; }
-        public string? DatabaseName { get; private set; }
+        private string? _serverName;
+        public string? ServerName
+        {
+            get => _serverName;
+            set
+            {
+                if (_serverName == value) return;
+                _serverName = value;
+                OnPropertyChanged();
+                RaiseConnectCanExecuteChanged();
+            }
+        }
+
+        private string? _databaseName;
+        public string? DatabaseName
+        {
+            get => _databaseName;
+            set
+            {
+                if (_databaseName == value) return;
+                _databaseName = value;
+                OnPropertyChanged();
+                RaiseConnectCanExecuteChanged();
+            }
+        }
 
         private bool HasContext => !string.IsNullOrWhiteSpace(ServerName) && !string.IsNullOrWhiteSpace(DatabaseName);
 
@@ -66,8 +90,6 @@ namespace DBVC.Vsix.ViewModels
         {
             ServerName = serverName;
             DatabaseName = databaseName;
-            OnPropertyChanged(nameof(ServerName));
-            OnPropertyChanged(nameof(DatabaseName));
 
             Changes.Clear();
             _lastChangeRecords = new List<ChangeRecord>();
@@ -172,6 +194,12 @@ namespace DBVC.Vsix.ViewModels
         public ICommand RefreshCommand { get; }
         public ICommand SetupCommand { get; }
         public ICommand CommitCommand { get; }
+
+        /// <summary>
+        /// 입력된 서버/데이터베이스를 활성 컨텍스트로 적용한다.
+        /// SSMS Object Explorer 연동이 붙기 전까지 사용자가 대상 DB를 지정하는 경로다.
+        /// </summary>
+        public ICommand ConnectCommand { get; }
 
         // ---------- Setup ----------
 
@@ -303,6 +331,12 @@ namespace DBVC.Vsix.ViewModels
         private void RaiseCommitCanExecuteChanged()
         {
             (CommitCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
+
+        private void RaiseConnectCanExecuteChanged()
+        {
+            (ConnectCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            RaiseCommitCanExecuteChanged();
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
