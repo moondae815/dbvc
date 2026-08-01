@@ -552,10 +552,13 @@ namespace DBVC.Vsix.Tests.ViewModels
         [Test]
         public void SetContext_ClearsTheSelection()
         {
+            // Server/Database로 SetContext를 호출하면 매핑·초기화 상태를 만족해 Refresh()로 이어지고,
+            // Refresh 자체가 선택을 지운다 - 그 경로로는 SetContext가 스스로 선택을 지우는지 검증할 수 없다.
+            // 컨텍스트를 비우는 경로(null, null)는 Refresh를 타지 않으므로 SetContext 자체의 동작을 증명한다.
             var vm = NewConnectedViewModel();
             vm.SelectedChange = new ChangeItemViewModel { ObjectName = "dbo.Users", RelativePath = "dbo/Tables/Users.sql" };
 
-            vm.SetContext(Server, Database);
+            vm.SetContext(null, null);
 
             Assert.That(vm.SelectedChange, Is.Null);
         }
@@ -579,6 +582,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         [Test]
         public void PullCommand_PullsWithoutAsking_WhenTheWorkingTreeIsClean()
         {
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(true);
             var vm = NewConnectedViewModel();
 
             vm.PullCommand.Execute(null);
@@ -592,6 +596,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _git.Setup(g => g.GetChangedFiles(It.IsAny<string>()))
                 .Returns(new List<string> { "dbo/Tables/Users.sql", "dbo/Views/vw_Sales.sql" });
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(true);
             var vm = NewConnectedViewModel();
 
             vm.PullCommand.Execute(null);
@@ -599,6 +604,20 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(_notifier.ConfirmCallCount, Is.EqualTo(1),
                 "충돌 시 hard reset으로 미커밋 변경이 사라지므로 먼저 알려야 합니다");
             _git.Verify(g => g.PullChanges(Server, Database), Times.Once);
+        }
+
+        [Test]
+        public void PullCommand_ReportsAMissingMapping_WhenPullChangesReturnsFalse()
+        {
+            // PullChanges가 false를 돌려주는 경우: GitManager 안에서 매핑을 다시 찾지 못한 경우다.
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(false);
+            var vm = NewConnectedViewModel();
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(_notifier.Errors, Has.Count.EqualTo(1));
+            Assert.That(_notifier.Errors[0], Does.Contain("매핑된 Git 저장소를 찾을 수 없습니다"));
+            Assert.That(_notifier.Infos, Is.Empty, "실패했는데 성공 알림이 뜨면 안 됩니다");
         }
 
         [Test]
@@ -629,6 +648,8 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(_notifier.Errors[0], Does.Contain("충돌"));
             Assert.That(_notifier.ErrorCalls[0].Title, Does.Contain("중단"),
                 "병합 충돌 분기는 '실패'가 아니라 '중단' 타이틀을 써야 합니다 - 이 분기가 삭제되면 실패해야 합니다");
+            Assert.That(_notifier.Infos, Is.Empty,
+                "병합 충돌로 중단됐는데 성공 알림까지 뜨면 안 됩니다 - catch 끝의 return이 지워지면 실패해야 합니다");
         }
 
         [Test]
@@ -642,6 +663,8 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(_notifier.Errors, Has.Count.EqualTo(1));
             Assert.That(_notifier.Errors[0], Does.Contain("원격"));
+            Assert.That(_notifier.Infos, Is.Empty,
+                "예기치 못한 실패인데 성공 알림까지 뜨면 안 됩니다 - catch 끝의 return이 지워지면 실패해야 합니다");
         }
 
         [Test]
@@ -654,6 +677,38 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(_notifier.Infos, Has.Count.EqualTo(1));
             Assert.That(_notifier.Errors, Is.Empty);
+        }
+
+        [Test]
+        public void PullCommand_ReloadsHistoryAndRendersDiff_AfterASuccessfulPull()
+        {
+            // Pull의 목적 자체가 새 커밋을 받는 것이므로, 성공 직후에는
+            // History 탭과 Diff 탭이 Pull 이전 HEAD가 아니라 새 HEAD를 보여줘야 한다.
+            var beforePull = new List<CommitInfo>
+            {
+                new CommitInfo { Sha = "aaa1111111", Message = "이전 커밋", Author = "Tester", Date = DateTimeOffset.Now }
+            };
+            var afterPull = new List<CommitInfo>
+            {
+                new CommitInfo { Sha = "bbb2222222", Message = "새 커밋", Author = "Tester", Date = DateTimeOffset.Now },
+                new CommitInfo { Sha = "aaa1111111", Message = "이전 커밋", Author = "Tester", Date = DateTimeOffset.Now }
+            };
+            _git.SetupSequence(g => g.GetHistory(Server, Database, "dbo/Tables/Users.sql"))
+                .Returns(beforePull)
+                .Returns(afterPull);
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(true);
+            var vm = NewConnectedViewModel();
+            vm.SelectedChange = new ChangeItemViewModel { ObjectName = "dbo.Users", RelativePath = "dbo/Tables/Users.sql" };
+            Assert.That(vm.History.Entries.Select(e => e.ShortSha), Is.EqualTo(new[] { "aaa1111" }), "선행 조건: Pull 이전 이력");
+            int selectionChangedCount = 0;
+            vm.SelectionChanged += (_, __) => selectionChangedCount++;
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(vm.History.Entries.Select(e => e.ShortSha), Is.EqualTo(new[] { "bbb2222", "aaa1111" }),
+                "Pull 성공 후 History 탭이 새 커밋을 반영해야 합니다");
+            Assert.That(selectionChangedCount, Is.EqualTo(1),
+                "Pull 성공 후 Diff 탭이 새 HEAD로 다시 렌더링되어야 합니다");
         }
 
         [Test]
