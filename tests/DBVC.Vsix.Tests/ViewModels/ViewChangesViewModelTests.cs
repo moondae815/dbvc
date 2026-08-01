@@ -58,6 +58,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             _stateTracker.Setup(s => s.RefreshState(Server, Database)).Returns(true);
             _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>());
             _smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null)).Returns(new ScriptResult());
+            _git.Setup(g => g.GetChangedFiles(It.IsAny<string>())).Returns(new List<string>());
 
             _cleaner = new Mock<IWorkingTreeCleaner>();
             _cleaner.Setup(c => c.RemoveDeletedObjectFiles(It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()))
@@ -495,6 +496,114 @@ namespace DBVC.Vsix.Tests.ViewModels
                 "유효하지 않은 경로를 저장하면 이후 모든 동작이 조용히 실패합니다");
         }
 
+        // ---------- Pull ----------
+
+        [Test]
+        public void PullCommand_IsEnabled_WhenTheDatabaseIsMapped()
+        {
+            Assert.That(NewConnectedViewModel().PullCommand.CanExecute(null), Is.True);
+        }
+
+        [Test]
+        public void PullCommand_IsDisabled_WhenTheDatabaseIsNotMapped()
+        {
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+
+            Assert.That(NewConnectedViewModel().PullCommand.CanExecute(null), Is.False);
+        }
+
+        [Test]
+        public void PullCommand_PullsWithoutAsking_WhenTheWorkingTreeIsClean()
+        {
+            var vm = NewConnectedViewModel();
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(_notifier.ConfirmCallCount, Is.Zero, "잃을 것이 없으면 묻지 않습니다");
+            _git.Verify(g => g.PullChanges(Server, Database), Times.Once);
+        }
+
+        [Test]
+        public void PullCommand_AsksForConfirmation_WhenUncommittedChangesExist()
+        {
+            _git.Setup(g => g.GetChangedFiles(It.IsAny<string>()))
+                .Returns(new List<string> { "dbo/Tables/Users.sql", "dbo/Views/vw_Sales.sql" });
+            var vm = NewConnectedViewModel();
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(_notifier.ConfirmCallCount, Is.EqualTo(1),
+                "충돌 시 hard reset으로 미커밋 변경이 사라지므로 먼저 알려야 합니다");
+            _git.Verify(g => g.PullChanges(Server, Database), Times.Once);
+        }
+
+        [Test]
+        public void PullCommand_DoesNotPull_WhenTheUserCancelsTheConfirmation()
+        {
+            _git.Setup(g => g.GetChangedFiles(It.IsAny<string>()))
+                .Returns(new List<string> { "dbo/Tables/Users.sql" });
+            _notifier.ConfirmResult = false;
+            var vm = NewConnectedViewModel();
+
+            vm.PullCommand.Execute(null);
+
+            _git.Verify(g => g.PullChanges(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            Assert.That(_notifier.Errors, Is.Empty, "취소는 오류가 아닙니다");
+        }
+
+        [Test]
+        public void PullCommand_ReportsAMergeConflict()
+        {
+            _git.Setup(g => g.PullChanges(Server, Database))
+                .Throws(new MergeConflictException("병합 충돌이 발생하여 Pull을 중단했습니다."));
+            var vm = NewConnectedViewModel();
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(_notifier.Errors, Has.Count.EqualTo(1));
+            Assert.That(_notifier.Errors[0], Does.Contain("충돌"));
+        }
+
+        [Test]
+        public void PullCommand_ReportsAnUnexpectedFailure()
+        {
+            _git.Setup(g => g.PullChanges(Server, Database))
+                .Throws(new InvalidOperationException("원격(remote)이 설정되어 있지 않습니다."));
+            var vm = NewConnectedViewModel();
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(_notifier.Errors, Has.Count.EqualTo(1));
+            Assert.That(_notifier.Errors[0], Does.Contain("원격"));
+        }
+
+        [Test]
+        public void PullCommand_NotifiesOnSuccess()
+        {
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(true);
+            var vm = NewConnectedViewModel();
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(_notifier.Infos, Has.Count.EqualTo(1));
+            Assert.That(_notifier.Errors, Is.Empty);
+        }
+
+        [Test]
+        public void PullCommand_DoesNotRefresh_AfterASuccessfulPull()
+        {
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(true);
+            var vm = NewConnectedViewModel();
+            _smo.Invocations.Clear();
+
+            vm.PullCommand.Execute(null);
+
+            _smo.Verify(
+                s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>?>()),
+                Times.Never,
+                "Pull 직후 Refresh하면 방금 받은 원격 변경이 SMO 추출로 즉시 덮어써집니다");
+        }
+
         // ---------- Commit ----------
 
         [Test]
@@ -809,8 +918,21 @@ namespace DBVC.Vsix.Tests.ViewModels
         private sealed class RecordingNotifier : IUserNotifier
         {
             public List<string> Errors { get; } = new List<string>();
+            public List<string> Infos { get; } = new List<string>();
+
+            /// <summary>Confirm의 응답. 기본이 "계속"이라 기존 테스트의 동작이 바뀌지 않는다.</summary>
+            public bool ConfirmResult { get; set; } = true;
+            public int ConfirmCallCount { get; private set; }
 
             public void ShowError(string title, string message) => Errors.Add(message);
+
+            public void ShowInfo(string title, string message) => Infos.Add(message);
+
+            public bool Confirm(string title, string message)
+            {
+                ConfirmCallCount++;
+                return ConfirmResult;
+            }
         }
 
         private sealed class RecordingFolderDialog : IFolderBrowseDialog

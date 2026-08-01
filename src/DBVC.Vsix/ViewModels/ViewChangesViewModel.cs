@@ -71,6 +71,7 @@ namespace DBVC.Vsix.ViewModels
             CommitCommand = new RelayCommand(Commit, CanCommit);
             ConnectCommand = new RelayCommand(() => SetContext(ServerName, DatabaseName), () => HasContext);
             ConnectRepositoryCommand = new RelayCommand(ConnectRepository, CanConnectRepository);
+            PullCommand = new RelayCommand(Pull, CanPull);
             GenerateDeploymentScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Deployment), CanGenerateScript);
             GenerateRollbackScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Rollback), CanGenerateScript);
         }
@@ -229,11 +230,68 @@ namespace DBVC.Vsix.ViewModels
         /// </summary>
         public ICommand ConnectRepositoryCommand { get; }
 
+        /// <summary>원격 저장소의 변경을 로컬 저장소로 가져온다. (Feature 6)</summary>
+        public ICommand PullCommand { get; }
+
         /// <summary>선택된 객체들의 현재 DDL을 단일 스크립트로 내보낸다. (Feature 8)</summary>
         public ICommand GenerateDeploymentScriptCommand { get; }
 
         /// <summary>선택된 객체들의 마지막 커밋 직전 코드를 단일 스크립트로 내보낸다. (Feature 9)</summary>
         public ICommand GenerateRollbackScriptCommand { get; }
+
+        // ---------- Pull ----------
+
+        private bool CanPull() => HasContext && IsMapped;
+
+        private void Pull()
+        {
+            if (!CanPull()) return;
+
+            var mapping = _configManager.TryGetMapping(ServerName!, DatabaseName!);
+            if (mapping == null) return;
+
+            // 충돌이 나면 GitManager가 hard reset으로 병합을 되돌리는데,
+            // 그때 추적 중인 파일의 미커밋 변경도 함께 사라진다. 먼저 알린다.
+            var pending = _gitManager.GetChangedFiles(mapping.GitPath);
+            if (pending.Count > 0)
+            {
+                var proceed = _notifier.Confirm(
+                    "DBVC Pull",
+                    $"커밋하지 않은 변경 {pending.Count}개가 있습니다." + Environment.NewLine +
+                    "Pull 중 충돌이 발생하면 병합을 되돌리면서 이 변경도 함께 사라집니다." + Environment.NewLine +
+                    "(Refresh로 데이터베이스에서 다시 추출할 수 있습니다)" + Environment.NewLine + Environment.NewLine +
+                    "계속하시겠습니까?");
+
+                // 취소는 오류가 아니다.
+                if (!proceed) return;
+            }
+
+            try
+            {
+                if (!_gitManager.PullChanges(ServerName!, DatabaseName!))
+                {
+                    _notifier.ShowError("DBVC Pull 실패", "매핑된 Git 저장소를 찾을 수 없습니다.");
+                    return;
+                }
+            }
+            catch (MergeConflictException ex)
+            {
+                // GitManager가 이미 병합을 되돌렸고 안내 문구도 담고 있다.
+                _notifier.ShowError("DBVC Pull 중단", ex.Message);
+                return;
+            }
+            catch (Exception ex)
+            {
+                _notifier.ShowError("DBVC Pull 실패", ex.Message);
+                return;
+            }
+
+            // 여기서 Refresh를 부르면 안 된다. SMO 추출이 방금 받은 원격 변경을 즉시 덮어쓴다.
+            _notifier.ShowInfo(
+                "DBVC Pull",
+                "원격 저장소의 변경을 가져왔습니다." + Environment.NewLine +
+                "받은 스크립트를 확인한 뒤 필요하면 데이터베이스에 적용하세요.");
+        }
 
         // ---------- 저장소 매핑 ----------
 
@@ -511,6 +569,7 @@ namespace DBVC.Vsix.ViewModels
             (GenerateDeploymentScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GenerateRollbackScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (ConnectRepositoryCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (PullCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
 
         private void RaiseConnectCanExecuteChanged()
