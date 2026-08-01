@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  # .NET Framework 4.8 타깃은 Windows에서만 실행할 수 있다.
+  # Microsoft.Data.SqlClient는 net462 구현체를 runtimes/win 아래에만 배포하므로
+  # Mono를 포함한 비Windows 환경에서는 net48 테스트를 실행할 수 없다.
+  windows:
+    name: Windows (net48 + net10.0)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: NuGet 패키지 캐시
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
+      - name: 빌드 (전체 타깃)
+        run: dotnet build DBVC.slnx -c Release
+
+      # 이 저장소의 주 개발 환경(macOS)에서 실행할 수 없는 유일한 검증 대상이다.
+      - name: 테스트 - DBVC.Core (net48)
+        run: dotnet test tests/DBVC.Core.Tests -f net48 -c Release --logger "trx;LogFileName=core-net48.trx" --results-directory TestResults
+
+      - name: 테스트 - DBVC.Vsix (net48)
+        run: dotnet test tests/DBVC.Vsix.Tests -f net48 -c Release --logger "trx;LogFileName=vsix-net48.trx" --results-directory TestResults
+
+      # net48과의 동작 차이를 드러내기 위해 같은 러너에서 함께 돌린다.
+      - name: 테스트 - DBVC.Core (net10.0)
+        run: dotnet test tests/DBVC.Core.Tests -f net10.0 -c Release --logger "trx;LogFileName=core-net10.trx" --results-directory TestResults
+
+      - name: 테스트 - DBVC.Vsix (net10.0)
+        run: dotnet test tests/DBVC.Vsix.Tests -f net10.0 -c Release --logger "trx;LogFileName=vsix-net10.trx" --results-directory TestResults
+
+      - name: 테스트 결과 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-windows
+          path: TestResults/*.trx
+          if-no-files-found: warn
+
+  # 주 개발 환경(macOS/Linux)에서 빌드가 깨지지 않는지 확인한다.
+  # net48 어셈블리 컴파일은 참조 어셈블리로 가능하지만 실행은 불가능하므로 테스트는 net10.0만 돈다.
+  crossplatform:
+    name: Linux (빌드 + net10.0)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: NuGet 패키지 캐시
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
+      - name: 빌드 (전체 타깃)
+        run: dotnet build DBVC.slnx -c Release
+
+      - name: 테스트 (net10.0)
+        run: |
+          dotnet test tests/DBVC.Core.Tests -f net10.0 -c Release
+          dotnet test tests/DBVC.Vsix.Tests -f net10.0 -c Release
+
+  # .vsct 컴파일과 pkgdef 생성은 Windows의 VS SDK(Microsoft.VSSDK.BuildTools)가 필요하다.
+  # 주의: 이 단계는 아직 한 번도 실제로 성공을 확인한 적이 없다.
+  #       실패하면 VSSDK.BuildTools 버전이나 SDK 스타일 프로젝트 호환성을 조정해야 한다.
+  vsix:
+    name: VSIX 패키징 (미검증)
+    runs-on: windows-latest
+    needs: windows
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: NuGet 패키지 캐시
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
+      - name: VSIX 빌드
+        run: msbuild src/DBVC.Vsix/DBVC.Vsix.csproj -restore -p:Configuration=Release -p:DeployExtension=false
+
+      - name: .vsix 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbvc-vsix
+          path: src/DBVC.Vsix/bin/Release/**/*.vsix
+          if-no-files-found: error
