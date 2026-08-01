@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -25,6 +26,8 @@ namespace DBVC.Vsix.ViewModels
         private readonly IGitManager _gitManager;
         private readonly ISmoManager _smoManager;
         private readonly IUserNotifier _notifier;
+        private readonly IFileSaveDialog _saveDialog;
+        private readonly ScriptExporter _scriptExporter;
 
         /// <summary>새로고침 시점의 변경 레코드. 커밋 후 처리 완료 표시에 사용한다.</summary>
         private IReadOnlyList<ChangeRecord> _lastChangeRecords = new List<ChangeRecord>();
@@ -39,18 +42,23 @@ namespace DBVC.Vsix.ViewModels
             IStateTracker? stateTracker,
             IGitManager? gitManager,
             ISmoManager? smoManager,
-            IUserNotifier? notifier)
+            IUserNotifier? notifier,
+            IFileSaveDialog? saveDialog = null)
         {
             _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
             _gitManager = gitManager ?? new GitManager(_configManager);
             _stateTracker = stateTracker ?? new StateTracker(_configManager, _gitManager);
             _smoManager = smoManager ?? new SmoManager(_configManager);
             _notifier = notifier ?? new MessageBoxNotifier();
+            _saveDialog = saveDialog ?? new SaveFileDialogAdapter();
+            _scriptExporter = new ScriptExporter(_configManager, _gitManager);
 
             RefreshCommand = new RelayCommand(Refresh);
             SetupCommand = new RelayCommand(Setup);
             CommitCommand = new RelayCommand(Commit, CanCommit);
             ConnectCommand = new RelayCommand(() => SetContext(ServerName, DatabaseName), () => HasContext);
+            GenerateDeploymentScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Deployment), CanGenerateScript);
+            GenerateRollbackScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Rollback), CanGenerateScript);
         }
 
         // ---------- 연결 컨텍스트 ----------
@@ -201,6 +209,12 @@ namespace DBVC.Vsix.ViewModels
         /// </summary>
         public ICommand ConnectCommand { get; }
 
+        /// <summary>선택된 객체들의 현재 DDL을 단일 스크립트로 내보낸다. (Feature 8)</summary>
+        public ICommand GenerateDeploymentScriptCommand { get; }
+
+        /// <summary>선택된 객체들의 마지막 커밋 직전 코드를 단일 스크립트로 내보낸다. (Feature 9)</summary>
+        public ICommand GenerateRollbackScriptCommand { get; }
+
         // ---------- Setup ----------
 
         private void Setup()
@@ -328,9 +342,83 @@ namespace DBVC.Vsix.ViewModels
             }
         }
 
+        // ---------- Deployment / Rollback 스크립트 ----------
+
+        private bool CanGenerateScript()
+        {
+            // 커밋과 달리 커밋 메시지는 필요 없다.
+            return HasContext && IsMapped && IsInitialized && Changes.Any(c => c.IsSelected);
+        }
+
+        private void GenerateScript(ScriptKind kind)
+        {
+            if (!CanGenerateScript()) return;
+
+            var result = _scriptExporter.Export(
+                ServerName!, DatabaseName!, GetSelectedRecords(), kind, DateTimeOffset.Now);
+
+            if (!result.HasContent)
+            {
+                WarningMessage = result.ExcludedObjects.Count > 0
+                    ? $"내보낼 내용이 없습니다. 제외된 객체: {string.Join(", ", result.ExcludedObjects)}"
+                    : "내보낼 내용이 없습니다.";
+                return;
+            }
+
+            var kindLabel = kind == ScriptKind.Rollback ? "Rollback" : "Deployment";
+            var targetPath = _saveDialog.PromptForSavePath(
+                $"DBVC {kindLabel} Script 저장",
+                $"DBVC_{kindLabel}_{DatabaseName}.sql");
+
+            // 사용자가 취소한 경우다. 오류가 아니다.
+            if (string.IsNullOrWhiteSpace(targetPath)) return;
+
+            try
+            {
+                File.WriteAllText(targetPath!, result.Script);
+            }
+            catch (Exception ex)
+            {
+                _notifier.ShowError($"DBVC {kindLabel} Script 저장 실패", ex.Message);
+                return;
+            }
+
+            WarningMessage = result.ExcludedObjects.Count > 0
+                ? $"{result.IncludedCount}개 객체를 내보냈습니다. 제외된 객체: {string.Join(", ", result.ExcludedObjects)}"
+                : null;
+        }
+
+        /// <summary>체크된 항목에 대응하는 변경 레코드를 돌려준다.</summary>
+        private List<ChangeRecord> GetSelectedRecords()
+        {
+            var selected = Changes.Where(c => c.IsSelected).ToList();
+            var byName = _lastChangeRecords.ToDictionary(r => r.QualifiedName, StringComparer.OrdinalIgnoreCase);
+
+            var records = new List<ChangeRecord>();
+            foreach (var item in selected)
+            {
+                if (item.ObjectName != null && byName.TryGetValue(item.ObjectName, out var record))
+                {
+                    records.Add(record);
+                    continue;
+                }
+
+                // 새로고침 이후 추가된 항목은 화면의 정보만으로 구성한다.
+                records.Add(new ChangeRecord
+                {
+                    QualifiedName = item.ObjectName ?? string.Empty,
+                    RelativePath = item.RelativePath ?? string.Empty,
+                    State = item.State ?? string.Empty
+                });
+            }
+            return records;
+        }
+
         private void RaiseCommitCanExecuteChanged()
         {
             (CommitCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (GenerateDeploymentScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (GenerateRollbackScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
 
         private void RaiseConnectCanExecuteChanged()

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Moq;
 using NUnit.Framework;
@@ -21,10 +22,26 @@ namespace DBVC.Vsix.Tests.ViewModels
         private Mock<IGitManager> _git = null!;
         private Mock<ISmoManager> _smo = null!;
         private RecordingNotifier _notifier = null!;
+        private RecordingSaveDialog _saveDialog = null!;
+        private readonly List<string> _tempDirs = new List<string>();
+
+        [TearDown]
+        public void TearDown()
+        {
+            foreach (var dir in _tempDirs)
+            {
+                if (Directory.Exists(dir))
+                {
+                    try { Directory.Delete(dir, true); } catch { }
+                }
+            }
+            _tempDirs.Clear();
+        }
 
         [SetUp]
         public void SetUp()
         {
+            _saveDialog = new RecordingSaveDialog();
             _config = new Mock<IConfigManager>();
             _stateTracker = new Mock<IStateTracker>();
             _git = new Mock<IGitManager>();
@@ -42,7 +59,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
         private ViewChangesViewModel NewViewModel()
         {
-            return new ViewChangesViewModel(_config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier);
+            return new ViewChangesViewModel(_config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog);
         }
 
         private ViewChangesViewModel NewConnectedViewModel()
@@ -403,6 +420,150 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.CommitMessage = "msg";
 
             Assert.That(vm.CommitCommand.CanExecute(null), Is.True);
+        }
+
+        // ---------- Deployment / Rollback 스크립트 ----------
+
+        /// <summary>변경 목록 1건이 있고 작업 트리에 해당 파일이 있는 VM을 만든다.</summary>
+        private ViewChangesViewModel NewViewModelWithOneCheckedChange(out string repoPath)
+        {
+            repoPath = Path.Combine(Path.GetTempPath(), "dbvc_vm_" + Guid.NewGuid().ToString("N"));
+            var sqlPath = Path.Combine(repoPath, "dbo", "Tables", "Users.sql");
+            Directory.CreateDirectory(Path.GetDirectoryName(sqlPath)!);
+            File.WriteAllText(sqlPath, "CREATE TABLE Users (Id INT);");
+            _tempDirs.Add(repoPath);
+
+            _config.Setup(c => c.TryGetMapping(Server, Database))
+                .Returns(new MappingConfig { ServerName = Server, DatabaseName = Database, GitPath = repoPath });
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql")
+            });
+
+            var vm = NewConnectedViewModel();
+            vm.RefreshCommand.Execute(null);
+            vm.Changes[0].IsSelected = true;
+            return vm;
+        }
+
+        [Test]
+        public void GenerateDeploymentScriptCommand_WritesTheMergedScriptToTheChosenPath()
+        {
+            var vm = NewViewModelWithOneCheckedChange(out var repoPath);
+            var outputPath = Path.Combine(repoPath, "deploy.sql");
+            _saveDialog.PathToReturn = outputPath;
+
+            vm.GenerateDeploymentScriptCommand.Execute(null);
+
+            Assert.That(File.Exists(outputPath), Is.True);
+            var script = File.ReadAllText(outputPath);
+            Assert.That(script, Does.Contain("DBVC Deployment Script"));
+            Assert.That(script, Does.Contain("CREATE TABLE Users (Id INT);"));
+        }
+
+        [Test]
+        public void GenerateDeploymentScriptCommand_DoesNothing_WhenTheUserCancelsTheSaveDialog()
+        {
+            var vm = NewViewModelWithOneCheckedChange(out var repoPath);
+            _saveDialog.PathToReturn = null; // 취소
+
+            Assert.DoesNotThrow(() => vm.GenerateDeploymentScriptCommand.Execute(null));
+
+            Assert.That(Directory.GetFiles(repoPath, "*.sql", SearchOption.TopDirectoryOnly), Is.Empty);
+            Assert.That(_notifier.Errors, Is.Empty, "취소는 오류가 아닙니다");
+        }
+
+        [Test]
+        public void GenerateRollbackScriptCommand_UsesThePreviousRevisionFromGit()
+        {
+            var vm = NewViewModelWithOneCheckedChange(out var repoPath);
+            _git.Setup(g => g.GetFileContentBeforeLastCommit(Server, Database, "dbo/Tables/Users.sql"))
+                .Returns("CREATE TABLE Users (Id INT, OldCol INT);");
+            var outputPath = Path.Combine(repoPath, "rollback.sql");
+            _saveDialog.PathToReturn = outputPath;
+
+            vm.GenerateRollbackScriptCommand.Execute(null);
+
+            var script = File.ReadAllText(outputPath);
+            Assert.That(script, Does.Contain("DBVC Rollback Script"));
+            Assert.That(script, Does.Contain("OldCol"));
+        }
+
+        [Test]
+        public void GenerateRollbackScriptCommand_WarnsAndSkipsSave_WhenNoObjectHasAPreviousRevision()
+        {
+            var vm = NewViewModelWithOneCheckedChange(out _);
+            _git.Setup(g => g.GetFileContentBeforeLastCommit(Server, Database, It.IsAny<string>()))
+                .Returns((string?)null);
+
+            vm.GenerateRollbackScriptCommand.Execute(null);
+
+            Assert.That(_saveDialog.CallCount, Is.EqualTo(0), "저장할 내용이 없으면 대화상자를 띄우지 않아야 합니다");
+            Assert.That(vm.WarningMessage, Does.Contain("dbo.Users"));
+        }
+
+        [Test]
+        public void GenerateDeploymentScriptCommand_ReportsExcludedObjectsAfterSaving()
+        {
+            var vm = NewViewModelWithOneCheckedChange(out var repoPath);
+            // 파일이 없는 두 번째 객체를 목록에 추가한다.
+            vm.Changes.Add(new ChangeItemViewModel
+            {
+                ObjectName = "dbo.Gone",
+                State = "Modified",
+                RelativePath = "dbo/Tables/Gone.sql",
+                IsSelected = true
+            });
+            _saveDialog.PathToReturn = Path.Combine(repoPath, "deploy.sql");
+
+            vm.GenerateDeploymentScriptCommand.Execute(null);
+
+            Assert.That(vm.WarningMessage, Does.Contain("dbo.Gone"));
+        }
+
+        [Test]
+        public void GenerateScriptCommands_CannotExecute_WhenNothingIsChecked()
+        {
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.GenerateDeploymentScriptCommand.CanExecute(null), Is.False);
+            Assert.That(vm.GenerateRollbackScriptCommand.CanExecute(null), Is.False);
+        }
+
+        [Test]
+        public void GenerateScriptCommands_DoNotRequireACommitMessage()
+        {
+            var vm = NewViewModelWithOneCheckedChange(out _);
+            vm.CommitMessage = null;
+
+            Assert.That(vm.GenerateDeploymentScriptCommand.CanExecute(null), Is.True);
+            Assert.That(vm.CommitCommand.CanExecute(null), Is.False);
+        }
+
+        [Test]
+        public void GenerateDeploymentScriptCommand_Notifies_WhenWritingTheFileFails()
+        {
+            var vm = NewViewModelWithOneCheckedChange(out var repoPath);
+            // 디렉터리 경로를 파일 경로로 주면 쓰기가 실패한다.
+            _saveDialog.PathToReturn = repoPath;
+
+            Assert.DoesNotThrow(() => vm.GenerateDeploymentScriptCommand.Execute(null));
+
+            Assert.That(_notifier.Errors, Has.Count.EqualTo(1));
+        }
+
+        private sealed class RecordingSaveDialog : IFileSaveDialog
+        {
+            public string? PathToReturn { get; set; }
+            public int CallCount { get; private set; }
+            public string? LastDefaultFileName { get; private set; }
+
+            public string? PromptForSavePath(string title, string defaultFileName)
+            {
+                CallCount++;
+                LastDefaultFileName = defaultFileName;
+                return PathToReturn;
+            }
         }
 
         private sealed class RecordingNotifier : IUserNotifier

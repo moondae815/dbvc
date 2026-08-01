@@ -129,7 +129,7 @@ namespace DBVC.Core.Tests
             };
 
             Assert.That(ScriptGenerator.BuildScript(sections, ScriptKind.Deployment, GeneratedAt),
-                Is.EqualTo(ScriptGenerator.BuildScript(sections.Reverse().ToArray(), ScriptKind.Deployment, GeneratedAt)));
+                Is.EqualTo(ScriptGenerator.BuildScript(Enumerable.Reverse(sections).ToArray(), ScriptKind.Deployment, GeneratedAt)));
         }
 
         private static int IndexOf(string script, string needle)

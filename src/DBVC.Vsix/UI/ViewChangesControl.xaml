@@ -38,7 +38,11 @@
                 <TextBox Text="{Binding CommitMessage, UpdateSourceTrigger=PropertyChanged}"
                          Width="240" Margin="0,0,10,0"
                          IsEnabled="{Binding IsMapped}"/>
-                <Button Content="Commit" Command="{Binding CommitCommand}" Width="70" />
+                <Button Content="Commit" Command="{Binding CommitCommand}" Width="70" Margin="0,0,16,0" />
+                <Button Content="Deployment Script" Command="{Binding GenerateDeploymentScriptCommand}" Width="130" Margin="0,0,6,0"
+                        ToolTip="선택한 객체의 현재 DDL을 단일 .sql 파일로 병합합니다." />
+                <Button Content="Rollback Script" Command="{Binding GenerateRollbackScriptCommand}" Width="120"
+                        ToolTip="선택한 객체가 마지막으로 커밋되기 직전 코드를 단일 .sql 파일로 병합합니다." />
             </StackPanel>
 
             <!-- 매핑 누락 / 부분 실패 경고 -->
