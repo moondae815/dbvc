@@ -36,6 +36,7 @@ namespace DBVC.Core
         bool PullChanges(string serverName, string databaseName);
         IReadOnlyList<CommitInfo> GetHistory(string serverName, string databaseName, string relativeFilePath);
         string? GetFileContentAtHead(string serverName, string databaseName, string relativeFilePath);
+        string? GetFileContentBeforeLastCommit(string serverName, string databaseName, string relativeFilePath);
     }
 
     public interface ISmoManager

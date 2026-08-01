@@ -310,6 +310,62 @@ namespace DBVC.Core.Tests
                 "신규 객체는 Git에 없으므로 null이어야 하고, Diff는 좌측을 비워 표시할 수 있어야 합니다");
         }
 
+        // ---------- GetFileContentBeforeLastCommit (Rollback) ----------
+
+        [Test]
+        public void GetFileContentBeforeLastCommit_ReturnsTheStateJustBeforeTheMostRecentCommit()
+        {
+            var repoPath = NewRepoWithCommit();
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT, Name NVARCHAR(50));");
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "*");
+                repo.Commit("second", TestSignature, TestSignature);
+            }
+            var git = NewGitManager("localhost", "testdb", repoPath);
+
+            var content = git.GetFileContentBeforeLastCommit("localhost", "testdb", "dbo/Tables/Users.sql");
+
+            Assert.That(content, Is.EqualTo("CREATE TABLE Users (Id INT);"),
+                "Rollback은 마지막 커밋 직전 상태를 되살려야 합니다");
+        }
+
+        [Test]
+        public void GetFileContentBeforeLastCommit_ReturnsNull_WhenTheFileWasOnlyEverCommittedOnce()
+        {
+            // 최초 생성 이후 수정이 없으면 되돌릴 이전 상태가 없다.
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager("localhost", "testdb", repoPath);
+
+            Assert.That(git.GetFileContentBeforeLastCommit("localhost", "testdb", "dbo/Tables/Users.sql"), Is.Null);
+        }
+
+        [Test]
+        public void GetFileContentBeforeLastCommit_ReturnsNull_ForFileWithNoHistory()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager("localhost", "testdb", repoPath);
+
+            Assert.That(git.GetFileContentBeforeLastCommit("localhost", "testdb", "dbo/Tables/Nope.sql"), Is.Null);
+        }
+
+        [Test]
+        public void GetFileContentBeforeLastCommit_ReturnsPriorContent_EvenWhenTheFileWasLaterDeleted()
+        {
+            var repoPath = NewRepoWithCommit();
+            File.Delete(Path.Combine(repoPath, "dbo", "Tables", "Users.sql"));
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "*");
+                repo.Commit("drop users", TestSignature, TestSignature);
+            }
+            var git = NewGitManager("localhost", "testdb", repoPath);
+
+            Assert.That(git.GetFileContentBeforeLastCommit("localhost", "testdb", "dbo/Tables/Users.sql"),
+                Is.EqualTo("CREATE TABLE Users (Id INT);"),
+                "삭제된 객체야말로 Rollback 대상이므로 이전 내용을 복원할 수 있어야 합니다");
+        }
+
         // ---------- PullChanges ----------
 
         [Test]

@@ -258,6 +258,47 @@ namespace DBVC.Core
             }
         }
 
+        /// <summary>
+        /// 파일을 마지막으로 수정한 커밋의 **직전** 내용을 반환한다. (Rollback Script, Feature 9)
+        /// 이력에 한 번만 등장하는(= 이후 수정이 없는) 파일은 되돌릴 상태가 없으므로 <c>null</c>이다.
+        /// </summary>
+        public string? GetFileContentBeforeLastCommit(string serverName, string databaseName, string relativeFilePath)
+        {
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null || string.IsNullOrWhiteSpace(relativeFilePath)) return null;
+
+            try
+            {
+                using var repo = new Repository(repoPath);
+                var path = NormalizePath(relativeFilePath);
+
+                if (repo.Head.Tip?[path] != null)
+                {
+                    // 아직 존재하는 객체: QueryBy가 해당 경로를 변경한 커밋을 최신순으로 준다.
+                    // [0]이 마지막 변경이므로 [1]이 그 직전 상태다.
+                    var previous = repo.Commits.QueryBy(path).Skip(1).FirstOrDefault();
+                    return previous == null ? null : ReadBlobText(previous.Commit, path);
+                }
+
+                // 이미 삭제된 객체: QueryBy는 HEAD에 없는 경로에 대해 빈 결과를 주므로
+                // 커밋을 최신순으로 거슬러 파일이 마지막으로 존재했던 시점의 내용을 찾는다.
+                return repo.Commits
+                    .Select(commit => ReadBlobText(commit, path))
+                    .FirstOrDefault(text => text != null);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"GitManager.GetFileContentBeforeLastCommit failed for '{relativeFilePath}': {ex.Message}");
+                return null;
+            }
+        }
+
+        private static string? ReadBlobText(Commit commit, string path)
+        {
+            var entry = commit?[path];
+            return entry?.Target is Blob blob ? blob.GetContentText() : null;
+        }
+
         private static StatusOptions UntrackedInclusiveOptions => new StatusOptions
         {
             IncludeUntracked = true,

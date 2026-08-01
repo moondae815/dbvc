@@ -83,6 +83,30 @@ namespace DBVC.Core
         };
 
         /// <summary>
+        /// 배포 스크립트에서 객체 타입 그룹을 배치하는 관례적 순서. (script-generation 설계 3.3)
+        /// 의존성 해석이 아니라 결정적 정렬을 위한 것이다.
+        /// </summary>
+        private static readonly Dictionary<string, int> SortOrderByObjectType = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["UserDefinedType"] = 0,
+            ["UserDefinedDataType"] = 0,
+            ["UserDefinedTableType"] = 1,
+            ["Table"] = 2,
+            ["Sequence"] = 3,
+            ["Synonym"] = 4,
+            ["View"] = 5,
+            ["UserDefinedFunction"] = 6,
+            ["StoredProcedure"] = 7,
+            ["Trigger"] = 8
+        };
+
+        public static int GetTypeSortOrder(string? objectType)
+        {
+            if (string.IsNullOrWhiteSpace(objectType)) return int.MaxValue;
+            return SortOrderByObjectType.TryGetValue(objectType!.Trim(), out var order) ? order : int.MaxValue;
+        }
+
+        /// <summary>
         /// <c>dbo/Tables/Users.sql</c> 형태의 상대 경로를 스키마/객체 타입/객체명으로 되돌린다.
         /// 규약에 맞지 않는 경로면 false를 반환한다.
         /// </summary>
