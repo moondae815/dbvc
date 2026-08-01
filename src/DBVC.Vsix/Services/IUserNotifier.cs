@@ -34,7 +34,8 @@ namespace DBVC.Vsix.Services
         public bool Confirm(string title, string message)
         {
             // 되돌릴 수 없는 손실을 경고하는 자리이므로 Warning 아이콘을 쓴다.
-            return MessageBox.Show(message, title, MessageBoxButton.OKCancel, MessageBoxImage.Warning)
+            // 기본 선택도 Cancel로 둔다 - Enter를 무심코 누르면 데이터 손실 경고를 그냥 진행시켜 버린다.
+            return MessageBox.Show(message, title, MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel)
                 == MessageBoxResult.OK;
         }
     }
