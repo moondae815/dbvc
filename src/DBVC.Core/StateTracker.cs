@@ -43,22 +43,49 @@ namespace DBVC.Core
             }
         }
 
+        /// <summary>
+        /// 임베디드 리소스로 포함된 DBVC 설치 스크립트를 읽는다.
+        /// </summary>
+        internal static string ReadInstallScript()
+        {
+            using var stream = typeof(StateTracker).Assembly.GetManifestResourceStream("InstallTrigger.sql");
+            if (stream == null) throw new FileNotFoundException("InstallTrigger.sql not found in embedded resources.");
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd();
+        }
+
+        /// <summary>
+        /// T-SQL 스크립트를 <c>GO</c> 배치 구분자 기준으로 분리한다.
+        /// 객체 이름이나 문자열 리터럴에 포함된 GO와 구분하기 위해 단독 행만 구분자로 취급한다.
+        /// </summary>
+        internal static IReadOnlyList<string> SplitSqlBatches(string script)
+        {
+            if (string.IsNullOrWhiteSpace(script)) return new List<string>();
+
+            var parts = System.Text.RegularExpressions.Regex.Split(
+                script,
+                @"^\s*GO\s*$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Multiline);
+
+            var batches = new List<string>();
+            foreach (var part in parts)
+            {
+                if (string.IsNullOrWhiteSpace(part)) continue;
+                batches.Add(part.Trim());
+            }
+            return batches;
+        }
+
         public void InitializeDatabase(string connectionString)
         {
             if (string.IsNullOrWhiteSpace(connectionString)) throw new ArgumentException("Invalid connection string", nameof(connectionString));
 
-            using var stream = typeof(StateTracker).Assembly.GetManifestResourceStream("InstallTrigger.sql");
-            if (stream == null) throw new FileNotFoundException("InstallTrigger.sql not found in embedded resources.");
-            using var reader = new StreamReader(stream);
-            var script = reader.ReadToEnd();
-
-            var batches = System.Text.RegularExpressions.Regex.Split(script, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Multiline);
+            var batches = SplitSqlBatches(ReadInstallScript());
 
             using var conn = new SqlConnection(connectionString);
             conn.Open();
             foreach (var batch in batches)
             {
-                if (string.IsNullOrWhiteSpace(batch)) continue;
                 using var cmd = conn.CreateCommand();
                 cmd.CommandText = batch;
                 cmd.ExecuteNonQuery();

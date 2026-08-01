@@ -1,3 +1,4 @@
+using System.Linq;
 using NUnit.Framework;
 using DBVC.Core;
 using DBVC.Core.Models;
@@ -105,6 +106,55 @@ namespace DBVC.Core.Tests
         {
             var tracker = new StateTracker();
             Assert.Throws<System.ArgumentException>(() => tracker.InitializeDatabase(""));
+        }
+
+        [Test]
+        public void InstallScript_IsEmbeddedAndSplitsIntoMultipleBatches()
+        {
+            var batches = StateTracker.SplitSqlBatches(StateTracker.ReadInstallScript());
+
+            Assert.That(batches.Count, Is.GreaterThan(1), "설치 스크립트는 GO 기준으로 여러 배치로 나뉘어야 합니다");
+            Assert.That(batches, Has.All.Matches<string>(b => !string.IsNullOrWhiteSpace(b)));
+        }
+
+        [Test]
+        public void InstallScript_PutsCreateTriggerFirstInItsBatch()
+        {
+            // SQL Server는 CREATE TRIGGER가 배치의 첫 구문일 것을 요구한다.
+            // 이 규칙이 깨지면 설치가 런타임에 실패한다.
+            var batches = StateTracker.SplitSqlBatches(StateTracker.ReadInstallScript());
+
+            var triggerBatches = batches
+                .Where(b => b.IndexOf("CREATE TRIGGER", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                .ToList();
+
+            Assert.That(triggerBatches, Is.Not.Empty, "CREATE TRIGGER 배치가 있어야 합니다");
+            foreach (var batch in triggerBatches)
+            {
+                Assert.That(batch.TrimStart(), Does.StartWith("CREATE TRIGGER").IgnoreCase,
+                    "CREATE TRIGGER는 배치의 첫 구문이어야 합니다");
+            }
+        }
+
+        [Test]
+        public void InstallScript_CreatesChangeLogWithSyncAndSchemaColumns()
+        {
+            var script = StateTracker.ReadInstallScript();
+
+            Assert.That(script, Does.Contain("IsProcessed"),
+                "커밋된 변경을 걸러내려면 동기화 워터마크 컬럼이 필요합니다");
+            Assert.That(script, Does.Contain("SchemaName"),
+                "[Schema]/[ObjectType]/[Name].sql 경로를 유도하려면 스키마명이 필요합니다");
+        }
+
+        [Test]
+        public void InstallScript_IsIdempotentForExistingInstallations()
+        {
+            var script = StateTracker.ReadInstallScript();
+
+            // 이미 설치된 DB에도 새 컬럼이 추가되도록 ALTER 경로가 있어야 한다.
+            Assert.That(script, Does.Contain("ALTER TABLE").IgnoreCase);
+            Assert.That(script, Does.Contain("sys.columns").IgnoreCase);
         }
 
         [Test]
