@@ -45,7 +45,7 @@ The UI is a WPF UserControl divided into three main sections:
 ## Error Handling
 - Exceptions during Diff generation (e.g., file not found in Git for new objects) will be handled gracefully: new objects will simply show empty left side and full right side.
 - Exceptions during Commit will display a WPF `MessageBox` with the error detail to the user.
-- If `ConfigManager` cannot resolve a mapping for the active database, the Tool Window will display a prominent warning label (e.g., "Active Database is not mapped to a Git repository.") and disable the commit actions.
+- If `ConfigManager` cannot resolve a mapping for the active database, a warning banner is shown above the content area ("Active Database is not mapped to a Git repository.") and commit actions are disabled. The banner also carries a **"저장소 연결..."** button that prompts for a folder, verifies it is a valid Git repository via `IGitManager.IsRepository`, and registers the mapping through `ConfigManager.AddMapping`. The banner sits outside the initialization overlay so that an uninitialized database can still be mapped.
 
 ## Out of Scope
 - Branch management or switching branches (handled by standard Git clients for now).
