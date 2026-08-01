@@ -26,7 +26,7 @@ namespace DBVC.Core
                 return false;
             }
 
-            string localGitPath;
+            string? localGitPath;
             try
             {
                 localGitPath = _configManager.GetMapping(serverName, databaseName);

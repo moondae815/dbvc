@@ -27,8 +27,9 @@ namespace DBVC.Core
             {
                 return "Clean";
             }
-            string repoPath = _configManager.GetMapping(serverName, databaseName);
-            return GetStatus(repoPath);
+            string? repoPath = _configManager.GetMapping(serverName, databaseName);
+            if (string.IsNullOrEmpty(repoPath)) return "Clean";
+            return GetStatus(repoPath!);
         }
 
         public bool Commit(string repoPath, string filePath, string message)
