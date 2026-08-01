@@ -70,5 +70,30 @@ dotnet test tests/DBVC.Vsix.Tests
 > **참고:** `.vsct` 컴파일과 `.vsix` 패키징에는 Windows의 Visual Studio SDK가 필요합니다.
 > 다른 OS에서는 C# 컴파일과 단위 테스트만 수행됩니다.
 
+`.vsix` 생성은 Windows에서 다음과 같이 수행합니다.
+```powershell
+msbuild src/DBVC.Vsix/DBVC.Vsix.csproj -restore -p:Configuration=Release
+```
+
+> **알려진 이슈:** GitHub Actions의 `windows-latest`에서는 msbuild가 성공해도 `.vsix`가
+> 생성되지 않습니다. `Microsoft.VSSDK.BuildTools`가 복원·임포트되지 않는 것으로 보이며
+> 원인은 아직 규명되지 않았습니다. 이 때문에 VSIX 패키징은 CI에서 제외되어 있습니다.
+> 자세한 내용은 `.github/workflows/ci.yml`의 주석을 참고하세요.
+
+### CI가 검증하는 범위
+`main` push와 PR마다 GitHub Actions가 다음을 검증합니다.
+
+| 잡 | 내용 |
+| --- | --- |
+| Windows | 전체 빌드 + **net48** 및 net10.0 단위 테스트 |
+| Linux | 전체 빌드 + net10.0 단위 테스트 |
+
+`.NET Framework 4.8` 타깃은 Windows에서만 실행할 수 있습니다.
+`Microsoft.Data.SqlClient`가 net462 구현체를 `runtimes/win` 아래에만 배포하기 때문이며,
+Mono를 설치해도 해결되지 않습니다.
+
+**CI로 검증되지 않는 것:** WPF 렌더링, VS 패키지 로딩, `.vsct` 메뉴 등록, SSMS 통합, 실제 DB 연결.
+이들은 SSMS 21 실행 환경에서 수동으로 확인해야 합니다.
+
 ## 라이선스
 MIT License

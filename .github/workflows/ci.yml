@@ -90,51 +90,22 @@ jobs:
           dotnet test tests/DBVC.Core.Tests -f net10.0 -c Release
           dotnet test tests/DBVC.Vsix.Tests -f net10.0 -c Release
 
-  # .vsct 컴파일과 pkgdef 생성은 Windows의 VS SDK(Microsoft.VSSDK.BuildTools)가 필요하다.
-  # SDK 스타일 프로젝트는 BuildTools를 참조하는 것만으로 .vsix 컨테이너를 만들지 않는다.
-  # 관련 속성을 csproj가 아니라 여기서 넘기는 이유는, csproj에 넣으면 모든 플랫폼의
-  # dotnet build까지 VSIX 패키징을 시도하게 되기 때문이다.
-  vsix:
-    name: VSIX 패키징
-    runs-on: windows-latest
-    needs: windows
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '10.0.x'
-
-      - uses: microsoft/setup-msbuild@v3
-
-      - name: NuGet 패키지 캐시
-        uses: actions/cache@v6
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: ${{ runner.os }}-nuget-
-
-      - name: VSIX 빌드
-        run: >
-          msbuild src/DBVC.Vsix/DBVC.Vsix.csproj -restore
-          -p:Configuration=Release
-          -p:DeployExtension=false
-          -p:CreateVsixContainer=true
-          -p:GeneratePkgDefFile=true
-          -p:IncludeAssemblyInVSIXContainer=true
-          -p:IncludeCopyLocalReferencesInVSIXContainer=true
-          -p:IncludeDebugSymbolsInVSIXContainer=false
-
-      # .vsix가 실제로 만들어졌는지 업로드 전에 명확히 드러낸다.
-      - name: 생성물 확인
-        shell: pwsh
-        run: Get-ChildItem -Recurse src/DBVC.Vsix/bin/Release -Include *.vsix,*.pkgdef | Select-Object FullName, Length
-
-      - name: .vsix 업로드
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: dbvc-vsix
-          path: src/DBVC.Vsix/bin/Release/**/*.vsix
-          if-no-files-found: error
+# ---------------------------------------------------------------------------
+# VSIX 패키징(.vsct 컴파일, pkgdef 생성, .vsix 컨테이너)은 의도적으로 CI에서 제외했다.
+#
+# 시도했다가 뺀 이유:
+#   windows-latest에서 msbuild는 성공하지만 .vsix도 .pkgdef도 생성되지 않았고,
+#   실행 로그 전체에 'VSSDK' 문자열이 한 번도 등장하지 않았다. 즉
+#   Microsoft.VSSDK.BuildTools가 복원·임포트되지 않는 상태다.
+#   (DBVC.Vsix.csproj의 Condition="'$(OS)' == 'Windows_NT'"가 의심되지만 미확인.
+#    패키지 버전 17.10.2185 자체는 nuget.org에 실존한다.)
+#
+# 되살리려면 위 원인을 먼저 규명할 것. 원인 규명 없이 잡만 다시 추가하면 같은 실패를 반복한다.
+#
+# 그동안 .vsix는 Windows + Visual Studio SDK 환경에서 수동으로 만든다:
+#   msbuild src/DBVC.Vsix/DBVC.Vsix.csproj -restore -p:Configuration=Release
+#
+# CI가 검증하는 범위는 빌드와 단위 테스트(net48 포함)까지다.
+# WPF 렌더링, VS 패키지 로딩, .vsct 메뉴 등록, SSMS 통합은 CI로 검증되지 않으며
+# SSMS 21 실행이 필요하다.
+# ---------------------------------------------------------------------------
