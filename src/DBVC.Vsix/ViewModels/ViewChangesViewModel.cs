@@ -27,6 +27,7 @@ namespace DBVC.Vsix.ViewModels
         private readonly ISmoManager _smoManager;
         private readonly IUserNotifier _notifier;
         private readonly IFileSaveDialog _saveDialog;
+        private readonly IWorkingTreeCleaner _cleaner;
         private readonly ScriptExporter _scriptExporter;
 
         /// <summary>새로고침 시점의 변경 레코드. 커밋 후 처리 완료 표시에 사용한다.</summary>
@@ -43,7 +44,8 @@ namespace DBVC.Vsix.ViewModels
             IGitManager? gitManager,
             ISmoManager? smoManager,
             IUserNotifier? notifier,
-            IFileSaveDialog? saveDialog = null)
+            IFileSaveDialog? saveDialog = null,
+            IWorkingTreeCleaner? cleaner = null)
         {
             _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
             _gitManager = gitManager ?? new GitManager(_configManager);
@@ -51,6 +53,7 @@ namespace DBVC.Vsix.ViewModels
             _smoManager = smoManager ?? new SmoManager(_configManager);
             _notifier = notifier ?? new MessageBoxNotifier();
             _saveDialog = saveDialog ?? new SaveFileDialogAdapter();
+            _cleaner = cleaner ?? new WorkingTreeCleaner();
             _scriptExporter = new ScriptExporter(_configManager, _gitManager);
 
             RefreshCommand = new RelayCommand(Refresh);
@@ -277,6 +280,19 @@ namespace DBVC.Vsix.ViewModels
                 }
 
                 _lastChangeRecords = _stateTracker.GetPendingChanges(ServerName!, DatabaseName!);
+
+                // DROP된 객체의 파일을 지워야 Git이 삭제를 감지하고 커밋에 포함할 수 있다.
+                // RefreshState가 Git 상태를 읽은 뒤이므로 이 정리가 목록 판정을 바꾸지 않는다.
+                var mapping = _configManager.TryGetMapping(ServerName!, DatabaseName!);
+                if (mapping != null)
+                {
+                    var cleanup = _cleaner.RemoveDeletedObjectFiles(mapping.GitPath, _lastChangeRecords);
+                    if (cleanup.HasFailures)
+                    {
+                        warnings.Add($"삭제된 객체의 파일을 지우지 못했습니다: {string.Join(", ", cleanup.FailedPaths)}");
+                    }
+                }
+
                 foreach (var record in _lastChangeRecords)
                 {
                     Changes.Add(new ChangeItemViewModel

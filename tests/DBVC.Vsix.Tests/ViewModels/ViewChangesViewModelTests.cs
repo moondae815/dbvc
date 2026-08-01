@@ -23,6 +23,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         private Mock<ISmoManager> _smo = null!;
         private RecordingNotifier _notifier = null!;
         private RecordingSaveDialog _saveDialog = null!;
+        private Mock<IWorkingTreeCleaner> _cleaner = null!;
         private readonly List<string> _tempDirs = new List<string>();
 
         [TearDown]
@@ -55,11 +56,16 @@ namespace DBVC.Vsix.Tests.ViewModels
             _stateTracker.Setup(s => s.RefreshState(Server, Database)).Returns(true);
             _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>());
             _smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null)).Returns(new ScriptResult());
+
+            _cleaner = new Mock<IWorkingTreeCleaner>();
+            _cleaner.Setup(c => c.RemoveDeletedObjectFiles(It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()))
+                .Returns(new CleanupResult());
         }
 
         private ViewChangesViewModel NewViewModel()
         {
-            return new ViewChangesViewModel(_config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog);
+            return new ViewChangesViewModel(
+                _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog, _cleaner.Object);
         }
 
         private ViewChangesViewModel NewConnectedViewModel()
@@ -308,6 +314,45 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(vm.WarningMessage, Does.Contain("dbo.Broken"),
                 "일부 객체 추출 실패는 조용히 무시되면 안 됩니다");
+        }
+
+        // ---------- 삭제된 객체의 작업 트리 정리 ----------
+
+        [Test]
+        public void Refresh_RemovesWorkingTreeFilesForDroppedObjects()
+        {
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database))
+                .Returns(new List<ChangeRecord> { Record("dbo", "Users", "Deleted", "dbo/Tables/Users.sql") });
+
+            NewConnectedViewModel();
+
+            _cleaner.Verify(
+                c => c.RemoveDeletedObjectFiles(
+                    @"C:\repo",
+                    It.Is<IEnumerable<ChangeRecord>>(records => records.Any(r => r.RelativePath == "dbo/Tables/Users.sql"))),
+                Times.AtLeastOnce,
+                "파일이 남으면 Git이 삭제를 감지하지 못해 커밋되지 않습니다");
+        }
+
+        [Test]
+        public void Refresh_WarnsWhenADroppedObjectFileCannotBeRemoved()
+        {
+            var failed = new CleanupResult();
+            failed.FailedPaths.Add("dbo/Tables/Users.sql");
+            _cleaner.Setup(c => c.RemoveDeletedObjectFiles(It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()))
+                .Returns(failed);
+
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.WarningMessage, Does.Contain("dbo/Tables/Users.sql"));
+        }
+
+        [Test]
+        public void Refresh_DoesNotWarn_WhenNothingFailedToBeRemoved()
+        {
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.WarningMessage, Is.Null);
         }
 
         // ---------- Commit ----------
