@@ -91,10 +91,11 @@ jobs:
           dotnet test tests/DBVC.Vsix.Tests -f net10.0 -c Release
 
   # .vsct 컴파일과 pkgdef 생성은 Windows의 VS SDK(Microsoft.VSSDK.BuildTools)가 필요하다.
-  # 주의: 이 단계는 아직 한 번도 실제로 성공을 확인한 적이 없다.
-  #       실패하면 VSSDK.BuildTools 버전이나 SDK 스타일 프로젝트 호환성을 조정해야 한다.
+  # SDK 스타일 프로젝트는 BuildTools를 참조하는 것만으로 .vsix 컨테이너를 만들지 않는다.
+  # 관련 속성을 csproj가 아니라 여기서 넘기는 이유는, csproj에 넣으면 모든 플랫폼의
+  # dotnet build까지 VSIX 패키징을 시도하게 되기 때문이다.
   vsix:
-    name: VSIX 패키징 (미검증)
+    name: VSIX 패키징
     runs-on: windows-latest
     needs: windows
 
@@ -115,7 +116,20 @@ jobs:
           restore-keys: ${{ runner.os }}-nuget-
 
       - name: VSIX 빌드
-        run: msbuild src/DBVC.Vsix/DBVC.Vsix.csproj -restore -p:Configuration=Release -p:DeployExtension=false
+        run: >
+          msbuild src/DBVC.Vsix/DBVC.Vsix.csproj -restore
+          -p:Configuration=Release
+          -p:DeployExtension=false
+          -p:CreateVsixContainer=true
+          -p:GeneratePkgDefFile=true
+          -p:IncludeAssemblyInVSIXContainer=true
+          -p:IncludeCopyLocalReferencesInVSIXContainer=true
+          -p:IncludeDebugSymbolsInVSIXContainer=false
+
+      # .vsix가 실제로 만들어졌는지 업로드 전에 명확히 드러낸다.
+      - name: 생성물 확인
+        shell: pwsh
+        run: Get-ChildItem -Recurse src/DBVC.Vsix/bin/Release -Include *.vsix,*.pkgdef | Select-Object FullName, Length
 
       - name: .vsix 업로드
         if: always()
