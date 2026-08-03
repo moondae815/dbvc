@@ -27,12 +27,12 @@ DBVC는 SSMS 21 환경에서 데이터베이스 객체의 버전을 Git으로 �
   * `SmoManager`: SQL Server Management Objects(SMO)를 이용해 데이터베이스 객체의 스크립트(CREATE/ALTER)를 추출.
   * `GitManager`: `LibGit2Sharp` 라이브러리를 사용하여 로컬 Git 저장소를 제어. 외부 Git 클라이언트 설치가 불필요함.
   * `StateTracker`: 변경 캐시 관리, 오버레이 상태 업데이트.
-  * `UiController`: 사용자 인터페이스(WPF/WinForms) 및 Object Explorer(OE) 컨텍스트 메뉴 제어.
+  * UI 계층: `UiController`라는 단일 클래스는 없다. `ViewChangesToolWindow`(창 등록), `ViewChangesControl`(WPF `UserControl`), `ViewChangesViewModel`과 `RelayCommand`(MVVM)로 나뉘어 있다. SQL 에디터 컨텍스트 메뉴는 `DBVC.Vsix/Commands`가 담당한다.
 
 ## 4. Data Flow & Integration
 ### 4.1. Change Detection (실시간 변경 감지)
 1. 타겟 DB에 **DDL Trigger**를 생성하고, 모든 DDL 작업(CREATE, ALTER, DROP)을 `DBVC_ChangeLog` 테이블에 기록.
-2. SSMS 플러그인의 `StateTracker`가 `DBVC_ChangeLog`를 주기적으로(또는 수동 새로고침 시) 읽어와 로컬 캐시를 업데이트.
+2. SSMS 플러그인의 `StateTracker`가 **사용자가 Refresh를 누를 때** `DBVC_ChangeLog`를 읽어와 로컬 캐시를 업데이트. 주기적 폴링은 구현되어 있지 않으며 계획에도 없다.
 3. 갱신된 상태를 바탕으로 Object Explorer의 노드(테이블, 프로시저 등)에 상태 아이콘(M, A, D)을 오버레이 표시.
 
 ### 4.2. Repository Mapping

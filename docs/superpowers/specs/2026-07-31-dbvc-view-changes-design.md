@@ -24,7 +24,7 @@ The UI is a WPF UserControl divided into three main sections:
   - Commit Button (`Button`).
 - **Middle (List Area)**:
   - `ListView` displaying the pending changes fetched from `StateTracker`.
-  - Each item contains a CheckBox (for staging), an Icon (indicating M/A/D state), and the Object Name (e.g., `dbo.Users`).
+  - Each item contains a CheckBox (for staging), a State column showing `Modified` / `Added` / `Deleted` as text, and the Object Name (e.g., `dbo.Users`). Status icons are not implemented; the state is rendered as text.
 - **Bottom (Diff Area)**:
   - Embedded `AvalonEdit` text editors combined with `DiffPlex` for side-by-side diff rendering.
   - When an item in the middle list is selected, this area fetches the old SQL state from Git and the new SQL state from the database, runs `DiffPlex`, and highlights the diffs.
@@ -45,7 +45,8 @@ The UI is a WPF UserControl divided into three main sections:
 ## Error Handling
 - Exceptions during Diff generation (e.g., file not found in Git for new objects) will be handled gracefully: new objects will simply show empty left side and full right side.
 - Exceptions during Commit will display a WPF `MessageBox` with the error detail to the user.
-- If `ConfigManager` cannot resolve a mapping for the active database, a warning banner is shown above the content area ("Active Database is not mapped to a Git repository.") and commit actions are disabled. The banner also carries a **"저장소 연결..."** button that prompts for a folder, verifies it is a valid Git repository via `IGitManager.IsRepository`, and registers the mapping through `ConfigManager.AddMapping`. The banner sits outside the initialization overlay so that an uninitialized database can still be mapped.
+- The target database is entered manually in the Server / Database inputs and applied with the **Connect** button. There is no automatic "active database" detection — that would require Object Explorer integration, which is deferred for the same reason as Feature 10 (see [2026-08-01-dbvc-object-explorer-overlay.md](../plans/2026-08-01-dbvc-object-explorer-overlay.md)).
+- If `ConfigManager` cannot resolve a mapping for the connected database, a warning banner is shown above the content area ("Active Database is not mapped to a Git repository.") and commit actions are disabled. The banner also carries a **"저장소 연결..."** button that prompts for a folder, verifies it is a valid Git repository via `IGitManager.IsRepository`, and registers the mapping through `ConfigManager.AddMapping`. The banner sits outside the initialization overlay so that an uninitialized database can still be mapped.
 
 ## Out of Scope
 - Branch management or switching branches (handled by standard Git clients for now).

@@ -3,7 +3,7 @@
 DBVC는 SQL Server Management Studio (SSMS) 21을 위한 데이터베이스 형상 관리(Version Control) 확장(VSIX) 플러그인입니다. 데이터베이스 스키마 변경 사항을 Git을 통해 추적하고, 변경된 내용을 확인 및 커밋할 수 있는 통합된 작업 환경을 제공합니다.
 
 ## 주요 기능
-- **변경 사항 자동 감지 (DDL Trigger):** 데이터베이스에서 발생하는 스키마 변경 사항을 실시간으로 감지하고 추적합니다. (`DBVC_ChangeLog` 테이블 활용)
+- **변경 사항 자동 감지 (DDL Trigger):** DDL 트리거가 스키마 변경을 발생 즉시 `DBVC_ChangeLog` 테이블에 기록합니다. 기록된 변경은 **Refresh를 누를 때** 화면에 반영됩니다(주기적 폴링은 하지 않습니다).
 - **객체 스크립팅 (SMO):** SQL Server Management Objects(SMO)를 사용해 변경된 객체(테이블, 저장 프로시저 등)를 `.sql` 파일 형태로 내보냅니다.
 - **Git 통합 (LibGit2Sharp):** 내보낸 `.sql` 파일들을 Git 저장소에 스테이징(Staging) 및 커밋(Commit)할 수 있는 완벽한 형상 관리 기능을 제공합니다.
 - **WPF 기반 차이점 뷰어 (View Changes Tool Window):**

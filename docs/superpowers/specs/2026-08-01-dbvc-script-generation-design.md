@@ -30,12 +30,17 @@
 **목적:** 여러 객체의 DDL 조각을 하나의 스크립트 문서로 병합.
 
 ```
-string BuildScript(IEnumerable<ScriptSection> sections, ScriptKind kind)
+string BuildScript(
+    IEnumerable<ScriptSection>? sections,
+    ScriptKind kind,
+    DateTimeOffset generatedAt,
+    IReadOnlyCollection<string>? excludedObjects = null)
 ```
 
 * `ScriptSection`: `{ QualifiedName, RelativePath, Sql }`
 * `ScriptKind`: `Deployment` | `Rollback`
 * 순수 함수. DB·Git·파일 시스템에 접근하지 않으므로 전량 단위 테스트 대상이다.
+* `generatedAt`을 인자로 받는 이유는 순수 함수를 유지하기 위해서다. 내부에서 `DateTimeOffset.Now`를 읽으면 출력이 매번 달라져 단위 테스트로 고정할 수 없다.
 
 **출력 형식**
 
@@ -56,7 +61,8 @@ GO
 ```
 
 * 각 섹션 뒤에 단독 행 `GO`를 넣는다. 원본 조각이 이미 `GO`로 끝나면 중복 삽입하지 않는다.
-* 내용이 비어 있는 섹션은 건너뛰되, 건너뛴 사실을 헤더에 기록한다.
+* 내용이 비어 있는 섹션은 건너뛴다. 다만 실제 제외 판정은 `ScriptExporter`가 한다(3.2 참고) — `BuildScript`에 도달하는 섹션은 이미 걸러진 상태이므로 이 필터는 방어적이다.
+* 제외된 객체가 있으면 헤더에 `Excluded: 2 (dbo.A, dbo.B)` 줄을 남긴다. 목록은 `excludedObjects` 인자로 전달받는다. 제외가 없으면 이 줄을 넣지 않는다. 알림 대화상자는 닫으면 사라지지만 헤더는 파일과 함께 남는다.
 
 ### 3.2. 소스 해석
 | 기능 | 좌측(원본) 소스 |
@@ -68,6 +74,11 @@ GO
 해당 파일을 건드린 **가장 최근 커밋의 부모** 시점 내용이다.
 `repo.Commits.QueryBy(path)`의 첫 항목이 마지막 커밋이므로, 그 다음 항목(두 번째 로그 엔트리)의 내용을 취한다.
 파일이 커밋 이력에 한 번만 등장하면(= 최초 생성 이후 수정 없음) 되돌릴 이전 상태가 없으므로 해당 객체는 건너뛴다.
+
+**이미 삭제된 객체.** HEAD에 없는 경로에 대해 `repo.Commits.QueryBy(path)`는 빈 결과를 준다.
+이 경우 커밋을 최신순으로 거슬러 파일이 **마지막으로 존재했던 시점의 내용**을 쓴다
+(`GitManager.GetFileContentBeforeLastCommit`). DROP된 객체야말로 롤백의 주요 대상이므로
+"이전 리비전이 없다"고 판정해 제외하면 안 된다.
 
 ### 3.3. 정렬
 "단순 병합"이되 실행 결과가 매번 달라지지 않도록 **결정적(deterministic) 순서**를 사용한다.
@@ -82,7 +93,10 @@ GO
 * 활성 조건: 매핑됨 + 초기화됨 + 체크된 항목 1개 이상 (Commit 버튼과 동일하되 커밋 메시지는 불필요)
 * 클릭 시 저장 위치를 묻고 파일로 기록한다.
   저장 대화상자는 `IFileSaveDialog`로 추상화해 ViewModel을 테스트 가능하게 유지한다.
-* 생성 결과를 요약해 알린다. 예: `3개 객체를 내보냈습니다. 2개 객체는 이전 리비전이 없어 제외했습니다.`
+* 생성 결과를 `IUserNotifier.ShowInfo`로 알린다. 지속 상태 배너(`WarningMessage`)는 매핑 누락·추출 실패 전용이며 `Refresh`가 덮어쓰므로 일회성 동작의 결과를 담지 않는다.
+* 제외 사유는 `ScriptKind`에 따라 다르다. 두 줄로 나뉘어 표시되며(줄바꿈으로 구분), Rollback은
+  `3개 객체를 내보냈습니다.` / `2개 객체는 이전 리비전이 없어 제외했습니다: dbo.A, dbo.B`,
+  Deployment는 같은 형식에서 사유만 `추출된 파일이 없어`로 바뀐다.
 
 ## 5. Error Handling
 * 이전 리비전이 없는 객체는 **오류가 아니라 제외 대상**이다. 제외 목록을 사용자에게 알린다.
