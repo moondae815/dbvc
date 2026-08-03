@@ -679,7 +679,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.PullCommand.Execute(null);
 
             Assert.That(_notifier.ErrorCalls, Has.Count.EqualTo(1));
-            Assert.That(_notifier.ErrorCalls[0].Title, Does.Contain("중단"),
+            Assert.That(_notifier.ErrorCalls[0].Title, Is.EqualTo("DBVC Pull 중단"),
                 "아무 일도 일어나지 않았으므로 '실패'가 아니라 '중단'입니다");
             Assert.That(_notifier.ErrorCalls[0].Message, Does.Contain("변경되지 않았습니다"));
             Assert.That(_notifier.Infos, Is.Empty);

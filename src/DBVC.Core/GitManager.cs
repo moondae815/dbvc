@@ -197,25 +197,15 @@ namespace DBVC.Core
 
             // 핸들러가 "이 원격은 사용자 자격 증명을 요구한다"고 알려 주면 여기에 기록된다.
             var requiresUserCredentials = false;
-            var options = new PullOptions
-            {
-                FetchOptions = new FetchOptions
-                {
-                    CredentialsProvider = (url, usernameFromUrl, types) =>
-                    {
-                        var credentials = ResolveCredentials(types, out var needsUserCredentials);
-                        if (needsUserCredentials) requiresUserCredentials = true;
-                        return credentials;
-                    }
-                }
-            };
+            var options = BuildPullOptions(() => requiresUserCredentials = true);
 
             MergeResult result;
             try
             {
                 result = Commands.Pull(repo, signature, options);
             }
-            // CheckoutConflictException은 LibGit2SharpException의 파생 타입이다. 반드시 먼저 잡는다.
+            // CheckoutConflictException은 LibGit2SharpException의 파생 타입이다. 파생 타입을 먼저 잡는
+            // 편이 더 명확하다 (정확성을 위해 필수는 아니다 - 아래 catch의 when 필터가 순서를 강제하지 않는다).
             catch (CheckoutConflictException ex)
             {
                 // 병합 체크아웃이 시작조차 거부된 상태다. AbortMerge를 부르면 안 된다 - 되돌릴 것이 없고,
@@ -241,6 +231,29 @@ namespace DBVC.Core
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Pull에 사용할 <see cref="PullOptions"/>를 만든다. <see cref="ResolveCredentials"/>를
+        /// <c>FetchOptions.CredentialsProvider</c>에 실제로 연결하는 지점이 여기다.
+        /// <c>internal</c>로 노출해 "연결이 됐는지"와 "요구 플래그가 람다 밖으로 새어 나오는지"를
+        /// 직접 단위 테스트로 검증할 수 있게 한다 - <see cref="ResolveCredentials"/> 자체를
+        /// 테스트하는 것만으로는 이 배선이 실제로 붙어 있는지 증명하지 못한다.
+        /// </summary>
+        internal static PullOptions BuildPullOptions(Action onUserCredentialsRequired)
+        {
+            return new PullOptions
+            {
+                FetchOptions = new FetchOptions
+                {
+                    CredentialsProvider = (url, usernameFromUrl, types) =>
+                    {
+                        var credentials = ResolveCredentials(types, out var needsUserCredentials);
+                        if (needsUserCredentials) onUserCredentialsRequired();
+                        return credentials;
+                    }
+                }
+            };
         }
 
         /// <summary>

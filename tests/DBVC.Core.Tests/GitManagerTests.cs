@@ -1,6 +1,9 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
 using LibGit2Sharp;
 using NUnit.Framework;
 using DBVC.Core;
@@ -510,7 +513,47 @@ namespace DBVC.Core.Tests
                     "충돌 시 Pull을 중단하고 HEAD를 원래대로 되돌려야 합니다");
                 Assert.That(clone.Index.Conflicts, Is.Empty,
                     "충돌 인덱스가 남아 저장소가 병합 중 상태로 방치되면 안 됩니다");
+                Assert.That(clone.Info.CurrentOperation, Is.EqualTo(CurrentOperation.None),
+                    "MERGE_HEAD가 남으면 사용자의 다음 커밋이 조용히 병합 커밋이 됩니다. " +
+                    "Index.Conflicts만으로는 이 상태를 잡지 못합니다");
             }
+        }
+
+        // ---------- BuildPullOptions (자격 증명 배선) ----------
+
+        [Test]
+        public void BuildPullOptions_WiresResolveCredentialsIntoFetchOptions()
+        {
+            // ResolveCredentials가 단위 테스트를 통과하는 것과, 그것이 실제로 PullChanges가 쓰는
+            // PullOptions에 연결되어 있는 것은 별개다. FetchOptions나 CredentialsProvider가 비어 있으면
+            // 인증이 필요한 원격에서 항상 실패하는데, 로컬 경로 원격을 쓰는 다른 Pull 테스트들은
+            // 이 배선이 없어도 전부 통과하므로 이 사실을 잡아내지 못한다.
+            var options = GitManager.BuildPullOptions(() => { });
+
+            Assert.That(options.FetchOptions, Is.Not.Null);
+            Assert.That(options.FetchOptions.CredentialsProvider, Is.Not.Null,
+                "CredentialsProvider가 연결되어 있지 않으면 자격 증명을 요구하는 원격에서 항상 실패합니다");
+        }
+
+        [Test]
+        public void BuildPullOptions_InvokesTheCallback_OnlyWhenTheRemoteRequiresUserCredentials()
+        {
+            var requiresUserCredentialsCallCount = 0;
+            var options = GitManager.BuildPullOptions(() => requiresUserCredentialsCallCount++);
+            var provider = options.FetchOptions.CredentialsProvider!;
+
+            // Default를 지원하는 원격: 통합 인증으로 처리되므로 콜백이 불리면 안 된다.
+            provider("https://example.com/repo.git", null,
+                SupportedCredentialTypes.UsernamePassword | SupportedCredentialTypes.Default);
+            Assert.That(requiresUserCredentialsCallCount, Is.EqualTo(0),
+                "Default 플래그가 있는데도 콜백이 불리면 GitAuthenticationException이 자격 증명이 통하는 " +
+                "원격에도 잘못 던져집니다");
+
+            // Default를 지원하지 않는 원격: 콜백이 불려야 PullChanges가 GitAuthenticationException으로 감쌀 수 있다.
+            provider("https://example.com/repo.git", null, SupportedCredentialTypes.UsernamePassword);
+            Assert.That(requiresUserCredentialsCallCount, Is.EqualTo(1),
+                "Default 플래그가 없는데도 콜백이 안 불리면 requiresUserCredentials 플래그가 람다 밖으로 " +
+                "새어 나오지 못해 GitAuthenticationException이 던져지지 않습니다");
         }
 
         [Test]
@@ -583,6 +626,85 @@ namespace DBVC.Core.Tests
             Assert.That(File.ReadAllText(Path.Combine(clonePath, "dbo", "Tables", "Users.sql")),
                 Is.EqualTo(localContent),
                 "미커밋 변경이 그대로 남아 있어야 합니다. 이것이 MergeConflictException과 갈리는 지점입니다");
+        }
+
+        [Test]
+        public void PullChanges_ThrowsGitAuthenticationException_WhenTheRemoteChallengesWithBasicAuth()
+        {
+            // 단위 테스트로 격리된 BuildPullOptions/ResolveCredentials가 옳아도, PullChanges가
+            // 그 옵션을 실제로 Commands.Pull에 넘기지 않으면 이 경로는 절대 실행되지 않는다.
+            // 로컬 파일 경로 원격을 쓰는 다른 Pull 테스트는 자격 증명 콜백 자체가 불리지 않으므로
+            // 그 결함을 잡지 못한다. 여기서는 Basic 인증을 요구하는 실제 HTTP 서버를 띄워
+            // PullChanges 전체 경로(빌드된 PullOptions -> Commands.Pull -> 자격 증명 콜백 호출 ->
+            // requiresUserCredentials 전파 -> GitAuthenticationException 변환)를 end-to-end로 검증한다.
+            using var server = new BasicAuthChallengeServer();
+            var clonePath = NewRepoWithCommit();
+            using (var repo = new Repository(clonePath))
+            {
+                repo.Network.Remotes.Add("origin", server.Url);
+                // Commands.Pull은 현재 브랜치에 추적 정보(remote/merge)가 있어야 동작한다.
+                // 실제 원격에서 fetch할 수 없으므로(서버가 401만 준다) 수동으로 설정한다.
+                var branchName = repo.Head.FriendlyName;
+                repo.Config.Set($"branch.{branchName}.remote", "origin");
+                repo.Config.Set($"branch.{branchName}.merge", $"refs/heads/{branchName}");
+            }
+            var git = NewGitManager("localhost", "testdb", clonePath);
+
+            var ex = Assert.Throws<GitAuthenticationException>(() => git.PullChanges("localhost", "testdb"));
+
+            Assert.That(ex!.Message, Does.Contain("자격 증명"),
+                "GitManager.ResolveCredentials가 실제로 Commands.Pull의 CredentialsProvider로 호출됐어야 이 경로에 도달합니다");
+        }
+
+        private sealed class BasicAuthChallengeServer : IDisposable
+        {
+            private readonly HttpListener _listener;
+            private readonly Thread _thread;
+            public string Url { get; }
+
+            public BasicAuthChallengeServer()
+            {
+                var port = GetFreePort();
+                Url = $"http://127.0.0.1:{port}/repo.git";
+                _listener = new HttpListener();
+                _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+                _listener.Start();
+                _thread = new Thread(ServeLoop) { IsBackground = true };
+                _thread.Start();
+            }
+
+            private void ServeLoop()
+            {
+                while (true)
+                {
+                    HttpListenerContext context;
+                    try { context = _listener.GetContext(); }
+                    catch { return; }
+                    try
+                    {
+                        context.Response.StatusCode = 401;
+                        context.Response.Headers.Add("WWW-Authenticate", "Basic realm=\"dbvc-test\"");
+                        context.Response.Close();
+                    }
+                    catch { }
+                }
+            }
+
+            private static int GetFreePort()
+            {
+                var l = new TcpListener(IPAddress.Loopback, 0);
+                l.Start();
+                var port = ((IPEndPoint)l.LocalEndpoint).Port;
+                l.Stop();
+                return port;
+            }
+
+            public void Dispose()
+            {
+                _listener.Stop();
+                _listener.Close();
+                _thread.Join(TimeSpan.FromSeconds(2));
+            }
         }
 
         // ---------- Constructor ----------
