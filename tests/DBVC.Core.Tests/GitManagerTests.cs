@@ -486,9 +486,14 @@ namespace DBVC.Core.Tests
             // 매핑하면 원격만 있고 추적 브랜치가 없다.
             var originPath = NewRepoWithCommit();
             var localPath = NewRepoWithCommit();
+
+            // 기본 브랜치 이름을 하드코딩하면 안 된다. init.defaultBranch가 설정되지 않은 환경
+            // (GitHub Actions 러너 등)에서는 master가 되어 개발 기계에서만 통과하는 테스트가 된다.
+            string branchName;
             using (var local = new Repository(localPath))
             {
                 local.Network.Remotes.Add("origin", originPath);
+                branchName = local.Head.FriendlyName;
             }
 
             var git = NewGitManager("localhost", "testdb", localPath);
@@ -498,9 +503,9 @@ namespace DBVC.Core.Tests
             Assert.That(ex!.Message, Does.Not.Contain("tracking information"),
                 "libgit2의 영문 원문이 사용자에게 그대로 노출되면 안 됩니다 - 가드를 지우면 실패해야 합니다");
             Assert.That(ex.Message, Does.Contain("추적"));
-            Assert.That(ex.Message, Does.Contain("main"),
+            Assert.That(ex.Message, Does.Contain($"'{branchName}'"),
                 "어떤 브랜치를 설정해야 하는지 이름으로 알려줘야 합니다");
-            Assert.That(ex.Message, Does.Contain("git push -u origin main"),
+            Assert.That(ex.Message, Does.Contain($"git push -u origin {branchName}"),
                 "사용자가 그대로 실행할 수 있는 명령을 줘야 합니다");
         }
 
@@ -673,9 +678,17 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
-        // LibGit2Sharp 0.32는 연결/읽기 타임아웃을 노출하지 않는다. 루프백 SYN이 드롭되는 환경에서는
-        // 이 테스트가 실패 대신 무한 대기로 CI 잡을 멈춰 세울 수 있으므로, 안전망으로 상한을 둔다.
-        [CancelAfter(30000)]
+        // 자동 실행에서 제외한다. macOS와 Linux(net10.0)에서는 통과하지만 Windows의 net48에서
+        // 무한 대기해 CI 잡 전체를 멈춰 세웠다(실측: 러너가 1시간 넘게 이 단계에 머물렀다).
+        // Windows에서는 네이티브 전송이 WinHTTP를 타고 HttpListener가 HTTP.sys를 거치는데,
+        // LibGit2Sharp 0.32는 연결/읽기 타임아웃을 노출하지 않는다.
+        // [CancelAfter]로 막으려 했으나 블로킹 중인 네이티브 호출은 중단시키지 못한다 - 실측으로 반증됐다.
+        //
+        // 이 테스트가 지키는 것: 격리된 BuildPullOptions/ResolveCredentials가 옳아도 PullChanges가
+        // 그 옵션을 Commands.Pull에 넘기지 않으면 자격 증명 경로는 죽은 코드가 된다. 그 배선을
+        // 검증하는 유일한 테스트다. 지금은 `dotnet test --filter` 로 수동 실행해야 하며,
+        // GitHub·GitLab 대응으로 자격 증명 설계를 다시 할 때 CI에서 돌릴 방법도 함께 설계한다.
+        [Explicit("Windows net48에서 무한 대기한다. 수동 실행 전용.")]
         public void PullChanges_ThrowsGitAuthenticationException_WhenTheRemoteChallengesWithBasicAuth()
         {
             // 단위 테스트로 격리된 BuildPullOptions/ResolveCredentials가 옳아도, PullChanges가
