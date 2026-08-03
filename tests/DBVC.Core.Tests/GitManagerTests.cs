@@ -629,6 +629,9 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        // LibGit2Sharp 0.32는 연결/읽기 타임아웃을 노출하지 않는다. 루프백 SYN이 드롭되는 환경에서는
+        // 이 테스트가 실패 대신 무한 대기로 CI 잡을 멈춰 세울 수 있으므로, 안전망으로 상한을 둔다.
+        [CancelAfter(30000)]
         public void PullChanges_ThrowsGitAuthenticationException_WhenTheRemoteChallengesWithBasicAuth()
         {
             // 단위 테스트로 격리된 BuildPullOptions/ResolveCredentials가 옳아도, PullChanges가

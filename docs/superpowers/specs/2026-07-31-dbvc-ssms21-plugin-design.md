@@ -16,7 +16,7 @@ DBVC는 SSMS 21 환경에서 데이터베이스 객체의 버전을 Git으로 �
 10. Object Explorer Overlay (상태 아이콘: M/A/D/C) — **미구현·보류 상태** (사유는 3절 참고)
 11. SQL Editor Context Menu
 12. Compare with Repository (Side-by-Side Diff)
-13. Local Change Cache (DDL Trigger 기반 기록, 화면 반영은 **사용자가 Refresh를 누를 때** — 주기적 폴링 아님)
+13. Local Change Cache (DDL Trigger 기반 기록, 화면 반영은 **Refresh 또는 Connect/Setup DBVC/Commit 직후** — 주기적 폴링 아님)
 14. One-Click Commit
 
 ## 3. Architecture & Components
