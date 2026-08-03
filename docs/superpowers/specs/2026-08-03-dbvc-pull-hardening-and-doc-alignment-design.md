@@ -93,11 +93,12 @@ catch (LibGit2SharpException ex) when (requiresUserCredentials)
 
 ```
 internal static Credentials ResolveCredentials(
-    string url,
-    string? usernameFromUrl,
     SupportedCredentialTypes types,
     out bool requiresUserCredentials)
 ```
+
+`CredentialsHandler`가 넘겨주는 `url`과 `usernameFromUrl`은 받지 않는다. 판정에 쓰이지 않고
+오류 문구는 이미 `repoPath`로 만들기 때문이다.
 
 `internal`로 두어도 `StateTracker.cs:11`의 `[assembly: InternalsVisibleTo("DBVC.Core.Tests")]` 덕분에
 단위 테스트에서 직접 호출할 수 있다.
@@ -121,7 +122,7 @@ var options = new PullOptions
     {
         CredentialsProvider = (url, user, types) =>
         {
-            var credentials = ResolveCredentials(url, user, types, out var needsUser);
+            var credentials = ResolveCredentials(types, out var needsUser);
             if (needsUser) requiresUserCredentials = true;
             return credentials;
         }
@@ -219,14 +220,21 @@ public static string BuildScript(
 
 | 상황 | 호출 |
 | --- | --- |
-| 저장 성공, 제외 없음 | `ShowInfo(title, "3개 객체를 내보냈습니다.")` |
-| 저장 성공, 제외 있음 | `ShowInfo(title, "3개 객체를 내보냈습니다." + 개행 + "2개 객체는 이전 리비전이 없어 제외했습니다: dbo.A, dbo.B")` |
-| 내보낼 내용 없음, 제외 없음 | `ShowInfo(title, "내보낼 내용이 없습니다.")` |
-| 내보낼 내용 없음, 제외 있음 | `ShowInfo(title, "내보낼 내용이 없습니다." + 개행 + "2개 객체는 …: dbo.A, dbo.B")` |
+| 저장 성공 | `ShowInfo(title, "3개 객체를 내보냈습니다." + 제외 문구)` |
+| 내보낼 내용 없음 | `ShowInfo(title, "내보낼 내용이 없습니다." + 제외 문구)` |
 | 파일 쓰기 실패 | `ShowError(...)` (기존과 동일) |
 | 사용자가 저장 대화상자 취소 | 아무 알림도 하지 않음 (기존과 동일) |
 
 `title`은 기존 저장 대화상자와 같은 `DBVC Deployment Script` / `DBVC Rollback Script`다.
+
+**제외 문구는 `ScriptKind`에 따라 달라진다.** 제외 사유가 다르기 때문이다 —
+Rollback은 `GetFileContentBeforeLastCommit`가 `null`을 준 것(되돌릴 이전 리비전 없음)이고,
+Deployment는 작업 트리에 `.sql` 파일이 없는 것이다(`ScriptExporter.cs:39-47`).
+
+* Rollback → `"2개 객체는 이전 리비전이 없어 제외했습니다: dbo.A, dbo.B"`
+* Deployment → `"2개 객체는 추출된 파일이 없어 제외했습니다: dbo.A, dbo.B"`
+
+제외가 없으면 이 줄을 붙이지 않는다.
 
 "내보낼 내용이 없음"에 `ShowError`를 쓰지 않는 이유는 오류가 아니기 때문이다.
 `ShowError`는 실제 실패(파일 쓰기, Git 작업)에 남겨 둔다.
