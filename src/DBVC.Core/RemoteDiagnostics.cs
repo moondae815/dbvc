@@ -20,6 +20,44 @@ namespace DBVC.Core
     /// </summary>
     internal static class RemoteDiagnostics
     {
+        private static readonly string HttpsGuidance = string.Join(Environment.NewLine, new[]
+        {
+            "HTTPS 원격은 DBVC가 인증할 수 없습니다. SSH 원격으로 바꾸세요.",
+            "예: https://github.com/org/repo.git -> git@github.com:org/repo.git",
+            "Git 클라이언트에서 'git remote set-url origin <SSH URL>'을 실행하면 됩니다."
+        });
+
+        private static readonly string SshMissingGuidance = string.Join(Environment.NewLine, new[]
+        {
+            "SSH 원격이지만 ssh 실행 파일을 찾을 수 없습니다.",
+            "Windows 설정 > 앱 > 선택적 기능에서 'OpenSSH 클라이언트'를 설치한 뒤 다시 시도하세요."
+        });
+
+        private static readonly string SshFailureGuidance = string.Join(Environment.NewLine, new[]
+        {
+            "SSH 연결에 실패했습니다. 다음을 확인하세요.",
+            "- 공개키가 원격 계정에 등록되어 있는지",
+            "- 해당 호스트가 known_hosts에 등록되어 있는지 (Git 클라이언트에서 한 번 접속해 두세요)",
+            "- 원격 호스트로 나가는 22번 포트가 열려 있는지"
+        });
+
+        /// <summary>
+        /// 안내할 것이 있으면 한국어 문구를, 없으면 <c>null</c>을 반환한다.
+        /// <c>null</c>일 때 호출자는 원본 오류 메시지를 그대로 둔다 - 근거 없는 추측을 덧붙이지 않는다.
+        /// </summary>
+        internal static string? Explain(string? remoteUrl, bool sshExecutableAvailable)
+        {
+            switch (Classify(remoteUrl))
+            {
+                case RemoteUrlKind.Https:
+                    return HttpsGuidance;
+                case RemoteUrlKind.Ssh:
+                    return sshExecutableAvailable ? SshFailureGuidance : SshMissingGuidance;
+                default:
+                    return null;
+            }
+        }
+
         internal static RemoteUrlKind Classify(string? remoteUrl)
         {
             if (string.IsNullOrWhiteSpace(remoteUrl)) return RemoteUrlKind.Unknown;
