@@ -175,8 +175,10 @@ namespace DBVC.Core
         }
 
         /// <summary>
-        /// 원격 저장소의 변경을 병합한다. 충돌이 발생하면 병합을 중단하고
-        /// <see cref="MergeConflictException"/>을 던져 DB가 오염되지 않도록 한다.
+        /// 원격 저장소의 변경을 병합한다.
+        /// 병합 중 충돌하면 병합을 되돌리고 <see cref="MergeConflictException"/>을,
+        /// 겹치는 미커밋 변경으로 병합이 시작조차 못 하면 <see cref="WorkingTreeConflictException"/>을,
+        /// 원격이 사용자 자격 증명을 요구하면 <see cref="GitAuthenticationException"/>을 던진다.
         /// </summary>
         public bool PullChanges(string serverName, string databaseName)
         {
@@ -193,7 +195,42 @@ namespace DBVC.Core
             var headBefore = repo.Head.Tip;
             var signature = BuildSignature(repo);
 
-            var result = Commands.Pull(repo, signature, new PullOptions());
+            // 핸들러가 "이 원격은 사용자 자격 증명을 요구한다"고 알려 주면 여기에 기록된다.
+            var requiresUserCredentials = false;
+            var options = new PullOptions
+            {
+                FetchOptions = new FetchOptions
+                {
+                    CredentialsProvider = (url, usernameFromUrl, types) =>
+                    {
+                        var credentials = ResolveCredentials(types, out var needsUserCredentials);
+                        if (needsUserCredentials) requiresUserCredentials = true;
+                        return credentials;
+                    }
+                }
+            };
+
+            MergeResult result;
+            try
+            {
+                result = Commands.Pull(repo, signature, options);
+            }
+            // CheckoutConflictException은 LibGit2SharpException의 파생 타입이다. 반드시 먼저 잡는다.
+            catch (CheckoutConflictException ex)
+            {
+                // 병합 체크아웃이 시작조차 거부된 상태다. AbortMerge를 부르면 안 된다 - 되돌릴 것이 없고,
+                // hard reset은 오히려 사용자의 미커밋 변경을 지운다.
+                throw new WorkingTreeConflictException(
+                    $"'{repoPath}' 저장소에 받아올 변경과 겹치는 미커밋 변경이 있어 Pull하지 않았습니다. " +
+                    "저장소는 변경되지 않았습니다. 해당 변경을 커밋하거나 되돌린 뒤 다시 시도하세요.", ex);
+            }
+            catch (LibGit2SharpException ex) when (requiresUserCredentials)
+            {
+                throw new GitAuthenticationException(
+                    $"'{repoPath}' 저장소의 원격이 사용자 자격 증명을 요구합니다. " +
+                    "DBVC는 Windows 통합 인증만 지원하므로, SSH 키를 사용하거나 " +
+                    "원격 URL에 액세스 토큰을 포함해 다시 시도하세요.", ex);
+            }
 
             if (result.Status == MergeStatus.Conflicts)
             {
@@ -204,6 +241,21 @@ namespace DBVC.Core
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// 원격이 요구하는 자격 증명 종류를 보고 무엇을 넘길지 정한다.
+        /// DBVC는 Windows 통합 인증(NTLM/Kerberos)만 지원하므로, 그 외를 요구하는 원격은
+        /// <paramref name="requiresUserCredentials"/>로 표시만 하고 실패하게 둔다.
+        /// libgit2의 인증 오류 메시지는 버전·전송 방식에 따라 달라져 문자열로 매칭할 수 없다.
+        /// 대신 핸들러가 호출되는 시점에 원인을 기록해 두고, 예외를 감쌀 때 그 기록을 쓴다.
+        /// </summary>
+        internal static Credentials ResolveCredentials(
+            SupportedCredentialTypes types,
+            out bool requiresUserCredentials)
+        {
+            requiresUserCredentials = !types.HasFlag(SupportedCredentialTypes.Default);
+            return new DefaultCredentials();
         }
 
         /// <summary>

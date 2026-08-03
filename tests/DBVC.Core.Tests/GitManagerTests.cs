@@ -513,6 +513,78 @@ namespace DBVC.Core.Tests
             }
         }
 
+        [Test]
+        public void ResolveCredentials_UsesWindowsIntegratedAuth_WhenTheRemoteSupportsIt()
+        {
+            var credentials = GitManager.ResolveCredentials(
+                SupportedCredentialTypes.UsernamePassword | SupportedCredentialTypes.Default,
+                out var requiresUserCredentials);
+
+            Assert.That(credentials, Is.InstanceOf<DefaultCredentials>());
+            Assert.That(requiresUserCredentials, Is.False,
+                "Default를 지원하는 원격은 통합 인증으로 처리되므로 자격 증명 요구로 표시하면 안 됩니다");
+        }
+
+        [Test]
+        public void ResolveCredentials_FlagsTheRemote_WhenOnlyUsernamePasswordIsSupported()
+        {
+            var credentials = GitManager.ResolveCredentials(
+                SupportedCredentialTypes.UsernamePassword,
+                out var requiresUserCredentials);
+
+            Assert.That(credentials, Is.InstanceOf<DefaultCredentials>(),
+                "핸들러는 Credentials를 반드시 돌려줘야 합니다. 여기서 하는 일은 실패를 막는 것이 아니라 원인을 기록하는 것입니다");
+            Assert.That(requiresUserCredentials, Is.True,
+                "Default를 지원하지 않으면 GitAuthenticationException으로 감쌀 근거가 됩니다");
+        }
+
+        [Test]
+        public void PullChanges_ThrowsWorkingTreeConflictException_WhenUncommittedChangesOverlapTheIncomingOnes()
+        {
+            var originPath = NewRepoWithCommit();
+            var clonePath = NewTempDir();
+            Repository.Clone(originPath, clonePath);
+
+            // 원격이 파일을 바꿔 커밋한다.
+            WriteRepoFile(originPath, "dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT, RemoteCol INT);");
+            using (var origin = new Repository(originPath))
+            {
+                Commands.Stage(origin, "*");
+                origin.Commit("remote edit", TestSignature, TestSignature);
+            }
+
+            // 로컬은 같은 파일을 커밋하지 않은 채 수정한다. 충돌 커밋이 아니라 미커밋 변경이다.
+            const string localContent = "CREATE TABLE Users (Id INT, LocalUncommitted INT);";
+            WriteRepoFile(clonePath, "dbo/Tables/Users.sql", localContent);
+
+            string headBefore;
+            using (var clone = new Repository(clonePath))
+            {
+                headBefore = clone.Head.Tip.Sha;
+            }
+
+            var git = NewGitManager("localhost", "testdb", clonePath);
+
+            var ex = Assert.Throws<WorkingTreeConflictException>(() => git.PullChanges("localhost", "testdb"));
+
+            Assert.That(ex!.InnerException, Is.InstanceOf<CheckoutConflictException>(),
+                "원인을 보존해야 진단할 수 있습니다");
+            Assert.That(ex.Message, Does.Contain("저장소는 변경되지 않았습니다"),
+                "이 경로의 핵심 정보는 '잃은 것이 없다'는 사실입니다");
+
+            using (var clone = new Repository(clonePath))
+            {
+                Assert.That(clone.Head.Tip.Sha, Is.EqualTo(headBefore),
+                    "병합이 시작되지 않았으므로 HEAD가 움직이면 안 됩니다");
+                Assert.That(clone.Index.Conflicts, Is.Empty,
+                    "AbortMerge를 부르지 않아도 저장소가 병합 중 상태로 남지 않아야 합니다");
+            }
+
+            Assert.That(File.ReadAllText(Path.Combine(clonePath, "dbo", "Tables", "Users.sql")),
+                Is.EqualTo(localContent),
+                "미커밋 변경이 그대로 남아 있어야 합니다. 이것이 MergeConflictException과 갈리는 지점입니다");
+        }
+
         // ---------- Constructor ----------
 
         [Test]
