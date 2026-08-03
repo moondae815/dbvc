@@ -13,10 +13,10 @@ DBVC는 SSMS 21 환경에서 데이터베이스 객체의 버전을 Git으로 �
 7. Object History
 8. Deployment Script 생성 (단순 병합)
 9. Rollback Script 생성 (Git 이전 리비전 병합)
-10. Object Explorer Overlay (상태 아이콘: M/A/D/C)
+10. Object Explorer Overlay (상태 아이콘: M/A/D/C) — **미구현·보류 상태** (사유는 3절 참고)
 11. SQL Editor Context Menu
 12. Compare with Repository (Side-by-Side Diff)
-13. Local Change Cache (DDL Trigger 기반 실시간 감지)
+13. Local Change Cache (DDL Trigger 기반 기록, 화면 반영은 **사용자가 Refresh를 누를 때** — 주기적 폴링 아님)
 14. One-Click Commit
 
 ## 3. Architecture & Components
@@ -32,7 +32,7 @@ DBVC는 SSMS 21 환경에서 데이터베이스 객체의 버전을 Git으로 �
 ## 4. Data Flow & Integration
 ### 4.1. Change Detection (실시간 변경 감지)
 1. 타겟 DB에 **DDL Trigger**를 생성하고, 모든 DDL 작업(CREATE, ALTER, DROP)을 `DBVC_ChangeLog` 테이블에 기록.
-2. SSMS 플러그인의 `StateTracker`가 **사용자가 Refresh를 누를 때** `DBVC_ChangeLog`를 읽어와 로컬 캐시를 업데이트. 주기적 폴링은 구현되어 있지 않으며 계획에도 없다.
+2. SSMS 플러그인의 `StateTracker`가 `DBVC_ChangeLog`를 읽어와 로컬 캐시를 업데이트한다. 이 갱신은 사용자가 **Refresh**를 누르거나, **Connect**(매핑·초기화된 DB로 연결)·**Setup DBVC**(초기화 성공 직후)·**Commit**(커밋 성공 직후)이 끝난 뒤 자동으로 실행된다 — 모두 사용자 동작에 뒤따르는 호출이며, 주기적 폴링은 구현되어 있지 않고 계획에도 없다.
 3. (원안) 갱신된 상태를 바탕으로 Object Explorer의 노드(테이블, 프로시저 등)에 상태 아이콘(M, A, D)을 오버레이 표시 — **미구현·보류 상태**다 (Feature 10, 사유는 [2026-08-01-dbvc-object-explorer-overlay.md](../plans/2026-08-01-dbvc-object-explorer-overlay.md) 참고). 변경 상태는 대신 View Changes 도구 창에서 확인한다.
 
 ### 4.2. Repository Mapping

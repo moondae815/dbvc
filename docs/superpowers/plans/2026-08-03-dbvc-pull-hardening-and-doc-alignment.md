@@ -14,7 +14,7 @@
 * `DBVC.Vsix`는 `net48` 전용이다.
 * macOS/Linux에서는 `net10.0` 타깃만 실행된다. 모든 테스트 명령에 `-f net10.0`을 붙인다. `net48` 테스트는 Windows CI가 돌린다.
 * 사용자에게 보이는 모든 문구는 한국어다. 기존 문구의 어투(평서형 "…합니다")를 따른다.
-* `CheckoutConflictException`은 `LibGit2SharpException`의 파생 타입이다. **반드시 먼저 잡는다.** 순서가 뒤집히면 겹치는 미커밋 변경이 인증 오류로 보고된다.
+* `CheckoutConflictException`은 `LibGit2SharpException`의 파생 타입이다. 파생 타입을 먼저 잡는다 — 명확성을 위한 선택이지, 정확성을 위해 필수는 아니다. `LibGit2SharpException` catch에는 `when (requiresUserCredentials)` 필터가 있어 C#이 순서를 강제하지 않으며, 자격 증명을 요구하는 원격은 체크아웃 이전 fetch 단계에서 이미 실패하므로 `CheckoutConflictException`이 던져지는 시점에는 `requiresUserCredentials`가 항상 `false`다 — 순서를 반대로 해도 겹치는 미커밋 변경이 인증 오류로 잘못 보고되지 않는다.
 * `CheckoutConflictException` 경로에서는 `AbortMerge`를 호출하지 않는다. 병합이 시작되지 않았으므로 되돌릴 것이 없다. (실측으로 확인됨: HEAD 불변, 인덱스 충돌 0, 로컬 미커밋 내용 보존)
 * `WarningMessage`는 지속 상태(매핑 안 됨, SMO 추출 실패) 전용이다. 일회성 동작의 결과를 여기에 쓰지 않는다.
 * 커밋 메시지는 한국어 제목 + Conventional Commits 접두사(`feat:`, `fix:`, `test:`, `docs:`, `refactor:`)를 쓴다.

@@ -62,8 +62,12 @@ GitAuthenticationException(string message, Exception innerException)
 `MergeConflictException` 던지기는 `try` 밖에 둔다 — 안에 넣어도 `MergeConflictException`은
 `LibGit2SharpException`이 아니라 잡히지 않지만, 경계를 좁혀 두는 편이 읽기에 분명하다.
 
-`CheckoutConflictException`은 `LibGit2SharpException`의 파생 타입이므로 **먼저 잡아야 한다.**
-순서가 뒤집히면 겹치는 미커밋 변경이 인증 오류로 보고된다.
+`CheckoutConflictException`은 `LibGit2SharpException`의 파생 타입이므로 파생 타입을 먼저 잡는다 —
+이 순서가 더 명확하기 때문이지, 정확성을 위해 필수는 아니다. `LibGit2SharpException` catch에는
+`when (requiresUserCredentials)` 필터가 있어 C#은 두 catch의 순서를 강제하지 않는다. 자격 증명을
+요구하는 원격은 체크아웃 이전 fetch 단계에서 이미 실패하므로, `CheckoutConflictException`이 던져지는
+시점에는 `requiresUserCredentials`가 항상 `false`다 — 순서를 반대로 해도 겹치는 미커밋 변경이 인증
+오류로 잘못 보고되지는 않는다.
 
 ```
 catch (CheckoutConflictException ex)
