@@ -44,6 +44,37 @@ namespace DBVC.Core.Tests
             Assert.That(script, Does.Not.Contain("Deployment"));
         }
 
+        [Test]
+        public void BuildScript_RecordsExcludedObjectsInTheHeader()
+        {
+            var script = ScriptGenerator.BuildScript(
+                new[] { Section("dbo.Users", "dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT);") },
+                ScriptKind.Rollback,
+                GeneratedAt,
+                new[] { "dbo.Gone", "dbo.AlsoGone" });
+
+            Assert.That(script, Does.Contain("Objects: 1"));
+            Assert.That(script, Does.Contain("Excluded: 2 (dbo.Gone, dbo.AlsoGone)"),
+                "알림은 닫으면 사라지지만 헤더는 파일과 함께 남습니다");
+        }
+
+        [Test]
+        public void BuildScript_OmitsTheExcludedLine_WhenNothingWasExcluded()
+        {
+            var withNull = Build(Section("dbo.Users", "dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT);"));
+            var withEmpty = ScriptGenerator.BuildScript(
+                new[] { Section("dbo.Users", "dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT);") },
+                ScriptKind.Deployment,
+                GeneratedAt,
+                Array.Empty<string>());
+
+            Assert.That(withNull, Does.Not.Contain("Excluded"),
+                "인자를 생략한 기존 호출부의 출력이 달라지면 안 됩니다");
+            Assert.That(withEmpty, Does.Not.Contain("Excluded"));
+            Assert.That(withEmpty, Is.EqualTo(withNull),
+                "빈 목록과 null은 같은 결과를 내야 합니다");
+        }
+
         // ---------- 섹션 ----------
 
         [Test]

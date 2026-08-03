@@ -113,7 +113,10 @@ namespace DBVC.Core.Tests
 
             Assert.That(result.IncludedCount, Is.EqualTo(1));
             Assert.That(result.ExcludedObjects, Is.EqualTo(new[] { "dbo.Gone" }));
-            Assert.That(result.Script, Does.Not.Contain("dbo.Gone"));
+            Assert.That(result.Script, Does.Not.Contain("/* ---- dbo.Gone"),
+                "제외된 객체의 본문 섹션은 들어가면 안 됩니다 - 원래 이 단언이 지키려던 것입니다");
+            Assert.That(result.Script, Does.Contain("Excluded: 1 (dbo.Gone)"),
+                "다만 무엇이 빠졌는지는 헤더에 남아야 합니다. ScriptExporter가 제외 목록을 전달하지 않으면 실패합니다");
         }
 
         // ---------- Rollback ----------

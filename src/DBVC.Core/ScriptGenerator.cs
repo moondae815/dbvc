@@ -17,8 +17,14 @@ namespace DBVC.Core
         /// <summary>
         /// 섹션들을 정해진 순서로 병합해 단일 스크립트 텍스트를 만든다.
         /// 내용이 빈 섹션은 제외되며 헤더의 개수에도 반영되지 않는다.
+        /// <paramref name="excludedObjects"/>는 호출자(<see cref="ScriptExporter"/>)가 판정한 제외 목록이며,
+        /// 파일을 나중에 열어 볼 사람이 무엇이 빠졌는지 알 수 있도록 헤더에 남긴다.
         /// </summary>
-        public static string BuildScript(IEnumerable<ScriptSection>? sections, ScriptKind kind, DateTimeOffset generatedAt)
+        public static string BuildScript(
+            IEnumerable<ScriptSection>? sections,
+            ScriptKind kind,
+            DateTimeOffset generatedAt,
+            IReadOnlyCollection<string>? excludedObjects = null)
         {
             var ordered = (sections ?? Enumerable.Empty<ScriptSection>())
                 .Where(s => s != null && !string.IsNullOrWhiteSpace(s.Sql))
@@ -27,7 +33,7 @@ namespace DBVC.Core
                 .ToList();
 
             var builder = new StringBuilder();
-            AppendHeader(builder, kind, generatedAt, ordered.Count);
+            AppendHeader(builder, kind, generatedAt, ordered.Count, excludedObjects);
 
             foreach (var section in ordered)
             {
@@ -37,7 +43,12 @@ namespace DBVC.Core
             return builder.ToString();
         }
 
-        private static void AppendHeader(StringBuilder builder, ScriptKind kind, DateTimeOffset generatedAt, int objectCount)
+        private static void AppendHeader(
+            StringBuilder builder,
+            ScriptKind kind,
+            DateTimeOffset generatedAt,
+            int objectCount,
+            IReadOnlyCollection<string>? excludedObjects)
         {
             var title = kind == ScriptKind.Rollback ? "DBVC Rollback Script" : "DBVC Deployment Script";
 
@@ -45,6 +56,12 @@ namespace DBVC.Core
             builder.AppendLine($"   {title}");
             builder.AppendLine($"   Generated: {generatedAt:yyyy-MM-ddTHH:mm:sszzz}");
             builder.AppendLine($"   Objects: {objectCount}");
+
+            if (excludedObjects != null && excludedObjects.Count > 0)
+            {
+                builder.AppendLine($"   Excluded: {excludedObjects.Count} ({string.Join(", ", excludedObjects)})");
+            }
+
             builder.AppendLine("   ============================================================ */");
             builder.AppendLine();
         }

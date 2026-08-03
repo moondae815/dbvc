@@ -64,7 +64,7 @@ namespace DBVC.Core
 
             result.IncludedCount = sections.Count;
             result.Script = sections.Count > 0
-                ? ScriptGenerator.BuildScript(sections, kind, generatedAt)
+                ? ScriptGenerator.BuildScript(sections, kind, generatedAt, result.ExcludedObjects)
                 : string.Empty;
 
             return result;
