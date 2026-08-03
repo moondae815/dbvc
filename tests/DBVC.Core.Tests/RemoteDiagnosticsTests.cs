@@ -11,6 +11,7 @@ namespace DBVC.Core.Tests
         [TestCase("ssh://git@github.com/org/repo.git")]
         [TestCase("SSH://git@github.com/org/repo.git")]
         [TestCase("git+ssh://git@gitlab.corp.local/team/repo.git")]
+        [TestCase("ssh+git://git@gitlab.corp.local/team/repo.git")]
         public void Classify_RecognizesSshScheme(string url)
         {
             Assert.That(RemoteDiagnostics.Classify(url), Is.EqualTo(RemoteUrlKind.Ssh));
@@ -95,7 +96,8 @@ namespace DBVC.Core.Tests
 
             Assert.That(guidance, Does.Contain("공개키"));
             Assert.That(guidance, Does.Contain("known_hosts"));
-            Assert.That(guidance, Does.Contain("22번 포트"));
+            Assert.That(guidance, Does.Contain("SSH 포트"),
+                "포트 번호를 22로 고정하면 안 됩니다 - 사내 GitLab은 비표준 포트를 흔히 씁니다");
         }
 
         [TestCase(@"C:\repos\dbvc")]

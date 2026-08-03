@@ -213,9 +213,20 @@ namespace DBVC.Core
             }
 
             // Explain은 예외가 아니라 원격 URL과 ssh 실행 파일 유무만 보므로 try 이전에 한 번 계산한다.
-            // 추적 브랜치 가드를 이미 통과했으므로 RemoteName은 여기서 항상 존재한다.
-            var remoteUrl = repo.Network.Remotes[repo.Head.RemoteName].Url;
-            var guidance = RemoteDiagnostics.Explain(remoteUrl, SshExecutableLocator.IsAvailable());
+            // IsTracking이 true라도 RemoteName은 비어 있을 수 있다 - 브랜치가 로컬 브랜치를 추적하는 경우
+            // (branch.<name>.remote = "." - `git branch --track`, autoSetupMerge = always 등으로 만들어진다)
+            // RemoteName은 ""이고 Remotes[""]는 ArgumentNullException을 던진다. remoteUrl을 null로 두면
+            // Explain이 Unknown으로 처리해 guidance가 null이 되고, 아래 catch가 가로채지 않아
+            // libgit2의 원본 예외가 그대로 전파된다.
+            var remoteName = repo.Head.RemoteName;
+            var remoteUrl = string.IsNullOrEmpty(remoteName) ? null : repo.Network.Remotes[remoteName]?.Url;
+
+            // SshExecutableLocator만으로는 부족하다 - libgit2의 ssh_exec 전송은 GIT_SSH(_COMMAND) 외에
+            // core.sshCommand 설정값도 읽는다. OpenSSH 선택적 기능이 꺼져 있어도 Git for Windows의
+            // ssh.exe를 core.sshCommand로 가리키는 구성(사내 PC에서 흔함)은 실제로 SSH가 되므로 여기서 함께 본다.
+            var sshAvailable = SshExecutableLocator.IsAvailable()
+                || !string.IsNullOrWhiteSpace(repo.Config.Get<string>("core.sshCommand")?.Value);
+            var guidance = RemoteDiagnostics.Explain(remoteUrl, sshAvailable);
 
             var headBefore = repo.Head.Tip;
             var signature = BuildSignature(repo);
@@ -229,8 +240,10 @@ namespace DBVC.Core
             {
                 result = Commands.Pull(repo, signature, options);
             }
-            // CheckoutConflictException은 LibGit2SharpException의 파생 타입이다. 파생 타입을 먼저 잡는
-            // 편이 더 명확하다 (정확성을 위해 필수는 아니다 - 아래 catch의 when 필터가 순서를 강제하지 않는다).
+            // CheckoutConflictException은 LibGit2SharpException의 파생 타입이므로 반드시 먼저 잡는다.
+            // 아래 catch에 when (guidance != null) 필터가 붙은 뒤로는 순서가 정확성 문제다 - 이 catch를
+            // 뒤로 옮기면 SSH/HTTPS 원격에서 발생한 체크아웃 충돌이 WorkingTreeConflictException 대신
+            // GitRemoteException으로 둔갑하고, 미커밋 변경을 보존한다는 이 catch의 의미를 잃는다.
             catch (CheckoutConflictException ex)
             {
                 // 병합 체크아웃이 시작조차 거부된 상태다. AbortMerge를 부르면 안 된다 - 되돌릴 것이 없고,

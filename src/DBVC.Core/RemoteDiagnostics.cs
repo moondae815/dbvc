@@ -35,10 +35,10 @@ namespace DBVC.Core
 
         private static readonly string SshFailureGuidance = string.Join(Environment.NewLine, new[]
         {
-            "SSH 연결에 실패했습니다. 다음을 확인하세요.",
+            "원격과 통신하지 못했다면 다음을 확인하세요.",
             "- 공개키가 원격 계정에 등록되어 있는지",
             "- 해당 호스트가 known_hosts에 등록되어 있는지 (Git 클라이언트에서 한 번 접속해 두세요)",
-            "- 원격 호스트로 나가는 22번 포트가 열려 있는지"
+            "- 원격 호스트의 SSH 포트(기본 22)가 열려 있는지"
         });
 
         /// <summary>
@@ -64,7 +64,7 @@ namespace DBVC.Core
 
             var url = remoteUrl!.Trim();
 
-            if (StartsWith(url, "ssh://") || StartsWith(url, "git+ssh://")) return RemoteUrlKind.Ssh;
+            if (StartsWith(url, "ssh://") || StartsWith(url, "git+ssh://") || StartsWith(url, "ssh+git://")) return RemoteUrlKind.Ssh;
             if (StartsWith(url, "https://") || StartsWith(url, "http://")) return RemoteUrlKind.Https;
             if (StartsWith(url, "file://")) return RemoteUrlKind.Other;
 

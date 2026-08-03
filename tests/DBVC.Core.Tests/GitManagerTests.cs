@@ -532,6 +532,15 @@ namespace DBVC.Core.Tests
         public void PullChanges_TellsTheUserToSwitchToSsh_WhenTheRemoteIsHttps()
         {
             // 도달 불가능한 HTTPS 원격. 네트워크에 나가지 않고도 자격 증명 요구 이전 단계에서 실패한다.
+            //
+            // 이 방식이 안전한 이유: 포트 1번 loopback에는 아무것도 붙어 있지 않으므로 connect()가
+            // 즉시 RST를 받고 실패한다 - 대기가 없다. 아래의 BasicAuthChallengeServer([Explicit])는
+            // 반대로 실제 연결을 "수락"해 HTTP 인증 왕복이 HTTP.sys를 통해 걸리면서 Windows CI를
+            // 한 시간 동안 멈추게 한 전례가 있다 - 그래서 그 테스트는 수동 실행 전용으로 남겨 뒀다.
+            //
+            // 잔여 위험: HTTPS_PROXY가 설정되어 있고 loopback이 no_proxy에 없는 환경에서는 프록시가
+            // 407을 응답할 수 있고, 그러면 이 호출이 자격 증명 콜백을 태워 GitAuthenticationException을
+            // 던질 수 있다 - GitRemoteException이 아니라. 흔치 않은 환경이라 지금은 감수한다.
             var localPath = NewRepoWithCommit();
             using (var local = new Repository(localPath))
             {
@@ -565,6 +574,37 @@ namespace DBVC.Core.Tests
 
             Assert.That(ex!.Message, Does.Not.Contain("SSH"));
             Assert.That(ex.Message, Does.Not.Contain("공개키"));
+        }
+
+        [Test]
+        public void PullChanges_ThrowsLibGit2SharpException_NotArgumentNullException_WhenTheBranchTracksALocalBranch()
+        {
+            // branch.<name>.remote = "." 는 브랜치가 원격이 아니라 로컬 브랜치를 추적하는 상태다
+            // (`git branch --track feature main`이나 autoSetupMerge = always로 만들어진다).
+            // 이때 repo.Head.IsTracking은 true이지만 repo.Head.RemoteName은 ""이므로,
+            // Remotes[""]를 그대로 색인하면 ArgumentNullException이 터진다. 추적 브랜치 가드는
+            // 이 상태를 걸러내지 못한다 - IsTracking이 true이기 때문이다. 가드를 되돌리면
+            // (remoteUrl을 다시 repo.Network.Remotes[repo.Head.RemoteName].Url로 직접 색인하면)
+            // 이 테스트가 ArgumentNullException으로 실패해야 한다.
+            var originPath = NewRepoWithCommit();
+            var localPath = NewRepoWithCommit();
+
+            string branchName;
+            using (var local = new Repository(localPath))
+            {
+                local.Network.Remotes.Add("origin", originPath);
+                branchName = local.Head.FriendlyName;
+                local.Config.Set($"branch.{branchName}.remote", ".");
+                local.Config.Set($"branch.{branchName}.merge", $"refs/heads/{branchName}");
+            }
+
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var ex = Assert.Throws<LibGit2SharpException>(() => git.PullChanges("localhost", "testdb"),
+                "이전에는 '원격이 없거나 추적 브랜치가 없다'는 영문 libgit2 예외였다. " +
+                "이 커밋 이후 회귀로 ArgumentNullException이 대신 나오면 안 된다.");
+
+            Assert.That(ex, Is.Not.InstanceOf<ArgumentNullException>());
         }
 
         [Test]
