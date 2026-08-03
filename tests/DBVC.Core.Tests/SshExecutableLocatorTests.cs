@@ -70,11 +70,26 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
-        public void IsAvailable_ToleratesEmptyPathEntries()
+        public void IsAvailable_SkipsBlankPathEntries_WithoutProbingTheCurrentDirectory()
         {
-            var pathVariable = Path.PathSeparator + "" + Path.PathSeparator;
+            // 빈 PATH 항목은 셸 관례상 "현재 작업 디렉터리"를 뜻한다. 건너뛰지 않으면
+            // Path.Combine("", "ssh.exe")가 "ssh.exe"가 되어 fileExists가 프로세스의
+            // 작업 디렉터리를 실제로 확인하게 된다 - 이는 사용자 PATH와 무관한 오탐이다.
+            var probedPaths = new List<string>();
+            bool RecordingFileExists(string path)
+            {
+                probedPaths.Add(path);
+                return false;
+            }
 
-            Assert.DoesNotThrow(() => SshExecutableLocator.IsAvailable(null, null, pathVariable, NothingExists));
+            var pathVariable = Path.PathSeparator + "" + Path.PathSeparator + " " + Path.PathSeparator;
+
+            var found = SshExecutableLocator.IsAvailable(null, null, pathVariable, RecordingFileExists);
+
+            Assert.That(found, Is.False);
+            Assert.That(probedPaths, Is.Empty,
+                "빈/공백 PATH 항목에 대해서는 fileExists가 전혀 호출되지 않아야 한다 - " +
+                "호출된다면 현재 작업 디렉터리를 오탐 대상으로 확인하고 있다는 뜻이다");
         }
     }
 }
