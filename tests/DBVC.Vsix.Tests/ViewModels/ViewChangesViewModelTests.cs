@@ -686,8 +686,12 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
-        public void PullCommand_ReportsAnAuthenticationFailure()
+        public void PullCommand_ReportsAnAuthenticationFailure_WithTheExceptionsOwnMessageIntact()
         {
+            // GitAuthenticationException 전용 catch는 없다 - Core가 이미 완전한 한국어 안내를
+            // 메시지에 담아 던지므로, 전용 분기를 두면 catch-all과 완전히 같은 동작
+            // (제목 "DBVC Pull 실패" + ex.Message 그대로)을 중복할 뿐이다. 이 테스트는 그
+            // catch-all 경로로 사용자에게 도달하는 결과를 고정한다. 되살리지 말 것.
             _git.Setup(g => g.PullChanges(Server, Database))
                 .Throws(new GitAuthenticationException("원격이 사용자 자격 증명을 요구합니다."));
             var vm = NewConnectedViewModel();
@@ -695,8 +699,8 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.PullCommand.Execute(null);
 
             Assert.That(_notifier.ErrorCalls, Has.Count.EqualTo(1));
-            Assert.That(_notifier.ErrorCalls[0].Title, Does.Contain("실패"));
-            Assert.That(_notifier.ErrorCalls[0].Message, Does.Contain("자격 증명"));
+            Assert.That(_notifier.ErrorCalls[0].Title, Is.EqualTo("DBVC Pull 실패"));
+            Assert.That(_notifier.ErrorCalls[0].Message, Is.EqualTo("원격이 사용자 자격 증명을 요구합니다."));
             Assert.That(_notifier.Infos, Is.Empty);
         }
 

@@ -294,14 +294,12 @@ namespace DBVC.Vsix.ViewModels
                 _notifier.ShowError("DBVC Pull 중단", ex.Message);
                 return;
             }
-            catch (GitAuthenticationException ex)
-            {
-                _notifier.ShowError("DBVC Pull 실패", ex.Message);
-                return;
-            }
             catch (Exception ex)
             {
                 // 원인이 타입으로 갈렸으므로 흔한 원인을 추측해 덧붙이지 않는다.
+                // GitAuthenticationException은 여기서 잡힌다 - Core가 이미 완전한 한국어
+                // 안내를 메시지에 담아 던지므로, 전용 catch를 두면 이 분기와 완전히
+                // 같은 코드를 중복할 뿐이다. 되살리지 말 것.
                 _notifier.ShowError("DBVC Pull 실패", ex.Message);
                 return;
             }
