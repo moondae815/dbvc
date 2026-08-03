@@ -256,17 +256,16 @@ namespace DBVC.Vsix.ViewModels
             var mapping = _configManager.TryGetMapping(ServerName!, DatabaseName!);
             if (mapping == null) return;
 
-            // GetChangedFiles는 미추적 파일도 포함하지만, 충돌 시 AbortMerge의 hard reset은
-            // 미추적 파일을 건드리지 않는다. 그리고 미커밋 변경이 있으면 병합 자체가 거부될 수도 있다
-            // (LibGit2Sharp가 병합 상태를 만들기 전에 CheckoutConflictException을 던지는 경우).
-            // 그래서 "이 개수만큼 사라진다"고 단정하지 않고 두 가능성을 모두 알린다.
+            // GetChangedFiles는 미추적 파일도 포함하므로 이 개수가 곧 손실량은 아니다.
+            // 문구가 개수를 손실량으로 단정하지 않도록 두 결과를 분리해 알린다.
             var pending = _gitManager.GetChangedFiles(mapping.GitPath);
             if (pending.Count > 0)
             {
                 var proceed = _notifier.Confirm(
                     "DBVC Pull",
                     $"커밋하지 않은 변경 {pending.Count}개가 있습니다." + Environment.NewLine +
-                    "받아올 변경과 겹치면 Pull이 거부되거나, 병합이 진행되다 충돌해 되돌아가면서" + Environment.NewLine +
+                    "받아올 변경과 겹치면 Pull이 거부됩니다. 이 경우 저장소는 그대로입니다." + Environment.NewLine +
+                    "겹치지 않더라도 병합 중 충돌이 나면 병합을 되돌리면서" + Environment.NewLine +
                     "추적 중인 파일의 변경이 함께 사라질 수 있습니다." + Environment.NewLine +
                     "(DBVC가 추출한 내용은 Refresh로 다시 만들 수 있습니다)" + Environment.NewLine + Environment.NewLine +
                     "계속하시겠습니까?");
@@ -289,14 +288,21 @@ namespace DBVC.Vsix.ViewModels
                 _notifier.ShowError("DBVC Pull 중단", ex.Message);
                 return;
             }
+            catch (WorkingTreeConflictException ex)
+            {
+                // 병합이 시작조차 못 했다. 사용자 관점에서 아무 일도 일어나지 않았으므로 '중단'이다.
+                _notifier.ShowError("DBVC Pull 중단", ex.Message);
+                return;
+            }
+            catch (GitAuthenticationException ex)
+            {
+                _notifier.ShowError("DBVC Pull 실패", ex.Message);
+                return;
+            }
             catch (Exception ex)
             {
-                // 예: 미커밋 변경이 받아올 변경과 겹치면 병합 상태가 만들어지기도 전에
-                // libgit2가 원문 메시지로 예외를 던진다. 원인을 특정해 감싸는 작업은
-                // DBVC.Core의 후속 과제이므로, 여기서는 흔한 원인을 안내만 덧붙인다.
-                var hint = "받아올 변경과 겹치는 미커밋 변경이 있으면 Pull이 거부될 수 있습니다." + Environment.NewLine +
-                    "해당 변경을 커밋하거나 되돌린 뒤 다시 시도하세요.";
-                _notifier.ShowError("DBVC Pull 실패", ex.Message + Environment.NewLine + Environment.NewLine + hint);
+                // 원인이 타입으로 갈렸으므로 흔한 원인을 추측해 덧붙이지 않는다.
+                _notifier.ShowError("DBVC Pull 실패", ex.Message);
                 return;
             }
 

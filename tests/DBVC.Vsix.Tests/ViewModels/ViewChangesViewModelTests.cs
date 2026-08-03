@@ -662,9 +662,59 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.PullCommand.Execute(null);
 
             Assert.That(_notifier.Errors, Has.Count.EqualTo(1));
-            Assert.That(_notifier.Errors[0], Does.Contain("원격"));
+            Assert.That(_notifier.Errors[0], Is.EqualTo("원격(remote)이 설정되어 있지 않습니다."),
+                "원인이 타입으로 갈렸으므로 무관한 오류에 미커밋 변경 힌트를 덧붙이면 안 됩니다. 원문만 그대로 보여줍니다");
             Assert.That(_notifier.Infos, Is.Empty,
                 "예기치 못한 실패인데 성공 알림까지 뜨면 안 됩니다 - catch 끝의 return이 지워지면 실패해야 합니다");
+        }
+
+        [Test]
+        public void PullCommand_ReportsARejectedCheckout_WithoutClaimingAnythingWasLost()
+        {
+            _git.Setup(g => g.PullChanges(Server, Database))
+                .Throws(new WorkingTreeConflictException(
+                    "겹치는 미커밋 변경이 있어 Pull하지 않았습니다. 저장소는 변경되지 않았습니다."));
+            var vm = NewConnectedViewModel();
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(_notifier.ErrorCalls, Has.Count.EqualTo(1));
+            Assert.That(_notifier.ErrorCalls[0].Title, Does.Contain("중단"),
+                "아무 일도 일어나지 않았으므로 '실패'가 아니라 '중단'입니다");
+            Assert.That(_notifier.ErrorCalls[0].Message, Does.Contain("변경되지 않았습니다"));
+            Assert.That(_notifier.Infos, Is.Empty);
+        }
+
+        [Test]
+        public void PullCommand_ReportsAnAuthenticationFailure()
+        {
+            _git.Setup(g => g.PullChanges(Server, Database))
+                .Throws(new GitAuthenticationException("원격이 사용자 자격 증명을 요구합니다."));
+            var vm = NewConnectedViewModel();
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(_notifier.ErrorCalls, Has.Count.EqualTo(1));
+            Assert.That(_notifier.ErrorCalls[0].Title, Does.Contain("실패"));
+            Assert.That(_notifier.ErrorCalls[0].Message, Does.Contain("자격 증명"));
+            Assert.That(_notifier.Infos, Is.Empty);
+        }
+
+        [Test]
+        public void PullCommand_TellsTheUserThatARejectedPullLosesNothing_BeforeAsking()
+        {
+            _git.Setup(g => g.GetChangedFiles(It.IsAny<string>()))
+                .Returns(new List<string> { "dbo/Tables/Users.sql" });
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(true);
+            var vm = NewConnectedViewModel();
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(_notifier.ConfirmCalls, Has.Count.EqualTo(1));
+            Assert.That(_notifier.ConfirmCalls[0].Message, Does.Contain("저장소는 그대로입니다"),
+                "거부 경로는 무손실입니다. 두 결과를 뭉뚱그리면 사용자가 필요 이상으로 겁먹습니다");
+            Assert.That(_notifier.ConfirmCalls[0].Message, Does.Contain("사라질 수 있습니다"),
+                "충돌 경로의 손실 가능성은 여전히 알려야 합니다");
         }
 
         [Test]
@@ -1055,6 +1105,9 @@ namespace DBVC.Vsix.Tests.ViewModels
             public bool ConfirmResult { get; set; } = true;
             public int ConfirmCallCount { get; private set; }
 
+            /// <summary>Confirm에 실제로 전달된 (title, message) 쌍. 문구 자체를 검증할 때 쓴다.</summary>
+            public List<(string Title, string Message)> ConfirmCalls { get; } = new List<(string, string)>();
+
             public void ShowError(string title, string message)
             {
                 Errors.Add(message);
@@ -1066,6 +1119,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             public bool Confirm(string title, string message)
             {
                 ConfirmCallCount++;
+                ConfirmCalls.Add((title, message));
                 return ConfirmResult;
             }
         }
