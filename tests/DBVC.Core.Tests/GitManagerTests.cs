@@ -480,6 +480,50 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void PullChanges_ExplainsInKorean_WhenTheCurrentBranchHasNoUpstream()
+        {
+            // DBVC 온보딩이 실제로 만들어내는 상태다. 사용자가 clone하지 않고 직접 git init한 폴더를
+            // 매핑하면 원격만 있고 추적 브랜치가 없다.
+            var originPath = NewRepoWithCommit();
+            var localPath = NewRepoWithCommit();
+            using (var local = new Repository(localPath))
+            {
+                local.Network.Remotes.Add("origin", originPath);
+            }
+
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var ex = Assert.Throws<InvalidOperationException>(() => git.PullChanges("localhost", "testdb"));
+
+            Assert.That(ex!.Message, Does.Not.Contain("tracking information"),
+                "libgit2의 영문 원문이 사용자에게 그대로 노출되면 안 됩니다 - 가드를 지우면 실패해야 합니다");
+            Assert.That(ex.Message, Does.Contain("추적"));
+            Assert.That(ex.Message, Does.Contain("main"),
+                "어떤 브랜치를 설정해야 하는지 이름으로 알려줘야 합니다");
+            Assert.That(ex.Message, Does.Contain("git push -u origin main"),
+                "사용자가 그대로 실행할 수 있는 명령을 줘야 합니다");
+        }
+
+        [Test]
+        public void PullChanges_ExplainsInKorean_WhenTheRepositoryHasNoCommitsYet()
+        {
+            // unborn HEAD. 같은 가드가 덮지만 브랜치 이름 조회가 터지지 않는지 확인한다.
+            var originPath = NewRepoWithCommit();
+            var localPath = NewTempDir();
+            Repository.Init(localPath);
+            using (var local = new Repository(localPath))
+            {
+                local.Network.Remotes.Add("origin", originPath);
+            }
+
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var ex = Assert.Throws<InvalidOperationException>(() => git.PullChanges("localhost", "testdb"));
+
+            Assert.That(ex!.Message, Does.Not.Contain("tracking information"));
+        }
+
+        [Test]
         public void PullChanges_ThrowsMergeConflictException_AndRestoresHead_OnConflict()
         {
             var originPath = NewRepoWithCommit();
