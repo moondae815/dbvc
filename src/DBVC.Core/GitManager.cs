@@ -16,6 +16,13 @@ namespace DBVC.Core
         private const string DefaultAuthorName = "DBVC User";
         private const string DefaultAuthorEmail = "dbvc@example.com";
 
+        /// <summary>
+        /// <see cref="RemoteDiagnostics.Explain"/>이 판정하지 못한 원격에서 자격 증명이 요구된 경우.
+        /// 정상 경로에서는 도달하지 않지만, 메시지 없는 예외를 던지지 않도록 둔다.
+        /// </summary>
+        private const string CredentialFallbackMessage =
+            "이 원격의 인증 방식을 DBVC가 처리할 수 없습니다. SSH 원격을 사용하세요.";
+
         private readonly IConfigManager? _configManager;
 
         public GitManager()
@@ -178,7 +185,8 @@ namespace DBVC.Core
         /// 원격 저장소의 변경을 병합한다.
         /// 병합 중 충돌하면 병합을 되돌리고 <see cref="MergeConflictException"/>을,
         /// 겹치는 미커밋 변경으로 병합이 시작조차 못 하면 <see cref="WorkingTreeConflictException"/>을,
-        /// 원격이 사용자 자격 증명을 요구하면 <see cref="GitAuthenticationException"/>을 던진다.
+        /// 원격이 사용자 자격 증명을 요구하면 <see cref="GitAuthenticationException"/>을,
+        /// 그 외에 원격과 통신하지 못했고 안내할 원인이 있으면 <see cref="GitRemoteException"/>을 던진다.
         /// 원격이 없거나 현재 브랜치에 추적 중인 원격 브랜치가 없으면 <see cref="InvalidOperationException"/>을 던진다.
         /// </summary>
         public bool PullChanges(string serverName, string databaseName)
@@ -204,6 +212,11 @@ namespace DBVC.Core
                     $"Git 클라이언트에서 'git push -u origin {branchName}'을 한 번 실행해 추적을 설정한 뒤 다시 시도하세요.");
             }
 
+            // Explain은 예외가 아니라 원격 URL과 ssh 실행 파일 유무만 보므로 try 이전에 한 번 계산한다.
+            // 추적 브랜치 가드를 이미 통과했으므로 RemoteName은 여기서 항상 존재한다.
+            var remoteUrl = repo.Network.Remotes[repo.Head.RemoteName].Url;
+            var guidance = RemoteDiagnostics.Explain(remoteUrl, SshExecutableLocator.IsAvailable());
+
             var headBefore = repo.Head.Tip;
             var signature = BuildSignature(repo);
 
@@ -228,10 +241,19 @@ namespace DBVC.Core
             }
             catch (LibGit2SharpException ex) when (requiresUserCredentials)
             {
+                // 콜백이 호출됐다는 것 자체가 "이 원격은 HTTPS이고 자격 증명을 요구한다"는 신호다.
+                // SSH는 시스템 ssh 실행 파일이 처리하므로 이 콜백을 거치지 않는다.
                 throw new GitAuthenticationException(
-                    $"'{repoPath}' 저장소의 원격이 사용자 자격 증명을 요구합니다. " +
-                    "DBVC는 Windows 통합 인증만 지원하므로, SSH 키를 사용하거나 " +
-                    "원격 URL에 액세스 토큰을 포함해 다시 시도하세요.", ex);
+                    $"'{repoPath}' 저장소의 원격이 사용자 자격 증명을 요구합니다." +
+                    Environment.NewLine + Environment.NewLine +
+                    (guidance ?? CredentialFallbackMessage), ex);
+            }
+            // 안내할 것이 있을 때만 가로챈다. 없으면 원본 예외가 그대로 전파되어
+            // 무관한 libgit2 오류를 엉뚱한 메시지로 삼키지 않는다.
+            catch (LibGit2SharpException ex) when (guidance != null)
+            {
+                throw new GitRemoteException(
+                    ex.Message + Environment.NewLine + Environment.NewLine + guidance, ex);
             }
 
             if (result.Status == MergeStatus.Conflicts)
@@ -270,8 +292,10 @@ namespace DBVC.Core
 
         /// <summary>
         /// 원격이 요구하는 자격 증명 종류를 보고 무엇을 넘길지 정한다.
-        /// DBVC는 Windows 통합 인증(NTLM/Kerberos)만 지원하므로, 그 외를 요구하는 원격은
-        /// <paramref name="requiresUserCredentials"/>로 표시만 하고 실패하게 둔다.
+        /// libgit2는 SSH를 시스템 ssh 실행 파일에 위임하므로 SSH 원격은 이 콜백을 거치지 않는다.
+        /// 뒤집으면 이 콜백이 호출됐다는 것은 원격이 HTTPS이고 자격 증명을 요구한다는 뜻이다.
+        /// DefaultCredentials를 계속 반환하는 이유는 비용이 없고, 원격에 Kerberos가 붙어 있으면
+        /// 그대로 통하기 때문이다.
         /// libgit2의 인증 오류 메시지는 버전·전송 방식에 따라 달라져 문자열로 매칭할 수 없다.
         /// 대신 핸들러가 호출되는 시점에 원인을 기록해 두고, 예외를 감쌀 때 그 기록을 쓴다.
         /// </summary>

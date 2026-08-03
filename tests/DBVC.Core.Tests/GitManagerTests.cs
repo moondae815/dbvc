@@ -529,6 +529,45 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void PullChanges_TellsTheUserToSwitchToSsh_WhenTheRemoteIsHttps()
+        {
+            // 도달 불가능한 HTTPS 원격. 네트워크에 나가지 않고도 자격 증명 요구 이전 단계에서 실패한다.
+            var localPath = NewRepoWithCommit();
+            using (var local = new Repository(localPath))
+            {
+                local.Network.Remotes.Add("origin", "https://127.0.0.1:1/nope.git");
+                var branchName = local.Head.FriendlyName;
+                local.Config.Set($"branch.{branchName}.remote", "origin");
+                local.Config.Set($"branch.{branchName}.merge", $"refs/heads/{branchName}");
+            }
+
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var ex = Assert.Throws<GitRemoteException>(() => git.PullChanges("localhost", "testdb"));
+
+            Assert.That(ex!.Message, Does.Contain("SSH 원격으로 바꾸세요"));
+            Assert.That(ex.InnerException, Is.Not.Null, "원인을 보존해야 진단할 수 있습니다");
+        }
+
+        [Test]
+        public void PullChanges_AddsNoGuidance_WhenTheRemoteIsALocalPath()
+        {
+            // 로컬 경로 원격이 사라진 상황. 안내를 붙일 결정적 근거가 없으므로 원문이 그대로 나와야 한다.
+            var originPath = NewRepoWithCommit();
+            var localPath = NewTempDir();
+            Repository.Clone(originPath, localPath);
+            TryDeleteDirectory(originPath);
+
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var ex = Assert.Throws<LibGit2SharpException>(() => git.PullChanges("localhost", "testdb"),
+                "안내가 없으면 원본 예외가 그대로 전파되어야 합니다 - 무관한 오류를 엉뚱한 메시지로 삼키면 안 됩니다");
+
+            Assert.That(ex!.Message, Does.Not.Contain("SSH"));
+            Assert.That(ex.Message, Does.Not.Contain("공개키"));
+        }
+
+        [Test]
         public void PullChanges_ThrowsMergeConflictException_AndRestoresHead_OnConflict()
         {
             var originPath = NewRepoWithCommit();
