@@ -1016,7 +1016,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
-        public void GenerateRollbackScriptCommand_WarnsAndSkipsSave_WhenNoObjectHasAPreviousRevision()
+        public void GenerateRollbackScriptCommand_NotifiesAndSkipsSave_WhenNoObjectHasAPreviousRevision()
         {
             var vm = NewViewModelWithOneCheckedChange(out _);
             _git.Setup(g => g.GetFileContentBeforeLastCommit(Server, Database, It.IsAny<string>()))
@@ -1025,7 +1025,12 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.GenerateRollbackScriptCommand.Execute(null);
 
             Assert.That(_saveDialog.CallCount, Is.EqualTo(0), "저장할 내용이 없으면 대화상자를 띄우지 않아야 합니다");
-            Assert.That(vm.WarningMessage, Does.Contain("dbo.Users"));
+            Assert.That(_notifier.InfoCalls, Has.Count.EqualTo(1));
+            Assert.That(_notifier.InfoCalls[0].Message, Does.Contain("dbo.Users"));
+            Assert.That(_notifier.InfoCalls[0].Message, Does.Contain("이전 리비전이 없어"));
+            Assert.That(vm.WarningMessage, Is.Null,
+                "일회성 동작의 결과를 지속 상태 배너에 쓰면 안 됩니다");
+            Assert.That(_notifier.Errors, Is.Empty, "내보낼 내용이 없는 것은 오류가 아닙니다");
         }
 
         [Test]
@@ -1044,7 +1049,40 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             vm.GenerateDeploymentScriptCommand.Execute(null);
 
-            Assert.That(vm.WarningMessage, Does.Contain("dbo.Gone"));
+            Assert.That(_notifier.InfoCalls, Has.Count.EqualTo(1));
+            Assert.That(_notifier.InfoCalls[0].Title, Is.EqualTo("DBVC Deployment Script"));
+            Assert.That(_notifier.InfoCalls[0].Message, Does.Contain("1개 객체를 내보냈습니다"));
+            Assert.That(_notifier.InfoCalls[0].Message, Does.Contain("dbo.Gone"));
+            Assert.That(_notifier.InfoCalls[0].Message, Does.Contain("추출된 파일이 없어"),
+                "Deployment의 제외 사유는 이전 리비전이 아니라 추출된 파일입니다");
+            Assert.That(vm.WarningMessage, Is.Null);
+        }
+
+        [Test]
+        public void GenerateDeploymentScriptCommand_NotifiesSuccess_EvenWhenNothingWasExcluded()
+        {
+            var vm = NewViewModelWithOneCheckedChange(out var repoPath);
+            _saveDialog.PathToReturn = Path.Combine(repoPath, "deploy.sql");
+
+            vm.GenerateDeploymentScriptCommand.Execute(null);
+
+            Assert.That(_notifier.InfoCalls, Has.Count.EqualTo(1),
+                "성공했는데 아무 피드백이 없으면 사용자는 저장됐는지 알 수 없습니다");
+            Assert.That(_notifier.InfoCalls[0].Message, Does.Contain("1개 객체를 내보냈습니다"));
+            Assert.That(_notifier.InfoCalls[0].Message, Does.Not.Contain("제외"),
+                "제외가 없으면 제외 문구를 붙이지 않습니다");
+        }
+
+        [Test]
+        public void GenerateDeploymentScriptCommand_DoesNotNotify_WhenTheUserCancelsTheSaveDialog()
+        {
+            var vm = NewViewModelWithOneCheckedChange(out _);
+            _saveDialog.PathToReturn = null;
+
+            vm.GenerateDeploymentScriptCommand.Execute(null);
+
+            Assert.That(_notifier.InfoCalls, Is.Empty, "취소는 오류도 아니고 완료도 아닙니다");
+            Assert.That(_notifier.Errors, Is.Empty);
         }
 
         [Test]
@@ -1097,6 +1135,9 @@ namespace DBVC.Vsix.Tests.ViewModels
             public List<string> Errors { get; } = new List<string>();
             public List<string> Infos { get; } = new List<string>();
 
+            /// <summary>ShowInfo에 실제로 전달된 (title, message) 쌍.</summary>
+            public List<(string Title, string Message)> InfoCalls { get; } = new List<(string, string)>();
+
             /// <summary>
             /// ShowError에 실제로 전달된 (title, message) 쌍.
             /// Errors는 message만 담아 기존 테스트를 그대로 두는데, 그것만으로는
@@ -1118,7 +1159,11 @@ namespace DBVC.Vsix.Tests.ViewModels
                 ErrorCalls.Add((title, message));
             }
 
-            public void ShowInfo(string title, string message) => Infos.Add(message);
+            public void ShowInfo(string title, string message)
+            {
+                Infos.Add(message);
+                InfoCalls.Add((title, message));
+            }
 
             public bool Confirm(string title, string message)
             {

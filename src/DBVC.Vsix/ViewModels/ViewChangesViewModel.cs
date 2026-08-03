@@ -528,20 +528,21 @@ namespace DBVC.Vsix.ViewModels
         {
             if (!CanGenerateScript()) return;
 
+            var kindLabel = kind == ScriptKind.Rollback ? "Rollback" : "Deployment";
+            var title = $"DBVC {kindLabel} Script";
+
             var result = _scriptExporter.Export(
                 ServerName!, DatabaseName!, GetSelectedRecords(), kind, DateTimeOffset.Now);
 
             if (!result.HasContent)
             {
-                WarningMessage = result.ExcludedObjects.Count > 0
-                    ? $"내보낼 내용이 없습니다. 제외된 객체: {string.Join(", ", result.ExcludedObjects)}"
-                    : "내보낼 내용이 없습니다.";
+                // 오류가 아니다. 내보낼 것이 없다는 사실을 알리고 끝낸다.
+                _notifier.ShowInfo(title, WithExclusions("내보낼 내용이 없습니다.", result, kind));
                 return;
             }
 
-            var kindLabel = kind == ScriptKind.Rollback ? "Rollback" : "Deployment";
             var targetPath = _saveDialog.PromptForSavePath(
-                $"DBVC {kindLabel} Script 저장",
+                $"{title} 저장",
                 $"DBVC_{kindLabel}_{DatabaseName}.sql");
 
             // 사용자가 취소한 경우다. 오류가 아니다.
@@ -553,13 +554,27 @@ namespace DBVC.Vsix.ViewModels
             }
             catch (Exception ex)
             {
-                _notifier.ShowError($"DBVC {kindLabel} Script 저장 실패", ex.Message);
+                _notifier.ShowError($"{title} 저장 실패", ex.Message);
                 return;
             }
 
-            WarningMessage = result.ExcludedObjects.Count > 0
-                ? $"{result.IncludedCount}개 객체를 내보냈습니다. 제외된 객체: {string.Join(", ", result.ExcludedObjects)}"
-                : null;
+            _notifier.ShowInfo(title, WithExclusions($"{result.IncludedCount}개 객체를 내보냈습니다.", result, kind));
+        }
+
+        /// <summary>
+        /// 제외된 객체가 있으면 사유와 함께 덧붙인다.
+        /// 사유가 <see cref="ScriptKind"/>에 따라 다르다 - Rollback은 되돌릴 이전 리비전이 없는 것이고,
+        /// Deployment는 작업 트리에 추출된 .sql 파일이 없는 것이다.
+        /// </summary>
+        private static string WithExclusions(string message, ScriptExportResult result, ScriptKind kind)
+        {
+            if (result.ExcludedObjects.Count == 0) return message;
+
+            var reason = kind == ScriptKind.Rollback ? "이전 리비전이 없어" : "추출된 파일이 없어";
+
+            return message + Environment.NewLine +
+                $"{result.ExcludedObjects.Count}개 객체는 {reason} 제외했습니다: " +
+                string.Join(", ", result.ExcludedObjects);
         }
 
         /// <summary>체크된 항목에 대응하는 변경 레코드를 돌려준다.</summary>
