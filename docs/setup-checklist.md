@@ -47,7 +47,22 @@ Pull이 거부되고, 폴더가 Git 저장소가 아니면 DBVC가 매핑을 거
 
 ## 1단계 — `.vsix` 만들기 (개발 노트북)
 
-CI는 `.vsix`를 만들지 못한다(원인 미규명, `.github/workflows/ci.yml` 주석 참고). 직접 빌드해야 한다.
+CI는 `.vsix`를 만들지 않는다(`.github/workflows/ci.yml` 주석 참고). 직접 빌드해야 한다.
+
+**빌드 도구 요건.** `.NET Framework MSBuild`가 필요하다. `dotnet build`로는 VSIX가 만들어지지 않는다
+— VSSDK 패키징 타깃이 .NET Framework MSBuild에서만 동작한다. Build Tools for Visual Studio 2022에
+아래 두 워크로드가 모두 있어야 한다. **둘 중 하나만 있으면 실패한다.**
+
+| 워크로드 | 없을 때 증상 |
+| --- | --- |
+| Visual Studio 확장 빌드 도구 | `.vsix`가 생성되지 않음 |
+| .NET 데스크톱 빌드 도구 | `MSB4236: 'Microsoft.NET.Sdk' SDK를 찾을 수 없습니다` |
+
+```
+vs_BuildTools.exe --add Microsoft.VisualStudio.Workload.VisualStudioExtensionBuildTools ^
+                  --add Microsoft.VisualStudio.Workload.ManagedDesktopBuildTools ^
+                  --includeRecommended --passive --norestart
+```
 
 - [ ] 소스를 받는다.
   ```
@@ -59,14 +74,14 @@ CI는 `.vsix`를 만들지 못한다(원인 미규명, `.github/workflows/ci.yml
   ```
   msbuild src\DBVC.Vsix\DBVC.Vsix.csproj -restore -p:Configuration=Release
   ```
-- [ ] 산출물이 실제로 생겼는지 확인한다.
+- [ ] 산출물이 실제로 생겼는지 확인한다. **경로에 `net48`이 들어간다.**
   ```
-  dir src\DBVC.Vsix\bin\Release\*.vsix
+  dir src\DBVC.Vsix\bin\Release\net48\*.vsix
   ```
+  크기가 8MB 안팎이면 정상이다.
 
 > **`.vsix`가 없으면 여기서 멈춘다.** 뒷단계가 전부 이것에 의존한다.
-> msbuild가 성공했는데 파일이 없으면 `Microsoft.VSSDK.BuildTools`가 복원되지 않은 것이다 —
-> Visual Studio 설치 관리자에서 "Visual Studio 확장 개발" 워크로드를 확인한다.
+> msbuild가 성공했는데 파일이 없으면 위 표의 "확장 빌드 도구" 워크로드를 확인한다.
 
 - [ ] 만들어진 `.vsix` 파일을 **따로 보관한다.** 5단계에서 폐쇄망 PC로 옮겨야 한다.
 

@@ -4,3 +4,7 @@ obj/
 *.user
 .worktrees
 .superpowers/
+
+# VSIX 빌드가 프로젝트 폴더에 남기는 중간 산출물.
+# 원본은 source.extension.vsixmanifest이고, 이것은 토큰이 치환된 사본이다.
+src/DBVC.Vsix/extension.vsixmanifest

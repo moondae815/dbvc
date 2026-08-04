@@ -91,19 +91,31 @@ jobs:
           dotnet test tests/DBVC.Vsix.Tests -f net10.0 -c Release
 
 # ---------------------------------------------------------------------------
-# VSIX 패키징(.vsct 컴파일, pkgdef 생성, .vsix 컨테이너)은 의도적으로 CI에서 제외했다.
+# VSIX 패키징(.vsct 컴파일, pkgdef 생성, .vsix 컨테이너)은 CI에서 제외했다.
 #
-# 시도했다가 뺀 이유:
-#   windows-latest에서 msbuild는 성공하지만 .vsix도 .pkgdef도 생성되지 않았고,
-#   실행 로그 전체에 'VSSDK' 문자열이 한 번도 등장하지 않았다. 즉
-#   Microsoft.VSSDK.BuildTools가 복원·임포트되지 않는 상태다.
-#   (DBVC.Vsix.csproj의 Condition="'$(OS)' == 'Windows_NT'"가 의심되지만 미확인.
-#    패키지 버전 17.10.2185 자체는 nuget.org에 실존한다.)
+# 과거 "msbuild는 성공하는데 .vsix가 안 생긴다"의 원인은 규명되어 수정됐다. 기록해 둔다.
 #
-# 되살리려면 위 원인을 먼저 규명할 것. 원인 규명 없이 잡만 다시 추가하면 같은 실패를 반복한다.
+#   원인은 Microsoft.VSSDK.BuildTools 복원 실패도, Condition="'$(OS)' == 'Windows_NT'"도
+#   아니었다. 패키지는 정상 복원되고 있었다. 진짜 원인은 DBVC.Vsix.csproj에 import가
+#   빠져 있던 것이다 — 패키지의 build\Microsoft.VSSDK.BuildTools.targets는 환경 변수만
+#   설정하고, CreateVsixContainer·GeneratePkgDef·VSCTCompile 타깃은
+#   tools\VSSDK\Microsoft.VsSDK.targets에 있으며 자동 import되지 않는다.
+#   그래서 빌드는 조용히 성공하고 산출물만 없었다.
 #
-# 그동안 .vsix는 Windows + Visual Studio SDK 환경에서 수동으로 만든다:
+#   함께 드러난 것들: .vsct가 한 번도 컴파일된 적이 없어 잘못된 헤더·심볼 참조가 잠복해
+#   있었고(vsshellids.h, guidNoSolution), 매니페스트에 ProductArchitecture와 LICENSE가
+#   빠져 있었다. 지금은 모두 수정되어 로컬에서 .vsix가 생성된다.
+#
+# 그럼에도 CI에 넣지 않는 이유:
+#   .NET Framework MSBuild가 필요하다(dotnet build로는 VSSDK 타깃이 돌지 않는다).
+#   windows-latest 러너에 "Visual Studio 확장 빌드 도구" 워크로드가 있다는 보장이 없어,
+#   러너 이미지 변경에 따라 조용히 다시 깨질 수 있다.
+#   되살린다면 msbuild.exe 경로를 vswhere로 찾고, .vsix 산출물 존재를 명시적으로 단언할 것
+#   (빌드 성공만으로는 아무것도 보장하지 않는다는 것이 위 사건의 교훈이다).
+#
+# .vsix는 Windows에서 수동으로 만든다. 산출물 경로에 net48이 들어간다:
 #   msbuild src/DBVC.Vsix/DBVC.Vsix.csproj -restore -p:Configuration=Release
+#   dir src\DBVC.Vsix\bin\Release\net48\*.vsix
 #
 # CI가 검증하는 범위는 빌드와 단위 테스트(net48 포함)까지다.
 # WPF 렌더링, VS 패키지 로딩, .vsct 메뉴 등록, SSMS 통합은 CI로 검증되지 않으며

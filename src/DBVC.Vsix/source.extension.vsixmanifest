@@ -9,7 +9,10 @@
     <Tags>SQL, SSMS, Git, Version Control, Database</Tags>
   </Metadata>
   <Installation InstalledByMsi="false" AllUsers="true">
-    <InstallationTarget Id="Microsoft.VisualStudio.Pro" Version="[17.0, 18.0)" />
+    <!-- SSMS 21은 VS 2022(17.x) 셸 기반이고 64비트다. ProductArchitecture는 VS 2022부터 필수다. -->
+    <InstallationTarget Id="Microsoft.VisualStudio.Pro" Version="[17.0, 18.0)">
+      <ProductArchitecture>amd64</ProductArchitecture>
+    </InstallationTarget>
   </Installation>
   <Dependencies>
     <Dependency Id="Microsoft.Framework.NDP" DisplayName="Microsoft .NET Framework" Version="[4.8,)" />

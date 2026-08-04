@@ -23,4 +23,38 @@
     <EmbeddedResource Include="..\DBVC.Database\InstallTrigger.sql" LogicalName="InstallTrigger.sql" />
   </ItemGroup>
 
+  <!--
+    LibGit2Sharp.NativeBinaries는 지원하는 모든 RID의 네이티브를 lib\ 아래로 복사한다
+    (linux-*, osx-*; 합쳐 약 16MB). net48은 Windows 전용 타깃이므로 이들은 절대 로드되지 않는다.
+    그대로 두면 DBVC.Vsix가 이 출력을 그대로 물려받아 .vsix가 7MB가량 커진다 — 폐쇄망 반입
+    절차를 거치는 파일이라 크기가 곧 비용이다.
+
+    lib\win32\{x86,x64,arm64}는 남긴다 — LibGit2Sharp가 프로세스 아키텍처에 맞춰 찾는 경로다.
+
+    net48로 한정한 이유. 이 lib\ 배치는 패키지의 net4x 전용 props가 만드는 것이라
+    netstandard2.0 출력에는 애초에 없다(그쪽은 runtimes\ RID 자산으로 해결된다). 조건이 없어도
+    결과는 같지만, 이 타깃이 Windows 전용 타깃에만 해당한다는 의도를 명시해 둔다.
+
+    걸러내는 위치가 여기인 이유: LibGit2Sharp가 이 프로젝트의 직접 의존성이라 그 props가
+    import되고, @(ContentWithTargetPath)가 여기에만 존재한다. DBVC.Vsix에서는 비어 있다.
+  -->
+  <Target Name="StripNonWindowsNativeBinaries"
+          BeforeTargets="AssignTargetPaths"
+          Condition="'$(TargetFramework)' == 'net48'">
+    <ItemGroup>
+      <!--
+        대상을 별도 항목으로 모은 뒤 지운다. Remove에 @(...)를 그대로 쓰면서 동시에 %()로
+        배칭하면 조건이 의도대로 적용되지 않는다.
+      -->
+      <_NonWindowsNativeBinary
+        Include="@(ContentWithTargetPath)"
+        Condition="$([System.String]::Copy('%(ContentWithTargetPath.TargetPath)').StartsWith('lib\linux')) Or $([System.String]::Copy('%(ContentWithTargetPath.TargetPath)').StartsWith('lib\osx'))" />
+      <ContentWithTargetPath Remove="@(_NonWindowsNativeBinary)" />
+    </ItemGroup>
+
+    <!-- 개수가 0이면 이 타깃이 무력화된 것이다. -->
+    <Message Importance="high"
+             Text="DBVC.Core(net48): 비Windows 네이티브 바이너리 @(_NonWindowsNativeBinary->Count())개를 제외합니다." />
+  </Target>
+
 </Project>
