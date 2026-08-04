@@ -1,6 +1,8 @@
 using System;
+using Moq;
 using NUnit.Framework;
 using DBVC.Core;
+using DBVC.Core.Models;
 using DBVC.Vsix;
 
 namespace DBVC.Vsix.Tests
@@ -83,6 +85,35 @@ namespace DBVC.Vsix.Tests
 
             Assert.That(vm, Is.Not.Null);
             Assert.That(vm.IsInitialized, Is.False);
+        }
+
+        [Test]
+        public void Services_ShareTheSameCredentialStoreInstance()
+        {
+            // ConfigManager와 같은 이유다. 각자 인스턴스를 만들면 생성 시점의 credentials.json
+            // 사본을 들게 되어, ViewModel이 Connect에서 방금 저장한 암호를 StateTracker가 보지 못한다.
+            var credentials = new Mock<ISqlCredentialStore>();
+            credentials.Setup(c => c.CanPersistPasswords).Returns(true);
+            credentials.Setup(c => c.Save(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SqlAuthMode>(),
+                It.IsAny<string>(), It.IsAny<string>())).Returns(true);
+
+            var services = new DbvcServices(NewIsolatedConfig(), credentials.Object);
+            var vm = services.CreateViewChangesViewModel();
+
+            vm.AuthMode = SqlAuthMode.Sql;
+            vm.UserName = "sa";
+            vm.Password = "p@ss";
+            vm.SetContext("S", "DB");
+
+            Assert.That(services.CredentialStore, Is.SameAs(credentials.Object));
+            credentials.Verify(c => c.Save("S", "DB", SqlAuthMode.Sql, "sa", "p@ss"), Times.Once,
+                "ViewModel이 컨테이너의 인증 저장소를 그대로 써야 합니다");
+        }
+
+        [Test]
+        public void Services_CreateACredentialStore_WhenNoneIsSupplied()
+        {
+            Assert.That(new DbvcServices(NewIsolatedConfig()).CredentialStore, Is.Not.Null);
         }
     }
 }

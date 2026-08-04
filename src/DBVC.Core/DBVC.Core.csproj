@@ -11,6 +11,11 @@
     <PackageReference Include="LibGit2Sharp" Version="0.32.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.2" />
     <PackageReference Include="Microsoft.SqlServer.SqlManagementObjects" Version="181.25.0" />
+    <!--
+      DPAPI(ProtectedData)로 SQL 인증 암호를 보호한다. netstandard2.0에서도 컴파일되지만
+      런타임 동작은 Windows 전용이다 — DpapiPasswordProtector가 그 경계를 처리한다.
+    -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.3" />
     <PackageReference Include="System.Text.Json" Version="10.0.3" />
   </ItemGroup>
 

@@ -28,14 +28,20 @@ Pull이 거부되고, 폴더가 Git 저장소가 아니면 DBVC가 매핑을 거
 - [ ] 개발 노트북에 **Visual Studio 2022**가 설치되어 있고 **Visual Studio 확장 개발** 워크로드가
       포함되어 있는지 확인한다. `.vsix`를 만들려면 이 워크로드가 필요하다.
 - [ ] 두 기계에 **SSMS 21**이 설치되어 있는지 확인한다.
-- [ ] 대상 데이터베이스에 대해 **본인 Windows 계정으로** 다음이 가능한지 확인한다.
-      DBVC는 **Windows 통합 인증만** 사용한다 (SQL 인증 계정을 넣을 자리가 없다).
+- [ ] 각 기계에서 **어떤 인증으로 SQL Server에 붙을지** 정한다. DBVC는 **Windows 통합 인증과
+      SQL Server 인증을 모두** 지원하며, (서버, 데이터베이스)마다 따로 기억한다.
+      개발 노트북은 Windows 인증, 폐쇄망 운영 PC는 SQL 인증처럼 섞어 써도 된다.
+  - SQL 인증을 쓸 서버는 **혼합 모드**여야 한다:
+    `SELECT SERVERPROPERTY('IsIntegratedSecurityOnly');` 이 `0`이면 SQL 인증 가능(`1`이면 Windows 전용).
+
+- [ ] 위에서 정한 계정으로 대상 데이터베이스에 다음이 가능한지 확인한다.
   - 테이블 생성 (`DBVC_ChangeLog` 생성용)
   - DDL 트리거 생성 (`CREATE TRIGGER ... ON DATABASE`)
   - 스키마 객체 조회 (스크립트 추출용)
 
-> **확인 방법:** SSMS에서 대상 DB에 Windows 인증으로 접속해
+> **확인 방법:** SSMS에서 대상 DB에 **DBVC에서 쓸 바로 그 계정으로** 접속해
 > `SELECT HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'CREATE TABLE');` 이 `1`이면 통과.
+> Windows 계정으로 확인해 놓고 DBVC에서는 SQL 로그인을 쓰면 권한이 다를 수 있다.
 
 ---
 
@@ -145,8 +151,17 @@ clone은 그 문제를 애초에 만들지 않는다.
 - [ ] SSMS 21을 실행하고 **View(보기) > Other Windows(다른 창) > DBVC View Changes**를 연다.
       메뉴에 항목이 없으면 설치가 안 된 것이다 — SSMS를 껐다 켜고 다시 확인한다.
 
-- [ ] 패널 상단 **Server / Database** 입력란에 대상을 입력하고 **Connect** 를 누른다.
+- [ ] 패널 상단 **Server / Database** 입력란에 대상을 입력한다.
       Server는 SSMS 접속 시 쓰는 것과 같은 값(예: `localhost`, `SQLSRV01\INST1`).
+
+- [ ] 그 옆 **인증 방식**을 고른다.
+  - **Windows 인증** — 추가 입력이 없다.
+  - **SQL Server 인증** — **User / Password** 칸이 나타난다. 0단계에서 정한 계정을 입력한다.
+      암호는 DPAPI로 암호화되어 `%APPDATA%\DBVC\credentials.json`에 저장되며,
+      **저장한 Windows 계정에서만** 복호화된다. 다음부터는 암호 칸을 비워 두면 저장된 값을 쓴다.
+
+- [ ] **Connect** 를 누른다. 접속에 실패하면 배너에 한국어 사유가 뜬다
+      (로그인 실패, 서버 도달 불가 등). 성공하면 아래 매핑 경고로 넘어간다.
 
 - [ ] 경고 배너 `Active Database is not mapped to a Git repository.` 가 뜨는지 확인한다.
       **뜨는 것이 정상이다** — 아직 매핑하지 않았다.
@@ -159,6 +174,11 @@ clone은 그 문제를 애초에 만들지 않는다.
 - [ ] 매핑이 저장됐는지 확인한다.
   ```
   type %APPDATA%\DBVC\mappings.json
+  ```
+  SQL 인증을 골랐다면 인증 정보도 확인한다. `ProtectedPassword` 가 알아볼 수 없는
+  Base64 문자열이어야 한다 — 평문이 보이면 결함이다.
+  ```
+  type %APPDATA%\DBVC\credentials.json
   ```
 
 ---
@@ -245,6 +265,16 @@ clone은 그 문제를 애초에 만들지 않는다.
 - [ ] 도구 창을 **좁게 도킹**했을 때 상단 버튼들이 잘리지 않고 줄바꿈되는지
 - [ ] 객체를 `DROP` 한 뒤 **Refresh** → `Deleted` 로 뜨고, 체크해서 Commit하면 저장소에서도 파일이 사라지는지
 
+### 인증 (SQL 인증을 쓰는 기계에서)
+
+- [ ] **암호를 저장하고 SSMS를 재시작** → Connect 시 암호 칸을 비운 채 눌러도 접속되는지
+- [ ] **틀린 암호로 Connect** → 배너에 `로그인하지 못했습니다` 와 혼합 모드 안내가 뜨는지.
+      영문 SqlException 원문이 그대로 보이면 결함이다
+- [ ] **Windows 인증으로 되돌린 뒤 Connect** → 접속되고, `credentials.json` 의 해당 항목에서
+      `ProtectedPassword` 가 `null` 이 되는지
+- [ ] `credentials.json` 을 텍스트 편집기로 열어 **암호가 평문으로 보이지 않는지**
+- [ ] 인증 입력란이 늘었으므로 **도구 창을 좁게 도킹**했을 때 상단 첫 줄이 잘리지 않고 줄바꿈되는지
+
 ### 스크립트 생성
 
 - [ ] 항목 몇 개 체크 → **Deployment Script** → 저장 → **"N개 객체를 내보냈습니다."** 알림이 뜨는지
@@ -290,7 +320,12 @@ clone은 그 문제를 애초에 만들지 않는다.
 - **인증은 SSH만.** HTTPS 원격은 인증할 수 없다. 폐쇄망 방화벽이 끝내 안 열리면 HTTPS + 액세스 토큰
   방식을 새로 설계해야 하며, 사유와 조건은
   [specs/2026-08-03-dbvc-ssh-first-git-auth-design.md](superpowers/specs/2026-08-03-dbvc-ssh-first-git-auth-design.md) 3절에 있다.
-- **DB 연결은 Windows 통합 인증 전용.** SQL 인증 계정을 입력할 자리가 없다.
+- **SQL 인증 암호는 저장한 Windows 계정에 묶인다.** DPAPI(CurrentUser)로 보호하므로
+  `credentials.json`을 다른 계정이나 다른 기계로 복사해도 복호화되지 않는다. 그 경우 Connect에서
+  다시 입력하면 된다. 공용 계정으로 로그온해 쓰는 환경이면 이 점을 미리 확인한다.
+- **DDL 변경 이력의 `LoginName`은 실제 접속 계정을 기록한다.** SQL 인증으로 모두가 같은 로그인을
+  공유하면 `DBVC_ChangeLog.LoginName`으로 사람을 구분할 수 없다. 현재 화면에는 이 값을 쓰지 않지만
+  (Git 커밋 작성자는 `git config`에서 온다), 사람별 추적이 필요하면 로그인을 나눈다.
 - **Push 기능이 없다.** 커밋까지가 DBVC의 역할이고, 원격에 올리는 것은 Git 클라이언트로 한다.
 - **Pull은 파일만 가져온다.** 받은 `.sql` 을 데이터베이스에 적용할지는 사용자가 판단한다.
   DBVC는 스크립트를 실행하지 않는다.
@@ -309,6 +344,8 @@ clone은 그 문제를 애초에 만들지 않는다.
 | 메뉴에 DBVC가 없다 | SSMS를 완전히 종료한 뒤 `.vsix` 재설치. 확장 관리자에서 설치 여부 확인 |
 | "저장소 연결..."이 오류를 낸다 | 고른 폴더에 `.git` 이 있는지. clone된 최상위 폴더인지 |
 | Setup DBVC가 실패한다 | 0단계의 권한 확인. `CREATE TABLE`·`CREATE TRIGGER` 권한 |
+| Connect가 "로그인하지 못했습니다"를 낸다 | 사용자명·암호, 그리고 서버가 혼합 모드인지 (`SERVERPROPERTY('IsIntegratedSecurityOnly')` 가 `0`) |
+| Connect가 "저장된 암호를 사용할 수 없습니다"를 낸다 | 암호를 저장한 Windows 계정과 지금 로그온한 계정이 다르다. 암호를 다시 입력한다 |
 | Refresh해도 목록이 비어 있다 | DDL 트리거 설치 확인. 트리거 설치 **이후에** 변경한 객체만 잡힌다 |
 | Pull이 영문 메시지를 낸다 | 안내가 붙지 않은 경우다. 원격 URL이 SSH도 HTTPS도 아닌 형태인지 확인 |
 | Pull이 `known_hosts` 를 말한다 | Git 클라이언트에서 `ssh -T git@<호스트>` 를 한 번 실행해 `yes` 입력 |

@@ -47,6 +47,7 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
 
         private readonly IConfigManager _configManager;
         private readonly IGitManager _gitManager;
+        private readonly SqlConnectionFactory _connectionFactory;
 
         /// <summary>서버/DB 단위의 변경 목록 캐시. UI 스레드 밖에서 갱신될 수 있어 thread-safe 구조를 쓴다.</summary>
         private readonly ConcurrentDictionary<string, IReadOnlyList<ChangeRecord>> _changesByDatabase =
@@ -61,22 +62,30 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
         }
 
         public StateTracker(IConfigManager configManager, IGitManager? gitManager)
+            : this(configManager, gitManager, null)
+        {
+        }
+
+        public StateTracker(IConfigManager configManager, IGitManager? gitManager, ISqlCredentialStore? credentialStore)
         {
             _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
             _gitManager = gitManager ?? new GitManager(_configManager);
+            _connectionFactory = new SqlConnectionFactory(credentialStore);
         }
 
         // ---------- 초기화 ----------
 
         /// <summary>
         /// 대상 DB에 DBVC_ChangeLog 테이블과 DDL 트리거가 모두 설치되어 있는지 확인한다.
+        /// 접속 실패(인증 오류 포함)는 "초기화되지 않음"과 구분하지 않고 false로 알린다 —
+        /// 호출자가 배너로 안내할 수 있도록 접속 실패 사유는 <see cref="TestConnection"/>으로 따로 확인한다.
         /// </summary>
-        public bool IsInitialized(string connectionString)
+        public bool IsInitialized(string serverName, string databaseName)
         {
-            if (string.IsNullOrWhiteSpace(connectionString)) return false;
+            if (string.IsNullOrWhiteSpace(serverName) || string.IsNullOrWhiteSpace(databaseName)) return false;
             try
             {
-                using var conn = new SqlConnection(connectionString);
+                using var conn = new SqlConnection(_connectionFactory.Build(serverName, databaseName));
                 conn.Open();
                 using var cmd = conn.CreateCommand();
                 cmd.CommandText = IsInitializedQuery;
@@ -127,13 +136,14 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
         /// 설치 스크립트를 실행해 ChangeLog 테이블과 DDL 트리거를 만든다.
         /// 권한 부족 등의 실패는 호출자가 사용자에게 알릴 수 있도록 그대로 전파한다.
         /// </summary>
-        public void InitializeDatabase(string connectionString)
+        public void InitializeDatabase(string serverName, string databaseName)
         {
-            if (string.IsNullOrWhiteSpace(connectionString)) throw new ArgumentException("Invalid connection string", nameof(connectionString));
+            if (string.IsNullOrWhiteSpace(serverName)) throw new ArgumentException("Invalid server name", nameof(serverName));
+            if (string.IsNullOrWhiteSpace(databaseName)) throw new ArgumentException("Invalid database name", nameof(databaseName));
 
             var batches = SplitSqlBatches(ReadInstallScript());
 
-            using var conn = new SqlConnection(connectionString);
+            using var conn = new SqlConnection(_connectionFactory.Build(serverName, databaseName));
             conn.Open();
             foreach (var batch in batches)
             {
@@ -143,15 +153,55 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
             }
         }
 
-        public static string BuildConnectionString(string serverName, string databaseName)
+        private string BuildConnectionString(string serverName, string databaseName)
         {
-            return new SqlConnectionStringBuilder
+            return _connectionFactory.Build(serverName, databaseName);
+        }
+
+        /// <summary>
+        /// 실제로 접속을 시도해 본다. 성공하면 <c>null</c>, 실패하면 사용자에게 그대로 보여줄
+        /// 한국어 사유를 반환한다.
+        ///
+        /// <see cref="IsInitialized"/>는 "접속 실패"와 "초기화 안 됨"을 모두 false로 뭉개므로,
+        /// SQL 인증 암호가 틀렸을 때 사용자가 원인을 알 방법이 없다. 그 구분을 여기서 만든다.
+        /// </summary>
+        public string? TestConnection(string serverName, string databaseName)
+        {
+            if (string.IsNullOrWhiteSpace(serverName) || string.IsNullOrWhiteSpace(databaseName))
             {
-                DataSource = serverName,
-                InitialCatalog = databaseName,
-                IntegratedSecurity = true,
-                TrustServerCertificate = true
-            }.ToString();
+                return "Server와 Database를 모두 입력하세요.";
+            }
+
+            string connectionString;
+            try
+            {
+                connectionString = BuildConnectionString(serverName, databaseName);
+            }
+            catch (SqlCredentialException ex)
+            {
+                return ex.Message;
+            }
+
+            try
+            {
+                using var conn = new SqlConnection(connectionString);
+                conn.Open();
+                return null;
+            }
+            catch (SqlException ex)
+            {
+                // 18456은 로그인 실패다. libgit2 쪽과 같은 원칙으로, 가장 흔한 원인을 짚어 준다.
+                if (ex.Number == 18456)
+                {
+                    return $"'{serverName}'에 로그인하지 못했습니다. 사용자명과 암호를 확인하세요. " +
+                           "SQL 인증을 쓰려면 서버가 혼합 모드(SQL Server 및 Windows 인증 모드)여야 합니다.";
+                }
+                return $"'{serverName}.{databaseName}'에 접속하지 못했습니다: {ex.Message}";
+            }
+            catch (Exception ex)
+            {
+                return $"'{serverName}.{databaseName}'에 접속하지 못했습니다: {ex.Message}";
+            }
         }
 
         // ---------- 상태 갱신 ----------

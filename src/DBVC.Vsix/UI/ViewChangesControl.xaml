@@ -15,14 +15,41 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 대상 데이터베이스 지정 -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="5,5,5,0">
-            <TextBlock Text="Server:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-            <TextBox Text="{Binding ServerName, UpdateSourceTrigger=PropertyChanged}" Width="140" Margin="0,0,10,0"/>
-            <TextBlock Text="Database:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-            <TextBox Text="{Binding DatabaseName, UpdateSourceTrigger=PropertyChanged}" Width="140" Margin="0,0,10,0"/>
-            <Button Content="Connect" Command="{Binding ConnectCommand}" Width="80"/>
-        </StackPanel>
+        <!--
+            대상 데이터베이스 지정. 인증 입력란이 붙어 좁게 도킹하면 잘리므로
+            아래 Top Area와 같은 이유로 WrapPanel을 쓴다.
+        -->
+        <WrapPanel Grid.Row="0" Orientation="Horizontal" Margin="5,5,5,0">
+            <TextBlock Text="Server:" VerticalAlignment="Center" Margin="0,0,4,4"/>
+            <TextBox Text="{Binding ServerName, UpdateSourceTrigger=PropertyChanged}" Width="140" Margin="0,0,10,4"/>
+            <TextBlock Text="Database:" VerticalAlignment="Center" Margin="0,0,4,4"/>
+            <TextBox Text="{Binding DatabaseName, UpdateSourceTrigger=PropertyChanged}" Width="140" Margin="0,0,10,4"/>
+
+            <ComboBox ItemsSource="{Binding AuthModes}"
+                      DisplayMemberPath="Label"
+                      SelectedValuePath="Mode"
+                      SelectedValue="{Binding AuthMode}"
+                      Width="130" Margin="0,0,10,4"
+                      ToolTip="Windows 통합 인증과 SQL Server 인증 중 하나를 고릅니다."/>
+
+            <TextBlock Text="User:" VerticalAlignment="Center" Margin="0,0,4,4"
+                       Visibility="{Binding IsSqlAuth, Converter={StaticResource BoolToVis}}"/>
+            <TextBox Text="{Binding UserName, UpdateSourceTrigger=PropertyChanged}" Width="110" Margin="0,0,10,4"
+                     Visibility="{Binding IsSqlAuth, Converter={StaticResource BoolToVis}}"/>
+
+            <TextBlock Text="Password:" VerticalAlignment="Center" Margin="0,0,4,4"
+                       Visibility="{Binding IsSqlAuth, Converter={StaticResource BoolToVis}}"/>
+            <!--
+                PasswordBox는 Password를 바인딩할 수 없다(DependencyProperty가 아니다).
+                코드 비하인드가 PasswordChanged에서 ViewModel로 밀어 넣는다.
+            -->
+            <PasswordBox x:Name="SqlPasswordBox" Width="110" Margin="0,0,10,4"
+                         PasswordChanged="OnSqlPasswordChanged"
+                         Visibility="{Binding IsSqlAuth, Converter={StaticResource BoolToVis}}"
+                         ToolTip="비워 두면 이전에 저장한 암호를 그대로 사용합니다."/>
+
+            <Button Content="Connect" Command="{Binding ConnectCommand}" Width="80" Margin="0,0,0,4"/>
+        </WrapPanel>
 
         <!--
             경고 배너. 초기화 여부와 무관하게 보여야 매핑되지 않은 DB에서도

@@ -25,6 +25,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         private RecordingSaveDialog _saveDialog = null!;
         private Mock<IWorkingTreeCleaner> _cleaner = null!;
         private RecordingFolderDialog _folderDialog = null!;
+        private Mock<ISqlCredentialStore> _credentials = null!;
         private readonly List<string> _tempDirs = new List<string>();
 
         [TearDown]
@@ -54,7 +55,9 @@ namespace DBVC.Vsix.Tests.ViewModels
             // 기본값: 매핑되어 있고 초기화되어 있으며 변경 없음
             _config.Setup(c => c.TryGetMapping(Server, Database))
                 .Returns(new MappingConfig { ServerName = Server, DatabaseName = Database, GitPath = @"C:\repo" });
-            _stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>())).Returns(true);
+            _stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
+            // null = 접속 성공. 인증 실패 경로를 보는 테스트만 이 값을 덮어쓴다.
+            _stateTracker.Setup(s => s.TestConnection(It.IsAny<string>(), It.IsAny<string>())).Returns((string?)null);
             _stateTracker.Setup(s => s.RefreshState(Server, Database)).Returns(true);
             _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>());
             _smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null)).Returns(new ScriptResult());
@@ -66,13 +69,19 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             _git.Setup(g => g.GetHistory(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
                 .Returns(new List<CommitInfo>());
+
+            // 실제 SqlCredentialStore를 쓰면 테스트가 %APPDATA%에 파일을 남긴다.
+            _credentials = new Mock<ISqlCredentialStore>();
+            _credentials.Setup(c => c.CanPersistPasswords).Returns(true);
+            _credentials.Setup(c => c.Save(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SqlAuthMode>(),
+                It.IsAny<string>(), It.IsAny<string>())).Returns(true);
         }
 
         private ViewChangesViewModel NewViewModel()
         {
             return new ViewChangesViewModel(
                 _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
-                _cleaner.Object, _folderDialog);
+                _cleaner.Object, _folderDialog, _credentials.Object);
         }
 
         private ViewChangesViewModel NewConnectedViewModel()
@@ -135,14 +144,14 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             var vm = NewConnectedViewModel();
 
-            _stateTracker.Verify(s => s.IsInitialized(It.IsAny<string>()), Times.Once);
+            _stateTracker.Verify(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
             Assert.That(vm.IsInitialized, Is.True);
         }
 
         [Test]
         public void SetContext_MarksNotInitialized_WhenTrackerSaysSo()
         {
-            _stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>())).Returns(false);
+            _stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>())).Returns(false);
 
             var vm = NewConnectedViewModel();
 
@@ -170,6 +179,138 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.WarningMessage, Is.Null.Or.Empty);
         }
 
+        // ---------- 인증 ----------
+
+        [Test]
+        public void AuthMode_DefaultsToWindows()
+        {
+            var vm = NewViewModel();
+
+            Assert.That(vm.AuthMode, Is.EqualTo(SqlAuthMode.Windows));
+            Assert.That(vm.IsSqlAuth, Is.False, "Windows 인증에서는 사용자명·암호 칸이 보이면 안 됩니다");
+        }
+
+        [Test]
+        public void IsSqlAuth_BecomesTrue_WhenSqlAuthIsSelected()
+        {
+            var vm = NewViewModel();
+
+            vm.AuthMode = SqlAuthMode.Sql;
+
+            Assert.That(vm.IsSqlAuth, Is.True);
+        }
+
+        [Test]
+        public void SetContext_SavesTheEnteredCredential()
+        {
+            var vm = NewViewModel();
+            vm.AuthMode = SqlAuthMode.Sql;
+            vm.UserName = "sa";
+            vm.Password = "p@ss";
+
+            vm.SetContext(Server, Database);
+
+            _credentials.Verify(c => c.Save(Server, Database, SqlAuthMode.Sql, "sa", "p@ss"), Times.Once);
+        }
+
+        [Test]
+        public void SetContext_ClearsThePlainTextPassword_AfterSaving()
+        {
+            var vm = NewViewModel();
+            vm.AuthMode = SqlAuthMode.Sql;
+            vm.UserName = "sa";
+            vm.Password = "p@ss";
+
+            vm.SetContext(Server, Database);
+
+            Assert.That(vm.Password, Is.Null,
+                "평문 암호를 ViewModel이 세션 내내 들고 있을 이유가 없습니다");
+        }
+
+        [Test]
+        public void SetContext_ShowsTheConnectionError_AndDoesNotClaimInitialized()
+        {
+            _stateTracker.Setup(s => s.TestConnection(Server, Database))
+                .Returns("'LocalServer'에 로그인하지 못했습니다. 사용자명과 암호를 확인하세요.");
+
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.IsInitialized, Is.False);
+            Assert.That(vm.WarningMessage, Does.Contain("로그인하지 못했습니다"),
+                "접속 실패를 '초기화되지 않음'으로 뭉개면 원인을 알 수 없습니다");
+            _stateTracker.Verify(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>()), Times.Never,
+                "접속도 안 되는 상태에서 초기화 여부를 물을 이유가 없습니다");
+        }
+
+        [Test]
+        public void SetContext_WarnsAndStops_WhenThePasswordCannotBePersisted()
+        {
+            _credentials.Setup(c => c.Save(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SqlAuthMode>(),
+                It.IsAny<string>(), It.IsAny<string>())).Returns(false);
+
+            var vm = NewViewModel();
+            vm.AuthMode = SqlAuthMode.Sql;
+            vm.UserName = "sa";
+            vm.Password = "p@ss";
+
+            vm.SetContext(Server, Database);
+
+            Assert.That(vm.WarningMessage, Does.Contain("저장하지 못했습니다"));
+            Assert.That(vm.IsInitialized, Is.False);
+            _stateTracker.Verify(s => s.TestConnection(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Test]
+        public void SettingTheTarget_RestoresTheStoredSqlAuth_SoConnectDoesNotOverwriteIt()
+        {
+            // SSMS를 재시작하면 콤보는 기본값(Windows)이다. 대상만 입력하고 Connect를 누르면
+            // 저장해 둔 SQL 인증이 Windows 인증으로 덮어써져 폐쇄망에서 접속이 끊긴다.
+            _credentials.Setup(c => c.TryGet(Server, Database)).Returns(new SqlCredential
+            {
+                ServerName = Server,
+                DatabaseName = Database,
+                AuthMode = SqlAuthMode.Sql,
+                UserName = "sa",
+                ProtectedPassword = "protected"
+            });
+
+            var vm = NewViewModel();
+            vm.ServerName = Server;
+            vm.DatabaseName = Database;
+
+            Assert.That(vm.AuthMode, Is.EqualTo(SqlAuthMode.Sql),
+                "대상을 입력하면 저장된 인증 방식이 복원되어야 합니다");
+
+            vm.ConnectCommand.Execute(null);
+
+            _credentials.Verify(c => c.Save(Server, Database, SqlAuthMode.Sql, "sa", null), Times.Once);
+            _credentials.Verify(
+                c => c.Save(Server, Database, SqlAuthMode.Windows, It.IsAny<string>(), It.IsAny<string>()),
+                Times.Never,
+                "저장된 SQL 인증을 Windows 인증으로 덮어쓰면 안 됩니다");
+        }
+
+        [Test]
+        public void LoadSavedCredential_RestoresTheStoredAuthModeAndUserName()
+        {
+            _credentials.Setup(c => c.TryGet(Server, Database)).Returns(new SqlCredential
+            {
+                ServerName = Server,
+                DatabaseName = Database,
+                AuthMode = SqlAuthMode.Sql,
+                UserName = "sa"
+            });
+
+            var vm = NewViewModel();
+            vm.ServerName = Server;
+            vm.DatabaseName = Database;
+
+            vm.LoadSavedCredential();
+
+            Assert.That(vm.AuthMode, Is.EqualTo(SqlAuthMode.Sql));
+            Assert.That(vm.UserName, Is.EqualTo("sa"));
+        }
+
         [Test]
         public void ConnectCommand_AppliesTheEnteredServerAndDatabase()
         {
@@ -180,7 +321,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.ConnectCommand.Execute(null);
 
             Assert.That(vm.IsMapped, Is.True);
-            _stateTracker.Verify(s => s.IsInitialized(It.IsAny<string>()), Times.Once);
+            _stateTracker.Verify(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
         }
 
         [Test]
@@ -201,19 +342,19 @@ namespace DBVC.Vsix.Tests.ViewModels
         [Test]
         public void SetupCommand_InstallsTheChangeLogAndTrigger()
         {
-            _stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>())).Returns(false);
+            _stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>())).Returns(false);
             var vm = NewConnectedViewModel();
 
             vm.SetupCommand.Execute(null);
 
-            _stateTracker.Verify(s => s.InitializeDatabase(It.Is<string>(cs => cs.Contains(Database))), Times.Once);
+            _stateTracker.Verify(s => s.InitializeDatabase(Server, Database), Times.Once);
             Assert.That(vm.IsInitialized, Is.True);
         }
 
         [Test]
         public void SetupCommand_RefreshesAfterSuccessfulInstall()
         {
-            _stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>())).Returns(false);
+            _stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>())).Returns(false);
             var vm = NewConnectedViewModel();
 
             vm.SetupCommand.Execute(null);
@@ -225,8 +366,8 @@ namespace DBVC.Vsix.Tests.ViewModels
         public void SetupCommand_KeepsOverlayVisibleAndNotifies_WhenInstallationFails()
         {
             // 권한 부족(db_owner 아님) 등으로 설치가 실패하면 초기화되었다고 주장해서는 안 된다.
-            _stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>())).Returns(false);
-            _stateTracker.Setup(s => s.InitializeDatabase(It.IsAny<string>()))
+            _stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>())).Returns(false);
+            _stateTracker.Setup(s => s.InitializeDatabase(It.IsAny<string>(), It.IsAny<string>()))
                 .Throws(new InvalidOperationException("권한이 없습니다"));
             var vm = NewConnectedViewModel();
 
@@ -244,7 +385,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             vm.SetupCommand.Execute(null);
 
-            _stateTracker.Verify(s => s.InitializeDatabase(It.IsAny<string>()), Times.Never);
+            _stateTracker.Verify(s => s.InitializeDatabase(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
             Assert.That(vm.IsInitialized, Is.False);
         }
 

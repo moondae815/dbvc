@@ -16,10 +16,28 @@ namespace DBVC.Core
         IReadOnlyList<MappingConfig> GetAllMappings();
     }
 
+    /// <summary>
+    /// (서버, 데이터베이스)별 SQL 접속 인증 정보를 보관한다.
+    /// 매핑과 수명이 다르므로 <see cref="IConfigManager"/>와 분리되어 있다.
+    /// </summary>
+    public interface ISqlCredentialStore
+    {
+        /// <summary>이 플랫폼에서 암호를 안전하게 저장할 수 있는지.</summary>
+        bool CanPersistPasswords { get; }
+
+        SqlCredential? TryGet(string serverName, string databaseName);
+        bool Save(string serverName, string databaseName, SqlAuthMode authMode, string? userName, string? plainPassword);
+        bool Remove(string serverName, string databaseName);
+        string? ResolvePassword(SqlCredential? credential);
+    }
+
     public interface IStateTracker
     {
-        bool IsInitialized(string connectionString);
-        void InitializeDatabase(string connectionString);
+        bool IsInitialized(string serverName, string databaseName);
+        void InitializeDatabase(string serverName, string databaseName);
+
+        /// <summary>접속을 시도해 성공하면 <c>null</c>, 실패하면 사용자에게 보일 한국어 사유.</summary>
+        string? TestConnection(string serverName, string databaseName);
         bool RefreshState(string serverName, string databaseName);
         IReadOnlyList<ChangeRecord> GetPendingChanges(string serverName, string databaseName);
         string GetObjectState(string serverName, string databaseName, string objectName);

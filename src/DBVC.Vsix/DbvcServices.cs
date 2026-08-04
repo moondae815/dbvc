@@ -12,6 +12,7 @@ namespace DBVC.Vsix
     public class DbvcServices
     {
         public IConfigManager ConfigManager { get; }
+        public ISqlCredentialStore CredentialStore { get; }
         public IGitManager GitManager { get; }
         public ISmoManager SmoManager { get; }
         public IStateTracker StateTracker { get; }
@@ -28,24 +29,41 @@ namespace DBVC.Vsix
         }
 
         /// <summary>
-        /// 하나의 <see cref="ConfigManager"/>를 모든 매니저가 공유하도록 구성한다.
+        /// 하나의 <see cref="ConfigManager"/>와 <see cref="SqlCredentialStore"/>를 모든 매니저가
+        /// 공유하도록 구성한다.
+        ///
+        /// 인증 저장소를 공유하지 않으면 각 인스턴스가 생성 시점의 credentials.json 사본을 들고 있게 된다.
+        /// ViewModel이 Connect에서 방금 저장한 암호를 StateTracker가 보지 못해, SQL 인증 첫 접속이
+        /// Windows 인증으로 흘러가 실패한다.
         /// </summary>
-        public DbvcServices(IConfigManager configManager)
+        public DbvcServices(IConfigManager configManager, ISqlCredentialStore? credentialStore = null)
         {
             ConfigManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
+            CredentialStore = credentialStore ?? new SqlCredentialStore();
 
             var git = new GitManager(ConfigManager);
             GitManager = git;
-            SmoManager = new SmoManager(ConfigManager);
-            StateTracker = new StateTracker(ConfigManager, git);
+            SmoManager = new SmoManager(ConfigManager, CredentialStore);
+            StateTracker = new StateTracker(ConfigManager, git, CredentialStore);
         }
 
         public DbvcServices(IConfigManager configManager, IGitManager gitManager, ISmoManager smoManager, IStateTracker stateTracker)
+            : this(configManager, gitManager, smoManager, stateTracker, null)
+        {
+        }
+
+        public DbvcServices(
+            IConfigManager configManager,
+            IGitManager gitManager,
+            ISmoManager smoManager,
+            IStateTracker stateTracker,
+            ISqlCredentialStore? credentialStore)
         {
             ConfigManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
             GitManager = gitManager ?? throw new ArgumentNullException(nameof(gitManager));
             SmoManager = smoManager ?? throw new ArgumentNullException(nameof(smoManager));
             StateTracker = stateTracker ?? throw new ArgumentNullException(nameof(stateTracker));
+            CredentialStore = credentialStore ?? new SqlCredentialStore();
         }
 
         private ViewChangesViewModel? _sharedViewModel;
@@ -58,7 +76,9 @@ namespace DBVC.Vsix
 
         public ViewChangesViewModel CreateViewChangesViewModel(IUserNotifier? notifier = null)
         {
-            return new ViewChangesViewModel(ConfigManager, StateTracker, GitManager, SmoManager, notifier);
+            return new ViewChangesViewModel(
+                ConfigManager, StateTracker, GitManager, SmoManager, notifier,
+                credentialStore: CredentialStore);
         }
 
         public DiffService CreateDiffService()

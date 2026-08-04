@@ -46,6 +46,19 @@ namespace DBVC.Vsix.UI
         }
 
         /// <summary>
+        /// PasswordBox.Password는 DependencyProperty가 아니라 바인딩할 수 없다.
+        /// ViewModel은 Connect 직후 이 값을 버리므로, 사용자가 다시 입력하지 않고 Connect를
+        /// 눌러도 "저장된 암호를 그대로 쓴다"로 해석되어 정상 동작한다.
+        /// </summary>
+        private void OnSqlPasswordChanged(object sender, System.Windows.RoutedEventArgs e)
+        {
+            if (sender is PasswordBox box)
+            {
+                _viewModel.Password = box.Password;
+            }
+        }
+
+        /// <summary>
         /// 선택된 객체의 Git HEAD 버전과 현재 DB 버전을 좌우 에디터에 채우고 차이를 강조한다.
         /// </summary>
         private void OnSelectionChanged(object? sender, EventArgs e)

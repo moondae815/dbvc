@@ -22,6 +22,7 @@ namespace DBVC.Vsix.ViewModels
         private const string NotMappedWarning = "Active Database is not mapped to a Git repository.";
 
         private readonly IConfigManager _configManager;
+        private readonly ISqlCredentialStore _credentialStore;
         private readonly IStateTracker _stateTracker;
         private readonly IGitManager _gitManager;
         private readonly ISmoManager _smoManager;
@@ -54,12 +55,14 @@ namespace DBVC.Vsix.ViewModels
             IUserNotifier? notifier,
             IFileSaveDialog? saveDialog = null,
             IWorkingTreeCleaner? cleaner = null,
-            IFolderBrowseDialog? folderDialog = null)
+            IFolderBrowseDialog? folderDialog = null,
+            ISqlCredentialStore? credentialStore = null)
         {
             _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
+            _credentialStore = credentialStore ?? new SqlCredentialStore();
             _gitManager = gitManager ?? new GitManager(_configManager);
-            _stateTracker = stateTracker ?? new StateTracker(_configManager, _gitManager);
-            _smoManager = smoManager ?? new SmoManager(_configManager);
+            _stateTracker = stateTracker ?? new StateTracker(_configManager, _gitManager, _credentialStore);
+            _smoManager = smoManager ?? new SmoManager(_configManager, _credentialStore);
             _notifier = notifier ?? new MessageBoxNotifier();
             _saveDialog = saveDialog ?? new SaveFileDialogAdapter();
             _cleaner = cleaner ?? new WorkingTreeCleaner();
@@ -89,6 +92,7 @@ namespace DBVC.Vsix.ViewModels
                 _serverName = value;
                 OnPropertyChanged();
                 RaiseConnectCanExecuteChanged();
+                LoadSavedCredential();
             }
         }
 
@@ -102,13 +106,99 @@ namespace DBVC.Vsix.ViewModels
                 _databaseName = value;
                 OnPropertyChanged();
                 RaiseConnectCanExecuteChanged();
+                LoadSavedCredential();
             }
         }
 
         private bool HasContext => !string.IsNullOrWhiteSpace(ServerName) && !string.IsNullOrWhiteSpace(DatabaseName);
 
+        // ---------- 인증 ----------
+
+        private SqlAuthMode _authMode = SqlAuthMode.Windows;
+
         /// <summary>
-        /// 활성 데이터베이스를 지정하고 매핑/초기화 상태를 다시 판정한다.
+        /// 접속에 쓸 인증 방식. Connect 시점에 <see cref="ISqlCredentialStore"/>에 저장된다.
+        /// </summary>
+        public SqlAuthMode AuthMode
+        {
+            get => _authMode;
+            set
+            {
+                if (_authMode == value) return;
+                _authMode = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsSqlAuth));
+            }
+        }
+
+        /// <summary>SQL 인증일 때만 사용자명·암호 입력란을 보인다.</summary>
+        public bool IsSqlAuth => AuthMode == SqlAuthMode.Sql;
+
+        /// <summary>인증 방식 콤보의 항목. 열거형을 그대로 노출하면 영문 이름이 보인다.</summary>
+        public IReadOnlyList<AuthModeOption> AuthModes { get; } = new[]
+        {
+            new AuthModeOption(SqlAuthMode.Windows, "Windows 인증"),
+            new AuthModeOption(SqlAuthMode.Sql, "SQL Server 인증")
+        };
+
+        public class AuthModeOption
+        {
+            public AuthModeOption(SqlAuthMode mode, string label)
+            {
+                Mode = mode;
+                Label = label;
+            }
+
+            public SqlAuthMode Mode { get; }
+            public string Label { get; }
+        }
+
+        private string? _userName;
+        public string? UserName
+        {
+            get => _userName;
+            set
+            {
+                if (_userName == value) return;
+                _userName = value;
+                OnPropertyChanged();
+            }
+        }
+
+        /// <summary>
+        /// 입력 중인 평문 암호. Connect가 끝나면 즉시 비운다 — 보관은 저장소가 하고,
+        /// ViewModel이 세션 내내 평문을 들고 있을 이유가 없다.
+        ///
+        /// <c>null</c>이거나 비어 있으면 "저장된 암호를 그대로 쓴다"는 뜻이다.
+        /// PasswordBox는 바인딩을 지원하지 않으므로 코드 비하인드가 이 속성에 밀어 넣는다.
+        /// </summary>
+        public string? Password { get; set; }
+
+        /// <summary>
+        /// 이 기계에서 암호를 저장할 수 없으면(비Windows 등) Connect마다 다시 입력해야 한다.
+        /// </summary>
+        public bool CanPersistPasswords => _credentialStore.CanPersistPasswords;
+
+        /// <summary>
+        /// 대상이 정해지면 저장된 인증 정보를 입력란에 되살린다.
+        ///
+        /// Server/Database setter에서 호출한다. 이게 없으면 SSMS를 재시작했을 때 콤보가
+        /// 기본값(Windows 인증)인 채로 Connect가 눌리고, <see cref="PersistCredential"/>이
+        /// 저장해 둔 SQL 인증을 Windows 인증으로 덮어써 버린다.
+        /// </summary>
+        public void LoadSavedCredential()
+        {
+            if (!HasContext) return;
+
+            var credential = _credentialStore.TryGet(ServerName!, DatabaseName!);
+            if (credential == null) return;
+
+            AuthMode = credential.AuthMode;
+            UserName = credential.UserName;
+        }
+
+        /// <summary>
+        /// 활성 데이터베이스를 지정하고 인증 정보·매핑·초기화 상태를 다시 판정한다.
         /// </summary>
         public void SetContext(string? serverName, string? databaseName)
         {
@@ -127,10 +217,28 @@ namespace DBVC.Vsix.ViewModels
                 return;
             }
 
+            if (!PersistCredential())
+            {
+                IsMapped = false;
+                IsInitialized = false;
+                return;
+            }
+
+            // 접속부터 확인한다. 실패를 "초기화되지 않음"으로 뭉개면
+            // 사용자는 Setup DBVC 버튼만 보고 원인을 알 수 없다.
+            var connectionError = _stateTracker.TestConnection(ServerName!, DatabaseName!);
+            if (connectionError != null)
+            {
+                IsMapped = _configManager.TryGetMapping(ServerName!, DatabaseName!) != null;
+                IsInitialized = false;
+                WarningMessage = connectionError;
+                return;
+            }
+
             IsMapped = _configManager.TryGetMapping(ServerName!, DatabaseName!) != null;
             WarningMessage = IsMapped ? null : NotMappedWarning;
 
-            IsInitialized = _stateTracker.IsInitialized(BuildConnectionString());
+            IsInitialized = _stateTracker.IsInitialized(ServerName!, DatabaseName!);
 
             if (IsMapped && IsInitialized)
             {
@@ -138,9 +246,30 @@ namespace DBVC.Vsix.ViewModels
             }
         }
 
-        private string BuildConnectionString()
+        /// <summary>
+        /// 입력된 인증 정보를 저장소에 반영한다. 저장할 수 없으면 배너에 사유를 남기고 false.
+        /// </summary>
+        private bool PersistCredential()
         {
-            return StateTracker.BuildConnectionString(ServerName!, DatabaseName!);
+            try
+            {
+                bool fullySaved = _credentialStore.Save(
+                    ServerName!, DatabaseName!, AuthMode, UserName, Password);
+
+                if (AuthMode == SqlAuthMode.Sql && !fullySaved)
+                {
+                    WarningMessage =
+                        "암호를 이 기계에 안전하게 저장하지 못했습니다(DPAPI를 사용할 수 없습니다). " +
+                        "인증 정보가 저장되지 않았으므로 접속할 수 없습니다.";
+                    return false;
+                }
+                return true;
+            }
+            finally
+            {
+                // 평문을 ViewModel에 남기지 않는다. 저장소가 보호된 형태로 들고 있다.
+                Password = null;
+            }
         }
 
         // ---------- 바인딩 속성 ----------
@@ -356,7 +485,7 @@ namespace DBVC.Vsix.ViewModels
 
             try
             {
-                _stateTracker.InitializeDatabase(BuildConnectionString());
+                _stateTracker.InitializeDatabase(ServerName!, DatabaseName!);
             }
             catch (Exception ex)
             {

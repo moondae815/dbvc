@@ -17,10 +17,17 @@ namespace DBVC.Core
     public class SmoManager : ISmoManager
     {
         private readonly IConfigManager _configManager;
+        private readonly SqlConnectionFactory _connectionFactory;
 
         public SmoManager(IConfigManager? configManager = null)
+            : this(configManager, null)
+        {
+        }
+
+        public SmoManager(IConfigManager? configManager, ISqlCredentialStore? credentialStore)
         {
             _configManager = configManager ?? new ConfigManager();
+            _connectionFactory = new SqlConnectionFactory(credentialStore);
         }
 
         /// <summary>
@@ -65,13 +72,7 @@ namespace DBVC.Core
 
             try
             {
-                var connStr = new SqlConnectionStringBuilder
-                {
-                    DataSource = serverName,
-                    InitialCatalog = databaseName,
-                    IntegratedSecurity = true,
-                    TrustServerCertificate = true
-                }.ToString();
+                var connStr = _connectionFactory.Build(serverName, databaseName);
 
                 using var sqlConn = new SqlConnection(connStr);
                 var conn = new ServerConnection(sqlConn);

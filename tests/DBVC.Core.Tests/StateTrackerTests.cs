@@ -18,7 +18,21 @@ namespace DBVC.Core.Tests
             return new ConfigManager(path);
         }
 
-        private static StateTracker NewTracker() => new StateTracker(NewIsolatedConfig());
+        /// <summary>
+        /// 인증 정보 저장소도 격리한다. 기본 생성자는 %APPDATA%를 읽으므로,
+        /// 테스트가 개발자 기계의 실제 접속 설정에 좌우되면 안 된다.
+        /// </summary>
+        private static SqlCredentialStore NewIsolatedCredentialStore()
+        {
+            var path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                "dbvc_cred_" + System.Guid.NewGuid().ToString("N"),
+                "credentials.json");
+            return new SqlCredentialStore(path);
+        }
+
+        private static StateTracker NewTracker()
+            => new StateTracker(NewIsolatedConfig(), null, NewIsolatedCredentialStore());
 
         private static ChangeLogRow Row(long id, string schema, string name, string objectType, string eventType)
             => new ChangeLogRow { Id = id, SchemaName = schema, ObjectName = name, ObjectType = objectType, EventType = eventType };
@@ -226,9 +240,18 @@ namespace DBVC.Core.Tests
         // ---------- 초기화 확인 ----------
 
         [Test]
-        public void IsInitialized_ReturnsFalse_WhenConnectionStringIsInvalid()
+        public void IsInitialized_ReturnsFalse_WhenTheServerCannotBeReached()
         {
-            Assert.That(NewTracker().IsInitialized("fake_connection_string"), Is.False);
+            Assert.That(NewTracker().IsInitialized("no_such_server_hostname", "no_such_db"), Is.False);
+        }
+
+        [Test]
+        public void IsInitialized_ReturnsFalse_WhenServerOrDatabaseIsMissing()
+        {
+            var tracker = NewTracker();
+
+            Assert.That(tracker.IsInitialized("", "db"), Is.False);
+            Assert.That(tracker.IsInitialized("server", ""), Is.False);
         }
 
         [Test]
@@ -259,16 +282,19 @@ namespace DBVC.Core.Tests
         // ---------- 설치 스크립트 ----------
 
         [Test]
-        public void InitializeDatabase_ThrowsArgumentException_WhenConnectionStringIsEmpty()
+        public void InitializeDatabase_ThrowsArgumentException_WhenServerOrDatabaseIsEmpty()
         {
-            Assert.Throws<System.ArgumentException>(() => NewTracker().InitializeDatabase(""));
+            Assert.Throws<System.ArgumentException>(() => NewTracker().InitializeDatabase("", "db"));
+            Assert.Throws<System.ArgumentException>(() => NewTracker().InitializeDatabase("server", ""));
         }
 
         [Test]
-        public void InitializeDatabase_LoadsEmbeddedScriptAndAttemptsConnection_WhenConnectionStringIsProvided()
+        public void InitializeDatabase_LoadsEmbeddedScriptAndAttemptsConnection()
         {
+            // 접속은 실패하지만, 그 전에 임베디드 스크립트를 읽는 데 성공해야 한다.
+            // FileNotFoundException이 나오면 리소스 이름이 어긋난 것이다.
             var tracker = NewTracker();
-            var ex = Assert.Catch<System.Exception>(() => tracker.InitializeDatabase("Server=dummy;Database=dummy;Integrated Security=True;TrustServerCertificate=True;"));
+            var ex = Assert.Catch<System.Exception>(() => tracker.InitializeDatabase("no_such_server_hostname", "no_such_db"));
             Assert.That(ex, Is.Not.InstanceOf<System.IO.FileNotFoundException>());
         }
 
