@@ -110,8 +110,15 @@ DBVC는 데이터베이스 없이는 아무 일도 못 한다.
 조회 순서:
 
 1. `AppDomain.CurrentDomain.GetAssemblies()`에서 단순 이름으로
-   `Microsoft.SqlServer.SqlTools.VSIntegration`과 `SqlWorkbench.Interfaces`를 찾는다.
-   SSMS 프로세스 안에서는 이미 로드되어 있다. 없으면 `null` — DBVC.Vsix.Tests처럼 셸 밖에서 도는 경우다.
+   `Microsoft.SqlServer.SqlTools.VSIntegration`과 `SqlWorkbench.Interfaces`를 찾고,
+   **없으면 `Assembly.Load(단순 이름)`으로 로드를 시도한다.** 그래도 없으면 `null` —
+   DBVC.Vsix.Tests처럼 셸 밖에서 도는 경우다.
+
+   **"셸 안에서는 이미 로드되어 있다"는 처음 전제는 틀렸다.** 실제 SSMS 21에서 측정한 결과
+   `SqlWorkbench.Interfaces`는 로드되어 있지만 `Microsoft.SqlServer.SqlTools.VSIntegration`은
+   그렇지 않았다(도구 창을 열 때까지 아무도 그 어셈블리를 건드리지 않는다). 그래서 자동 채움이
+   첫 관문에서 조용히 멈췄다 — 진단 로그가 없었다면 원인을 추정할 수밖에 없었을 종류의 실패다.
+   `Assembly.Load`는 SSMS.exe의 기준 디렉터리(IDE 폴더)를 뒤지므로 설치 경로를 하드코딩하지 않는다.
 2. `ServiceCache.ServiceProvider` (정적 속성) → `GetService(typeof(IObjectExplorerService))`
 3. `GetSelectedNodes`를 `object[] { 0, null }`로 호출하고 out 인자를 회수한다. 노드가 없거나
    **두 개 이상이면 `null`** — 다중 선택에서 어느 것을 뜻하는지 정할 근거가 없다.

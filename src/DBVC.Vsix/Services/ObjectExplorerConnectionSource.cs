@@ -203,15 +203,38 @@ namespace DBVC.Vsix.Services
         }
 
         /// <summary>
-        /// 로드된 어셈블리에서 타입을 찾는다. SSMS 프로세스 안에서는 이미 로드되어 있으므로
-        /// 파일을 직접 로드하지 않는다 — 설치 경로를 추측하지 않아도 되고, 셸 밖에서는
-        /// 자연스럽게 <c>null</c>이 된다.
+        /// SSMS 셸 타입을 찾는다. 로드된 어셈블리를 먼저 뒤지고, 없으면 이름으로 로드를 시도한다.
+        ///
+        /// 로드된 것만 보면 충분하다고 봤던 것이 틀렸다. 실제 SSMS 21에서 측정한 결과
+        /// <c>SqlWorkbench.Interfaces</c>(개체 탐색기 인터페이스)는 로드되어 있는데
+        /// <c>Microsoft.SqlServer.SqlTools.VSIntegration</c>(<c>ServiceCache</c>)은 그렇지 않았다 —
+        /// 도구 창을 열어 볼 때까지 아무도 그 어셈블리를 건드리지 않기 때문이다.
+        /// 그래서 자동 채움이 첫 관문에서 조용히 멈췄다.
+        ///
+        /// <see cref="Assembly.Load(AssemblyName)"/>은 SSMS.exe의 기준 디렉터리(IDE 폴더)를 뒤지므로
+        /// 설치 경로를 하드코딩하지 않아도 된다. 셸 밖(단위 테스트)에서는 그냥 실패해
+        /// 지금까지처럼 <c>null</c>이 된다.
         /// </summary>
         private static Type? FindType(string assemblySimpleName, string typeName)
         {
             var assembly = AppDomain.CurrentDomain.GetAssemblies()
                 .FirstOrDefault(a => string.Equals(
                     a.GetName().Name, assemblySimpleName, StringComparison.OrdinalIgnoreCase));
+
+            if (assembly == null)
+            {
+                try
+                {
+                    assembly = Assembly.Load(new AssemblyName(assemblySimpleName));
+                }
+                catch (Exception ex)
+                {
+                    // 셸 밖이면 정상적인 결과다. 셸 안이라면 아래 Fail이 사유를 남긴다.
+                    Debug.WriteLine($"FindType: '{assemblySimpleName}' 로드 실패 — {ex.Message}");
+                    return null;
+                }
+            }
+
             return assembly?.GetType(typeName, throwOnError: false);
         }
 
