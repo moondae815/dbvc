@@ -258,6 +258,14 @@ public string? Password
 `ViewChangesControl.OnSqlPasswordChanged`가 이 setter를 쓰므로, 자동 채움 후 사용자가 PasswordBox에
 한 글자라도 치면 그 순간 사용자 입력으로 전환된다. 자동 채움만 백킹 필드에 직접 쓴다.
 
+**출처 플래그는 대상에도 묶인다.** SSMS에서 가져온 암호는 그것을 가져올 당시의
+(서버, 데이터베이스, 인증 방식, 계정) 네 가지에만 속한다. 넷 중 하나라도 바뀌면 더 이상 그 암호가
+맞는 대상이 아니므로 들고 있어서는 안 된다 — 들고 있으면 Connect가 다른 서버로 그 암호를 보내는
+접속을 시도하게 된다. 그래서 `ServerName`·`DatabaseName`·`AuthMode`·`UserName` 네 setter가 모두
+(값이 실제로 바뀔 때) `ForgetSsmsPassword()`를 호출해 `_password`·`_passwordFromSsms`·
+`ConnectionSourceMessage`를 함께 정리한다. 사용자가 직접 입력한 암호는 이 경로를 타지 않으므로
+건드리지 않는다.
+
 #### 4.5.2. `TryFillFromSsms()`
 
 ```
@@ -269,11 +277,14 @@ public bool TryFillFromSsms()
     // 사용자가 입력 중인 암호를 지우지 않는다.
     if (!_passwordFromSsms && !string.IsNullOrEmpty(_password)) return false;
 
-    ServerName = info.ServerName;        // setter가 LoadSavedCredential()을 부른다
+    ServerName = info.ServerName;        // setter가 ForgetSsmsPassword() 후 LoadSavedCredential()을 부른다
     DatabaseName = info.DatabaseName;
 
     if (info.UnsupportedReason != null)
     {
+        // 대상이 바뀌었다면 위 두 setter가 이미 SSMS 암호를 버렸다. 배너만 여기서 한 번 더 내린다 —
+        // 대상이 그대로인데 지원 여부만 바뀐 경우는 setter가 호출되지 않기 때문이다.
+        ConnectionSourceMessage = null;
         WarningMessage = info.UnsupportedReason;
         return true;
     }
@@ -302,7 +313,7 @@ public bool TryFillFromSsms()
 #### 4.5.3. `PersistCredential()` 분기
 
 ```
-if (_passwordFromSsms)
+if (_passwordFromSsms && AuthMode == SqlAuthMode.Sql)
 {
     _credentialStore.Save(ServerName!, DatabaseName!, AuthMode, UserName, null);  // 암호는 건드리지 않음
     _credentialStore.SetSessionPassword(ServerName!, DatabaseName!, _password);
@@ -311,8 +322,14 @@ if (_passwordFromSsms)
 // 기존 경로: Save(..., _password) + fullySaved 가드
 ```
 
-`finally`에서 `_password = null; _passwordFromSsms = false;`로 정리한다. 평문은 지금처럼 ViewModel에
-남지 않는다 — 세션 캐시가 들고 있다.
+`AuthMode == SqlAuthMode.Sql` 조건은 2차 방어선이다. 정상적인 흐름에서는 4.5.1의 네 setter가 대상이나
+인증 방식이 바뀌는 순간 이미 `_passwordFromSsms`를 내린다. 이 조건이 없어도 지금은 항상 거짓/참이
+일치하지만, 앞으로 그 setter들 중 하나가 잘못 고쳐져 더 이상 플래그를 내리지 않게 되더라도 이
+조건이 있으면 Windows 인증으로 표시된 대상에 SQL 암호가 조용히 쓰이는 일만은 막는다.
+
+`finally`에서 `_password = null; _passwordFromSsms = false; ConnectionSourceMessage = null;`로 정리한다.
+평문은 지금처럼 ViewModel에 남지 않는다 — 세션 캐시가 들고 있다. 배너까지 내리는 이유는 접속을
+확정한 뒤에는 "가져왔습니다" 안내가 더 이상 현재 상태를 설명하지 않기 때문이다.
 
 #### 4.5.4. `RefreshFromSsmsCommand` (신규)
 

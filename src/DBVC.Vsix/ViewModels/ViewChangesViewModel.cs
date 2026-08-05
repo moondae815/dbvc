@@ -94,6 +94,7 @@ namespace DBVC.Vsix.ViewModels
             set
             {
                 if (_serverName == value) return;
+                ForgetSsmsPassword();
                 _serverName = value;
                 OnPropertyChanged();
                 RaiseConnectCanExecuteChanged();
@@ -108,6 +109,7 @@ namespace DBVC.Vsix.ViewModels
             set
             {
                 if (_databaseName == value) return;
+                ForgetSsmsPassword();
                 _databaseName = value;
                 OnPropertyChanged();
                 RaiseConnectCanExecuteChanged();
@@ -130,6 +132,7 @@ namespace DBVC.Vsix.ViewModels
             set
             {
                 if (_authMode == value) return;
+                ForgetSsmsPassword();
                 _authMode = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(IsSqlAuth));
@@ -165,6 +168,7 @@ namespace DBVC.Vsix.ViewModels
             set
             {
                 if (_userName == value) return;
+                ForgetSsmsPassword();
                 _userName = value;
                 OnPropertyChanged();
             }
@@ -195,6 +199,25 @@ namespace DBVC.Vsix.ViewModels
 
         /// <summary>현재 들고 있는 암호가 SSMS에서 온 것인지. 참이면 디스크에 저장하지 않는다.</summary>
         private bool _passwordFromSsms;
+
+        /// <summary>
+        /// SSMS에서 가져온 암호를 버린다.
+        ///
+        /// 그 암호는 가져올 당시의 (서버, 데이터베이스, 인증 방식, 계정)에만 속한다. 넷 중 하나라도
+        /// 바뀌면 더 이상 이 암호가 맞는 대상이 아니므로 들고 있어서는 안 된다 — 들고 있으면
+        /// Connect가 다른 서버로 그 암호를 보내는 접속을 시도한다.
+        ///
+        /// 사용자가 직접 입력한 암호는 건드리지 않는다. 대상을 고치는 도중에 입력값이 사라지면
+        /// 그쪽이 결함이다.
+        /// </summary>
+        private void ForgetSsmsPassword()
+        {
+            if (!_passwordFromSsms) return;
+
+            _password = null;
+            _passwordFromSsms = false;
+            ConnectionSourceMessage = null;
+        }
 
         /// <summary>
         /// 이 기계에서 암호를 저장할 수 없으면(비Windows 등) Connect마다 다시 입력해야 한다.
@@ -264,6 +287,11 @@ namespace DBVC.Vsix.ViewModels
             {
                 // 서버·DB는 쓸 수 있지만 인증은 사용자가 직접 지정해야 한다.
                 // 이미 입력해 둔 인증 정보를 지우지 않는다.
+                //
+                // 대상이 바뀌었다면 위의 ServerName/DatabaseName setter가 ForgetSsmsPassword()로
+                // 암호까지 이미 정리했다. 대상이 그대로인데 지원 여부만 바뀐 경우(setter가
+                // 호출되지 않아 ForgetSsmsPassword가 돌지 않는 경우)에도 배너만은 여기서 내린다 —
+                // 이 경우는 인증 정보(AuthMode·UserName)도 그대로이므로 암호까지 버릴 필요는 없다.
                 ConnectionSourceMessage = null;
                 WarningMessage = info.UnsupportedReason;
                 return true;
@@ -336,7 +364,11 @@ namespace DBVC.Vsix.ViewModels
         {
             try
             {
-                if (_passwordFromSsms)
+                // ServerName/DatabaseName/AuthMode/UserName의 setter가 이미 ForgetSsmsPassword()로
+                // 대상이 바뀌면 플래그를 내린다. AuthMode == Sql 조건은 그 위에 얹는 2차 방어선이다 —
+                // 앞으로 그 setter들 중 하나가 잘못 고쳐져 더 이상 플래그를 내리지 않게 되더라도,
+                // 이 조건이 없으면 Windows 인증으로 표시된 대상에 SQL 암호가 조용히 쓰여 버린다.
+                if (_passwordFromSsms && AuthMode == SqlAuthMode.Sql)
                 {
                     // SSMS에서 가져온 암호는 디스크에 쓰지 않기로 했다.
                     // plainPassword: null은 "저장된 암호를 건드리지 않는다"이므로 인증 방식과
@@ -363,6 +395,9 @@ namespace DBVC.Vsix.ViewModels
                 // 평문을 ViewModel에 남기지 않는다. 저장소가 보호된 형태로, 또는 세션 캐시가 들고 있다.
                 _password = null;
                 _passwordFromSsms = false;
+                // 접속을 확정했으므로 자동 채움 배너("...암호 포함...")는 더 이상 현재 상태를
+                // 설명하지 않는다. 남겨두면 Connect 이후에도 마치 아직 채워둔 게 있는 것처럼 보인다.
+                ConnectionSourceMessage = null;
             }
         }
 
