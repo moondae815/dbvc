@@ -169,7 +169,7 @@ clone은 그 문제를 애초에 만들지 않는다.
       설치 위치는 `...\SSMS 21\Release\Common7\IDE\Extensions\` 아래다.
   > 개발 노트북에 **Visual Studio도 설치되어 있다면** 설치 대상이 SSMS 21인지 확인한다.
   > DBVC는 `Microsoft.VisualStudio.Ssms`만 대상으로 하므로 VS에는 설치되지 않는 것이 정상이다.
-- [ ] SSMS 21을 실행하고 **View(보기) 메뉴 > DBVC View Changes**를 연다. 메뉴 아래쪽에 있다.
+- [ ] SSMS 21을 실행하고 **View(보기) 메뉴 > DBVC**를 연다. 메뉴 아래쪽에 있다.
       메뉴에 항목이 없으면 설치가 안 된 것이다 — SSMS를 껐다 켜고 다시 확인한다.
   > "다른 창(Other Windows)" 안이 **아니다.** SSMS에서는 그 하위 메뉴 자체가 숨겨져 있어
   > 거기에 넣으면 보이지 않는다 (Visual Studio와 다른 점이다).

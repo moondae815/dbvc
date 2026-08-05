@@ -10,7 +10,7 @@ using Task = System.Threading.Tasks.Task;
 namespace DBVC.Vsix.Commands
 {
     /// <summary>
-    /// View 메뉴에서 "DBVC View Changes" 도구 창을 여는 명령.
+    /// View 메뉴의 "DBVC" 항목에서 변경 사항 도구 창을 여는 명령.
     /// </summary>
     internal sealed class ViewChangesCommand
     {
@@ -51,7 +51,7 @@ namespace DBVC.Vsix.Commands
             var window = _package.FindToolWindow(typeof(ViewChangesToolWindow), 0, create: true);
             if (window?.Frame == null)
             {
-                throw new NotSupportedException("DBVC View Changes 도구 창을 만들 수 없습니다.");
+                throw new NotSupportedException("DBVC 도구 창을 만들 수 없습니다.");
             }
 
             var frame = (IVsWindowFrame)window.Frame;
