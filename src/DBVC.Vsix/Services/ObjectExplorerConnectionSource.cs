@@ -38,6 +38,9 @@ namespace DBVC.Vsix.Services
             "SSMS가 Microsoft Entra ID로 접속해 있습니다. DBVC는 토큰 기반 연결을 재사용할 수 없으니 " +
             "인증 방식과 계정을 직접 지정하세요.";
 
+        private const string NoUserNameReason =
+            "SSMS 연결에서 계정 정보를 읽지 못했습니다. 인증 방식과 계정을 직접 지정하세요.";
+
         public SsmsConnectionInfo? TryGetCurrent()
         {
             try
@@ -68,7 +71,12 @@ namespace DBVC.Vsix.Services
             var explorer = provider?.GetService(explorerServiceType);
             if (explorer == null) return null;
 
-            var getSelectedNodes = explorer.GetType().GetMethod("GetSelectedNodes");
+            // 인터페이스 타입에서 메서드를 찾는다(위에서 이미 확보한 explorerServiceType). explorer.GetType()으로 찾으면
+            // 셸 구현이 명시적 인터페이스 구현이면 GetMethod가 null을 돌려주고, 구현 타입에
+            // 오버로드가 있으면 AmbiguousMatchException을 던진다 — 둘 다 조용히 실패로 삼켜져
+            // 기능이 원인 없이 죽는다. 인터페이스는 시그니처가 하나뿐이고, 인터페이스의
+            // MethodInfo로 Invoke해도 실제 구현으로 가상 디스패치된다.
+            var getSelectedNodes = explorerServiceType.GetMethod("GetSelectedNodes");
             if (getSelectedNodes == null) return null;
 
             // void GetSelectedNodes(out int count, out INodeInformation[] nodes)
@@ -92,13 +100,24 @@ namespace DBVC.Vsix.Services
             var serverName = ReadString(connection, "ServerName");
             if (string.IsNullOrEmpty(serverName)) return null;
 
-            if (ReadBool(connection, "UseIntegratedSecurity"))
+            // 판정 순서가 중요하다. 측정된 SSMS 21(SqlConnectionInfo, Microsoft.SqlServer.ConnectionInfo
+            // 17.100) 동작: UseIntegratedSecurity는 새 인스턴스에서 기본값이 true이고, UserName을
+            // 설정하는 부수 효과로만 false가 된다. Authentication을 Entra 계열 값으로 설정해도
+            // UseIntegratedSecurity는 그대로 true로 남는다 — ActiveDirectoryIntegrated만 예외적으로
+            // false다. 그래서 UseIntegratedSecurity를 먼저 물으면 Device Code·Managed Identity·
+            // Default·사용자 이름을 비워 둔 Interactive 같은 Entra 연결이 전부 "Windows 인증,
+            // 재사용 가능"으로 오판된다. AccessToken(토큰 기반 연결의 확정적 표지)과 Authentication
+            // 문자열로 Entra 여부를 먼저 걸러낸 다음에야 UseIntegratedSecurity를 믿을 수 있다.
+
+            // AccessToken은 파생 타입(SqlConnectionInfo)에만 있다. 값이 있으면 토큰 기반 연결이며,
+            // 사용자 이름/암호로 환원할 수 없다 — 다른 속성이 무엇을 말하든 무조건 재사용 불가다.
+            if (ReadObject(connection, "AccessToken") != null)
             {
                 return new SsmsConnectionInfo(
-                    serverName!, databaseName!, SqlAuthMode.Windows, null, null, null);
+                    serverName!, databaseName!, SqlAuthMode.Windows, null, null, EntraReason);
             }
 
-            // Authentication은 파생 타입(SqlConnectionInfo)에만 있다. 없으면 SQL 인증으로 본다.
+            // Authentication도 파생 타입에만 있다. 없으면 이 단계에서는 Entra가 아니라는 뜻이다.
             var authentication = connection.GetType().GetProperty("Authentication")
                 ?.GetValue(connection)?.ToString();
             if (authentication != null && authentication.StartsWith("ActiveDirectory", StringComparison.Ordinal))
@@ -107,11 +126,28 @@ namespace DBVC.Vsix.Services
                     serverName!, databaseName!, SqlAuthMode.Windows, null, null, EntraReason);
             }
 
+            // 여기까지 왔다면 두 Entra 표지가 모두 없었다는 뜻이므로, 이제야 UseIntegratedSecurity를
+            // 믿고 진짜 Windows 통합 인증으로 판정할 수 있다.
+            if (ReadBool(connection, "UseIntegratedSecurity"))
+            {
+                return new SsmsConnectionInfo(
+                    serverName!, databaseName!, SqlAuthMode.Windows, null, null, null);
+            }
+
+            var userName = ReadString(connection, "UserName");
+            if (string.IsNullOrEmpty(userName))
+            {
+                // 로그인 계정이 없는 SQL 인증 주장은 저장소가 방금 복원해 둔 사용자 이름을
+                // null로 덮어써 지운다. 자동 채움을 포기하는 편이 낫다.
+                return new SsmsConnectionInfo(
+                    serverName!, databaseName!, SqlAuthMode.Sql, null, null, NoUserNameReason);
+            }
+
             return new SsmsConnectionInfo(
                 serverName!,
                 databaseName!,
                 SqlAuthMode.Sql,
-                ReadString(connection, "UserName"),
+                userName,
                 ReadPassword(connection),
                 null);
         }
@@ -134,6 +170,10 @@ namespace DBVC.Vsix.Services
 
         private static bool ReadBool(object instance, string propertyName)
             => instance.GetType().GetProperty(propertyName)?.GetValue(instance) is bool value && value;
+
+        /// <summary>기반 타입에는 없는 속성일 수도 있다 — 그 경우 자연스럽게 <c>null</c>이다.</summary>
+        private static object? ReadObject(object instance, string propertyName)
+            => instance.GetType().GetProperty(propertyName)?.GetValue(instance);
 
         /// <summary>
         /// 평문 <c>Password</c>가 비어 있으면 <c>SecurePassword</c>에서 되돌린다.

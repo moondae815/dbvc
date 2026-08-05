@@ -128,11 +128,26 @@ DBVC는 데이터베이스 없이는 아무 일도 못 한다.
 
 **인증 방식 판정**
 
-| `Connection` 상태 | 결과 |
-| --- | --- |
-| `UseIntegratedSecurity == true` | `AuthMode.Windows`, 암호 없음 |
-| `Authentication`이 `ActiveDirectory*` | `UnsupportedReason` 설정, 서버·DB만 채움 |
-| 그 밖 (`SqlPassword`·`NotSpecified` + 사용자명 존재) | `AuthMode.Sql` + 사용자명 + 암호(있으면) |
+순서대로 묻는다. 앞 단계에서 걸리면 뒤는 보지 않는다.
+
+1. `AccessToken`(파생 타입에만 존재)이 `null`이 아니면 → `UnsupportedReason` = Entra 사유, 서버·DB만
+   채움. 토큰 기반 연결은 사용자명·암호로 환원할 수 없다.
+2. 그렇지 않고 `Authentication`(파생 타입에만 존재)이 `ActiveDirectory*`로 시작하면 → 위와 동일하게
+   `UnsupportedReason` = Entra 사유.
+3. 그렇지 않고 `UseIntegratedSecurity == true`이면 → `AuthMode.Windows`, 암호 없음.
+4. 그렇지 않고 `UserName`이 비어 있으면 → `UnsupportedReason` = "계정 정보를 읽지 못함" 사유, 서버·DB만
+   채움.
+5. 그 밖(사용자명이 있음) → `AuthMode.Sql` + 사용자명 + 암호(있으면).
+
+**이 순서가 계약이다.** 측정된 SSMS 21(`SqlConnectionInfo`, `Microsoft.SqlServer.ConnectionInfo`
+17.100) 동작: `UseIntegratedSecurity`는 새 인스턴스에서 기본값이 `true`이고, `UserName`을 설정하는
+부수 효과로만 `false`가 된다. `Authentication`을 Entra 계열 값(`ActiveDirectoryPassword`·
+`Interactive`·`DeviceCodeFlow`·`ManagedIdentity`·`MSI`·`ServicePrincipal`·`Default` 등)으로
+설정해도 `UseIntegratedSecurity`는 그대로 `true`로 남는다 — `ActiveDirectoryIntegrated`만 예외적으로
+`false`다. 그래서 `UseIntegratedSecurity`를 먼저 물으면 이런 Entra 연결들이 전부 "Windows 인증,
+재사용 가능"으로 오판된다. `AccessToken`은 토큰 기반 연결의 확정적 표지이므로 가장 먼저 걸러내고,
+그다음 `Authentication` 문자열로 나머지 Entra 케이스를 걸러낸 뒤에야 `UseIntegratedSecurity`를 믿을
+수 있다.
 
 **모든 단계가 실패에 관대하다.** 어느 리플렉션 단계에서든 예외가 나면 `Debug.WriteLine` 후 `null`을
 반환한다. 자동 채움이 안 되는 것과 도구 창이 죽는 것은 비교할 문제가 아니다.
