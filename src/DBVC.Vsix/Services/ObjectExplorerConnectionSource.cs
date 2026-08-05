@@ -51,8 +51,21 @@ namespace DBVC.Vsix.Services
             {
                 // 어느 단계가 깨지든 결과는 "자동 채움 없음"이다. 도구 창은 계속 동작해야 한다.
                 Debug.WriteLine($"ObjectExplorerConnectionSource.TryGetCurrent failed: {ex.Message}");
+                SsmsDiagnostics.Trace($"자동 채움 중단: 예외 {ex.GetType().Name} — {ex.Message}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// 멈춘 지점을 남기고 <c>null</c>을 돌려준다.
+        ///
+        /// 이 경로는 SSMS 프로세스 안에서만 실행되므로 단위 테스트가 닿지 않는다. 사유를 남기지
+        /// 않으면 "아무 일도 일어나지 않는다"만 남고, 어느 관문에서 막혔는지 알 방법이 없다.
+        /// </summary>
+        private static SsmsConnectionInfo? Fail(string reason)
+        {
+            SsmsDiagnostics.Trace($"자동 채움 중단: {reason}");
+            return null;
         }
 
         private static SsmsConnectionInfo? Read()
@@ -62,14 +75,26 @@ namespace DBVC.Vsix.Services
             var nodeContextType = FindType(InterfacesAssembly, NodeContextTypeName);
             if (serviceCacheType == null || explorerServiceType == null || nodeContextType == null)
             {
-                return null;   // SSMS 셸 밖이다.
+                // SSMS 셸 밖이거나, 해당 어셈블리가 아직 이 AppDomain에 로드되지 않았다.
+                return Fail(
+                    $"SSMS 셸 타입을 찾지 못했습니다 (ServiceCache={serviceCacheType != null}, " +
+                    $"IObjectExplorerService={explorerServiceType != null}, INodeContext={nodeContextType != null}). " +
+                    $"로드된 어셈블리 수={AppDomain.CurrentDomain.GetAssemblies().Length}");
             }
 
             var provider = serviceCacheType
                 .GetProperty("ServiceProvider", BindingFlags.Public | BindingFlags.Static)
                 ?.GetValue(null) as IServiceProvider;
-            var explorer = provider?.GetService(explorerServiceType);
-            if (explorer == null) return null;
+            if (provider == null)
+            {
+                return Fail("ServiceCache.ServiceProvider가 null이거나 IServiceProvider가 아닙니다.");
+            }
+
+            var explorer = provider.GetService(explorerServiceType);
+            if (explorer == null)
+            {
+                return Fail("ServiceProvider가 IObjectExplorerService를 돌려주지 않았습니다.");
+            }
 
             // 인터페이스 타입에서 메서드를 찾는다(위에서 이미 확보한 explorerServiceType). explorer.GetType()으로 찾으면
             // 셸 구현이 명시적 인터페이스 구현이면 GetMethod가 null을 돌려주고, 구현 타입에
@@ -77,7 +102,10 @@ namespace DBVC.Vsix.Services
             // 기능이 원인 없이 죽는다. 인터페이스는 시그니처가 하나뿐이고, 인터페이스의
             // MethodInfo로 Invoke해도 실제 구현으로 가상 디스패치된다.
             var getSelectedNodes = explorerServiceType.GetMethod("GetSelectedNodes");
-            if (getSelectedNodes == null) return null;
+            if (getSelectedNodes == null)
+            {
+                return Fail("IObjectExplorerService에 GetSelectedNodes가 없습니다.");
+            }
 
             // void GetSelectedNodes(out int count, out INodeInformation[] nodes)
             var args = new object?[] { 0, null };
@@ -85,20 +113,38 @@ namespace DBVC.Vsix.Services
 
             int count = args[0] is int selected ? selected : 0;
             // 다중 선택은 어느 것을 뜻하는지 정할 근거가 없다. 아무것도 하지 않는다.
-            if (count != 1 || !(args[1] is Array nodes) || nodes.Length < 1) return null;
+            if (count != 1 || !(args[1] is Array nodes) || nodes.Length < 1)
+            {
+                return Fail(
+                    $"선택된 노드가 하나가 아닙니다 (count={count}, " +
+                    $"array={(args[1] == null ? "null" : args[1]!.GetType().Name)}).");
+            }
 
             var node = nodes.GetValue(0);
-            if (node == null || !nodeContextType.IsInstanceOfType(node)) return null;
+            if (node == null || !nodeContextType.IsInstanceOfType(node))
+            {
+                return Fail(
+                    $"선택 노드가 INodeContext가 아닙니다 (실제 타입={node?.GetType().FullName ?? "null"}).");
+            }
 
             var urn = nodeContextType.GetProperty("Context")?.GetValue(node) as string;
             var databaseName = SsmsUrn.TryGetDatabaseName(urn);
-            if (string.IsNullOrEmpty(databaseName)) return null;
+            if (string.IsNullOrEmpty(databaseName))
+            {
+                return Fail($"URN에서 데이터베이스를 얻지 못했습니다 (Context='{urn}').");
+            }
 
             var connection = nodeContextType.GetProperty("Connection")?.GetValue(node);
-            if (connection == null) return null;
+            if (connection == null)
+            {
+                return Fail("노드의 Connection이 null입니다.");
+            }
 
             var serverName = ReadString(connection, "ServerName");
-            if (string.IsNullOrEmpty(serverName)) return null;
+            if (string.IsNullOrEmpty(serverName))
+            {
+                return Fail($"연결의 ServerName이 비어 있습니다 (연결 타입={connection.GetType().FullName}).");
+            }
 
             // 판정 순서가 중요하다. 측정된 SSMS 21(SqlConnectionInfo, Microsoft.SqlServer.ConnectionInfo
             // 17.100) 동작: UseIntegratedSecurity는 새 인스턴스에서 기본값이 true이고, UserName을
@@ -143,12 +189,16 @@ namespace DBVC.Vsix.Services
                     serverName!, databaseName!, SqlAuthMode.Sql, null, null, NoUserNameReason);
             }
 
+            var password = ReadPassword(connection);
+            SsmsDiagnostics.Trace(
+                $"자동 채움: {serverName}.{databaseName} SQL 인증, 계정={userName}, 암호 확보={password != null}");
+
             return new SsmsConnectionInfo(
                 serverName!,
                 databaseName!,
                 SqlAuthMode.Sql,
                 userName,
-                ReadPassword(connection),
+                password,
                 null);
         }
 

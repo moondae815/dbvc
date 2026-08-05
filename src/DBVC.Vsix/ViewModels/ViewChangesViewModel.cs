@@ -295,12 +295,23 @@ namespace DBVC.Vsix.ViewModels
         /// <returns>채웠으면 true. 가져올 연결이 없거나 채우지 않기로 했으면 false.</returns>
         public bool TryFillFromSsms()
         {
-            var info = _ssmsConnectionSource?.TryGetCurrent();
-            if (info == null) return false;
+            if (_ssmsConnectionSource == null)
+            {
+                SsmsDiagnostics.Trace("자동 채움 중단: 연결 소스가 주입되지 않았습니다.");
+                return false;
+            }
+
+            var info = _ssmsConnectionSource.TryGetCurrent();
+            if (info == null) return false;   // 사유는 소스가 이미 남겼다.
 
             // 사용자가 입력 중인 암호를 지우지 않는다. 도구 창이 다시 보일 때마다 이 메서드가
             // 불리므로(가시성 트리거), 가드가 없으면 타이핑 중이던 값이 사라진다.
-            if (!_passwordFromSsms && !string.IsNullOrEmpty(_password)) return false;
+            if (!_passwordFromSsms && !string.IsNullOrEmpty(_password))
+            {
+                // 버튼을 눌러도 아무 일이 없는 것처럼 보이는 경우가 여기다.
+                SsmsDiagnostics.Trace("자동 채움 건너뜀: 사용자가 입력한 암호가 남아 있습니다.");
+                return false;
+            }
 
             // 순서가 계약이다. Server/Database setter가 LoadSavedCredential()을 호출해
             // AuthMode·UserName을 저장소 값으로 되돌리므로, SSMS 값은 반드시 그 뒤에 얹는다.
