@@ -26,6 +26,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         private Mock<IWorkingTreeCleaner> _cleaner = null!;
         private RecordingFolderDialog _folderDialog = null!;
         private Mock<ISqlCredentialStore> _credentials = null!;
+        private Mock<ISsmsConnectionSource> _ssms = null!;
         private readonly List<string> _tempDirs = new List<string>();
 
         [TearDown]
@@ -75,13 +76,17 @@ namespace DBVC.Vsix.Tests.ViewModels
             _credentials.Setup(c => c.CanPersistPasswords).Returns(true);
             _credentials.Setup(c => c.Save(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SqlAuthMode>(),
                 It.IsAny<string>(), It.IsAny<string>())).Returns(true);
+
+            // 기본값: SSMS 연결 없음 = 자동 채움이 아무 일도 하지 않는다.
+            _ssms = new Mock<ISsmsConnectionSource>();
+            _ssms.Setup(s => s.TryGetCurrent()).Returns((SsmsConnectionInfo?)null);
         }
 
         private ViewChangesViewModel NewViewModel()
         {
             return new ViewChangesViewModel(
                 _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
-                _cleaner.Object, _folderDialog, _credentials.Object);
+                _cleaner.Object, _folderDialog, _credentials.Object, _ssms.Object);
         }
 
         private ViewChangesViewModel NewConnectedViewModel()
@@ -1255,6 +1260,138 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.DoesNotThrow(() => vm.GenerateDeploymentScriptCommand.Execute(null));
 
             Assert.That(_notifier.Errors, Has.Count.EqualTo(1));
+        }
+
+        // ---------- SSMS 연결 자동 채움 ----------
+
+        private static SsmsConnectionInfo SsmsSqlConnection(string? password = "fromSsms")
+            => new SsmsConnectionInfo(Server, Database, SqlAuthMode.Sql, "sa", password, null);
+
+        [Test]
+        public void TryFillFromSsms_FillsTheTargetAndCredentialFields()
+        {
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+
+            Assert.That(vm.TryFillFromSsms(), Is.True);
+
+            Assert.That(vm.ServerName, Is.EqualTo(Server));
+            Assert.That(vm.DatabaseName, Is.EqualTo(Database));
+            Assert.That(vm.AuthMode, Is.EqualTo(SqlAuthMode.Sql));
+            Assert.That(vm.UserName, Is.EqualTo("sa"));
+            Assert.That(vm.ConnectionSourceMessage, Does.Contain("암호 포함"));
+        }
+
+        [Test]
+        public void TryFillFromSsms_KeepsTheSsmsCredential_WhenTheStoreHasAnOlderOne()
+        {
+            // Server/Database setter가 LoadSavedCredential()을 호출해 저장소 값을 덮어쓴다.
+            // SSMS 값은 그 뒤에 얹혀야 한다 — 순서가 뒤집히면 이 테스트가 잡는다.
+            _credentials.Setup(c => c.TryGet(Server, Database)).Returns(new SqlCredential
+            {
+                ServerName = Server,
+                DatabaseName = Database,
+                AuthMode = SqlAuthMode.Windows,
+                UserName = null
+            });
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+
+            vm.TryFillFromSsms();
+
+            Assert.That(vm.AuthMode, Is.EqualTo(SqlAuthMode.Sql));
+            Assert.That(vm.UserName, Is.EqualTo("sa"));
+        }
+
+        [Test]
+        public void TryFillFromSsms_ChangesNothing_WhenThereIsNoConnection()
+        {
+            var vm = NewViewModel();
+            vm.ServerName = "TypedServer";
+            vm.DatabaseName = "TypedDb";
+
+            Assert.That(vm.TryFillFromSsms(), Is.False);
+
+            Assert.That(vm.ServerName, Is.EqualTo("TypedServer"));
+            Assert.That(vm.DatabaseName, Is.EqualTo("TypedDb"));
+            Assert.That(vm.ConnectionSourceMessage, Is.Null);
+        }
+
+        [Test]
+        public void TryFillFromSsms_WarnsAndLeavesAuthAlone_WhenTheConnectionIsUnsupported()
+        {
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(new SsmsConnectionInfo(
+                Server, Database, SqlAuthMode.Windows, null, null, "Entra ID 연결은 재사용할 수 없습니다."));
+            var vm = NewViewModel();
+            vm.AuthMode = SqlAuthMode.Sql;
+            vm.UserName = "typedUser";
+
+            vm.TryFillFromSsms();
+
+            Assert.That(vm.ServerName, Is.EqualTo(Server));
+            Assert.That(vm.DatabaseName, Is.EqualTo(Database));
+            Assert.That(vm.WarningMessage, Does.Contain("Entra"));
+            Assert.That(vm.UserName, Is.EqualTo("typedUser"),
+                "재사용할 수 없는 연결이 사용자가 입력한 계정을 지워서는 안 됩니다");
+        }
+
+        [Test]
+        public void TryFillFromSsms_IsSkipped_WhileTheUserIsTypingAPassword()
+        {
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+            vm.ServerName = "TypedServer";
+            vm.Password = "typing";
+
+            Assert.That(vm.TryFillFromSsms(), Is.False);
+            Assert.That(vm.ServerName, Is.EqualTo("TypedServer"));
+        }
+
+        [Test]
+        public void Connect_KeepsTheSsmsPasswordInMemoryOnly()
+        {
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+            vm.TryFillFromSsms();
+
+            vm.ConnectCommand.Execute(null);
+
+            _credentials.Verify(c => c.Save(Server, Database, SqlAuthMode.Sql, "sa", null), Times.Once,
+                "SSMS에서 가져온 암호는 디스크에 저장하지 않습니다");
+            _credentials.Verify(c => c.SetSessionPassword(Server, Database, "fromSsms"), Times.Once);
+        }
+
+        [Test]
+        public void Connect_StillPersistsAPasswordTypedByTheUser()
+        {
+            var vm = NewViewModel();
+            vm.ServerName = Server;
+            vm.DatabaseName = Database;
+            vm.AuthMode = SqlAuthMode.Sql;
+            vm.UserName = "sa";
+            vm.Password = "typed";
+
+            vm.ConnectCommand.Execute(null);
+
+            _credentials.Verify(c => c.Save(Server, Database, SqlAuthMode.Sql, "sa", "typed"), Times.Once);
+            _credentials.Verify(c => c.SetSessionPassword(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
+                Times.Never);
+        }
+
+        [Test]
+        public void Connect_FallsBackToTheStoredPassword_WhenSsmsHasNone()
+        {
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection(password: null));
+            var vm = NewViewModel();
+            vm.TryFillFromSsms();
+
+            vm.ConnectCommand.Execute(null);
+
+            // plainPassword: null = "저장된 암호를 그대로 쓴다". 세션 암호는 기록할 것이 없다.
+            _credentials.Verify(c => c.Save(Server, Database, SqlAuthMode.Sql, "sa", null), Times.Once);
+            _credentials.Verify(c => c.SetSessionPassword(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
+                Times.Never);
+            Assert.That(vm.ConnectionSourceMessage, Does.Not.Contain("암호 포함"));
         }
 
         private sealed class RecordingSaveDialog : IFileSaveDialog

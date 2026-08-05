@@ -23,6 +23,7 @@ namespace DBVC.Vsix.ViewModels
 
         private readonly IConfigManager _configManager;
         private readonly ISqlCredentialStore _credentialStore;
+        private readonly ISsmsConnectionSource? _ssmsConnectionSource;
         private readonly IStateTracker _stateTracker;
         private readonly IGitManager _gitManager;
         private readonly ISmoManager _smoManager;
@@ -56,10 +57,13 @@ namespace DBVC.Vsix.ViewModels
             IFileSaveDialog? saveDialog = null,
             IWorkingTreeCleaner? cleaner = null,
             IFolderBrowseDialog? folderDialog = null,
-            ISqlCredentialStore? credentialStore = null)
+            ISqlCredentialStore? credentialStore = null,
+            ISsmsConnectionSource? ssmsConnectionSource = null)
         {
             _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
             _credentialStore = credentialStore ?? new SqlCredentialStore();
+            // null이면 자동 채움이 꺼진 것과 같다. 단위 테스트와 비SSMS 환경이 이 경로다.
+            _ssmsConnectionSource = ssmsConnectionSource;
             _gitManager = gitManager ?? new GitManager(_configManager);
             _stateTracker = stateTracker ?? new StateTracker(_configManager, _gitManager, _credentialStore);
             _smoManager = smoManager ?? new SmoManager(_configManager, _credentialStore);
@@ -75,6 +79,7 @@ namespace DBVC.Vsix.ViewModels
             CommitCommand = new RelayCommand(Commit, CanCommit);
             ConnectCommand = new RelayCommand(() => SetContext(ServerName, DatabaseName), () => HasContext);
             ConnectRepositoryCommand = new RelayCommand(ConnectRepository, CanConnectRepository);
+            RefreshFromSsmsCommand = new RelayCommand(() => TryFillFromSsms(), () => _ssmsConnectionSource != null);
             PullCommand = new RelayCommand(Pull, CanPull);
             GenerateDeploymentScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Deployment), CanGenerateScript);
             GenerateRollbackScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Rollback), CanGenerateScript);
@@ -165,19 +170,59 @@ namespace DBVC.Vsix.ViewModels
             }
         }
 
+        private string? _password;
+
         /// <summary>
         /// 입력 중인 평문 암호. Connect가 끝나면 즉시 비운다 — 보관은 저장소가 하고,
         /// ViewModel이 세션 내내 평문을 들고 있을 이유가 없다.
         ///
         /// <c>null</c>이거나 비어 있으면 "저장된 암호를 그대로 쓴다"는 뜻이다.
         /// PasswordBox는 바인딩을 지원하지 않으므로 코드 비하인드가 이 속성에 밀어 넣는다.
+        ///
+        /// setter를 탄다는 것은 곧 사용자가 직접 입력했다는 뜻이므로 출처 표시를 내린다.
+        /// SSMS에서 가져온 암호는 이 setter를 거치지 않고 <see cref="TryFillFromSsms"/>가
+        /// 백킹 필드에 직접 넣는다 — 그래야 저장 경로가 갈린다.
         /// </summary>
-        public string? Password { get; set; }
+        public string? Password
+        {
+            get => _password;
+            set
+            {
+                _password = value;
+                _passwordFromSsms = false;
+            }
+        }
+
+        /// <summary>현재 들고 있는 암호가 SSMS에서 온 것인지. 참이면 디스크에 저장하지 않는다.</summary>
+        private bool _passwordFromSsms;
 
         /// <summary>
         /// 이 기계에서 암호를 저장할 수 없으면(비Windows 등) Connect마다 다시 입력해야 한다.
         /// </summary>
         public bool CanPersistPasswords => _credentialStore.CanPersistPasswords;
+
+        private string? _connectionSourceMessage;
+
+        /// <summary>
+        /// 자동 채움이 무슨 일을 했는지 알리는 한 줄. 채운 적이 없으면 <c>null</c>이고 UI에서 숨는다.
+        ///
+        /// 필요한 이유: SSMS에서 가져온 암호는 PasswordBox에 넣지 않으므로(넣으면 Password setter를
+        /// 타서 디스크 저장 경로로 새어 나간다) 암호 칸은 비어 있는데 암호는 실려 있는 상태가 된다.
+        /// 그 사실을 알리지 않으면 사용자가 다시 입력해야 하는 줄 안다.
+        /// </summary>
+        public string? ConnectionSourceMessage
+        {
+            get => _connectionSourceMessage;
+            private set
+            {
+                if (_connectionSourceMessage == value) return;
+                _connectionSourceMessage = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasConnectionSourceMessage));
+            }
+        }
+
+        public bool HasConnectionSourceMessage => !string.IsNullOrEmpty(ConnectionSourceMessage);
 
         /// <summary>
         /// 대상이 정해지면 저장된 인증 정보를 입력란에 되살린다.
@@ -195,6 +240,44 @@ namespace DBVC.Vsix.ViewModels
 
             AuthMode = credential.AuthMode;
             UserName = credential.UserName;
+        }
+
+        /// <summary>
+        /// SSMS 개체 탐색기의 현재 연결을 입력란에 채운다. 접속하지는 않는다 — 확정은 Connect가 한다.
+        /// </summary>
+        /// <returns>채웠으면 true. 가져올 연결이 없거나 채우지 않기로 했으면 false.</returns>
+        public bool TryFillFromSsms()
+        {
+            var info = _ssmsConnectionSource?.TryGetCurrent();
+            if (info == null) return false;
+
+            // 사용자가 입력 중인 암호를 지우지 않는다. 도구 창이 다시 보일 때마다 이 메서드가
+            // 불리므로(가시성 트리거), 가드가 없으면 타이핑 중이던 값이 사라진다.
+            if (!_passwordFromSsms && !string.IsNullOrEmpty(_password)) return false;
+
+            // 순서가 계약이다. Server/Database setter가 LoadSavedCredential()을 호출해
+            // AuthMode·UserName을 저장소 값으로 되돌리므로, SSMS 값은 반드시 그 뒤에 얹는다.
+            ServerName = info.ServerName;
+            DatabaseName = info.DatabaseName;
+
+            if (info.UnsupportedReason != null)
+            {
+                // 서버·DB는 쓸 수 있지만 인증은 사용자가 직접 지정해야 한다.
+                // 이미 입력해 둔 인증 정보를 지우지 않는다.
+                ConnectionSourceMessage = null;
+                WarningMessage = info.UnsupportedReason;
+                return true;
+            }
+
+            AuthMode = info.AuthMode;
+            UserName = info.UserName;
+            _password = info.Password;
+            _passwordFromSsms = info.Password != null;
+
+            ConnectionSourceMessage = _passwordFromSsms
+                ? "SSMS 개체 탐색기 연결에서 가져왔습니다 (암호 포함). Connect를 누르세요."
+                : "SSMS 개체 탐색기 연결에서 가져왔습니다. Connect를 누르세요.";
+            return true;
         }
 
         /// <summary>
@@ -253,8 +336,18 @@ namespace DBVC.Vsix.ViewModels
         {
             try
             {
+                if (_passwordFromSsms)
+                {
+                    // SSMS에서 가져온 암호는 디스크에 쓰지 않기로 했다.
+                    // plainPassword: null은 "저장된 암호를 건드리지 않는다"이므로 인증 방식과
+                    // 계정명만 파일에 남고, 암호는 세션 캐시가 이 프로세스 동안만 들고 있는다.
+                    _credentialStore.Save(ServerName!, DatabaseName!, AuthMode, UserName, null);
+                    _credentialStore.SetSessionPassword(ServerName!, DatabaseName!, _password);
+                    return true;
+                }
+
                 bool fullySaved = _credentialStore.Save(
-                    ServerName!, DatabaseName!, AuthMode, UserName, Password);
+                    ServerName!, DatabaseName!, AuthMode, UserName, _password);
 
                 if (AuthMode == SqlAuthMode.Sql && !fullySaved)
                 {
@@ -267,8 +360,9 @@ namespace DBVC.Vsix.ViewModels
             }
             finally
             {
-                // 평문을 ViewModel에 남기지 않는다. 저장소가 보호된 형태로 들고 있다.
-                Password = null;
+                // 평문을 ViewModel에 남기지 않는다. 저장소가 보호된 형태로, 또는 세션 캐시가 들고 있다.
+                _password = null;
+                _passwordFromSsms = false;
             }
         }
 
@@ -355,9 +449,16 @@ namespace DBVC.Vsix.ViewModels
 
         /// <summary>
         /// 입력된 서버/데이터베이스를 활성 컨텍스트로 적용한다.
-        /// SSMS Object Explorer 연동이 붙기 전까지 사용자가 대상 DB를 지정하는 경로다.
+        /// 입력란은 사용자가 직접 채우거나 <see cref="RefreshFromSsmsCommand"/>가 채운다.
         /// </summary>
         public ICommand ConnectCommand { get; }
+
+        /// <summary>
+        /// SSMS 개체 탐색기의 현재 연결을 입력란으로 가져온다.
+        /// 도구 창을 개체 탐색기와 나란히 띄워 두면 가시성 이벤트가 뜨지 않으므로,
+        /// 결정적인 수동 갱신 수단이 하나 필요하다.
+        /// </summary>
+        public ICommand RefreshFromSsmsCommand { get; }
 
         /// <summary>
         /// 활성 데이터베이스에 Git 저장소를 매핑한다.
