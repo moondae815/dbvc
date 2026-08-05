@@ -42,12 +42,44 @@ namespace DBVC.Vsix.UI
             // 세션이 끝날 때까지 자동 채움이 조용히 멈춘다. 핸들러는 리소스를 들고 있지 않고
             // 호출 비용도 낮으므로 컨트롤 수명 내내 살려 둔다.
             IsVisibleChanged += OnIsVisibleChanged;
-            Unloaded += (_, __) =>
-            {
-                _viewModel.SelectionChanged -= OnSelectionChanged;
-                OldTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnOldScrollOffsetChanged;
-                NewTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnNewScrollOffsetChanged;
-            };
+
+            // 위 구독들은 Unloaded에서 해제되므로 다시 붙을 때 되살려야 한다.
+            Loaded += OnLoaded;
+            Unloaded += OnUnloaded;
+        }
+
+        /// <summary>
+        /// 비주얼 트리에 다시 붙을 때 구독을 되살린다.
+        ///
+        /// <see cref="OnUnloaded"/>의 해제를 없애는 것으로는 해결되지 않는다. 공유
+        /// <see cref="ViewChangesViewModel"/>은 이 컨트롤보다 오래 살기 때문에, 해제하지 않으면
+        /// 창을 닫아 버려진 컨트롤을 ViewModel이 계속 붙들게 된다. 그래서 해제는 남기고
+        /// 재구독을 여기에 둔다 — 짝을 맞추지 않으면 재도킹 뒤로 Diff 창이 선택을 따라오지 않고
+        /// 좌우 스크롤도 어긋난다.
+        ///
+        /// Loaded는 재도킹마다 다시 뜨므로 <c>-=</c>로 한 번 걷어내고 건다. 구독하지 않은
+        /// 핸들러를 빼는 것은 무해하며, 이 방식이라면 생성자의 최초 구독과도 겹치지 않는다.
+        /// </summary>
+        private void OnLoaded(object sender, System.Windows.RoutedEventArgs e)
+        {
+            _viewModel.SelectionChanged -= OnSelectionChanged;
+            _viewModel.SelectionChanged += OnSelectionChanged;
+
+            OldTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnOldScrollOffsetChanged;
+            OldTextEditor.TextArea.TextView.ScrollOffsetChanged += OnOldScrollOffsetChanged;
+            NewTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnNewScrollOffsetChanged;
+            NewTextEditor.TextArea.TextView.ScrollOffsetChanged += OnNewScrollOffsetChanged;
+
+            // 떨어져 있는 동안 선택이 바뀌었을 수 있다 — SQL 편집기 컨텍스트 메뉴가 창 밖에서
+            // 같은 ViewModel을 조작한다. 다시 붙는 김에 Diff 창을 현재 선택에 맞춘다.
+            OnSelectionChanged(this, EventArgs.Empty);
+        }
+
+        private void OnUnloaded(object sender, System.Windows.RoutedEventArgs e)
+        {
+            _viewModel.SelectionChanged -= OnSelectionChanged;
+            OldTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnOldScrollOffsetChanged;
+            NewTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnNewScrollOffsetChanged;
         }
 
         /// <summary>
