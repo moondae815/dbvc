@@ -334,6 +334,25 @@ namespace DBVC.Core.Tests
             Assert.That(store.Remove("srv", "db"), Is.False);
         }
 
+        [Test]
+        public void Remove_AlsoDropsTheSessionPassword()
+        {
+            var store = NewStore();
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", null);
+            store.SetSessionPassword("srv", "db", "fromSsms");
+
+            store.Remove("srv", "db");
+
+            Assert.That(store.ResolvePassword(new SqlCredential
+            {
+                ServerName = "srv",
+                DatabaseName = "db",
+                AuthMode = SqlAuthMode.Sql,
+                UserName = "sa"
+            }), Is.Null,
+                "파일 항목을 지운 뒤에도 세션 암호가 남아 있으면 두 저장소가 서로 다른 이야기를 합니다");
+        }
+
         // ---------- 손상된 파일 ----------
 
         [Test]

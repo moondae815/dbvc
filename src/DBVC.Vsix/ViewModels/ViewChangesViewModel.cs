@@ -95,6 +95,7 @@ namespace DBVC.Vsix.ViewModels
             {
                 if (_serverName == value) return;
                 ForgetSsmsPassword();
+                InvalidateActiveContext();
                 _serverName = value;
                 OnPropertyChanged();
                 RaiseConnectCanExecuteChanged();
@@ -110,6 +111,7 @@ namespace DBVC.Vsix.ViewModels
             {
                 if (_databaseName == value) return;
                 ForgetSsmsPassword();
+                InvalidateActiveContext();
                 _databaseName = value;
                 OnPropertyChanged();
                 RaiseConnectCanExecuteChanged();
@@ -118,6 +120,28 @@ namespace DBVC.Vsix.ViewModels
         }
 
         private bool HasContext => !string.IsNullOrWhiteSpace(ServerName) && !string.IsNullOrWhiteSpace(DatabaseName);
+
+        /// <summary>
+        /// 화면이 지금 무엇을 설명하는지를 지운다 — 대상(서버·데이터베이스)이 바뀔 때 부른다.
+        ///
+        /// <see cref="Changes"/>·<see cref="IsMapped"/>·<see cref="IsInitialized"/>는 모두 특정
+        /// (서버, 데이터베이스) 하나만을 설명하는 값이다. ServerName이나 DatabaseName이 바뀌는
+        /// 순간 이 값들은 더 이상 화면에 보이는 대상을 가리키지 않는데, 그 사실을 이 메서드가
+        /// 즉시 반영하지 않으면 <see cref="CanCommit"/>은 여전히 참을 반환한다 — 예를 들어
+        /// A/db1에 접속해 목록을 채운 뒤 SSMS 개체 탐색기 포커스가 B/db2로 옮겨가면(가시성
+        /// 트리거가 ServerName/DatabaseName만 조용히 재대입한다), 사용자가 Commit을 누를 때
+        /// A/db1의 변경 목록이 B/db2의 변경 로그에 처리 완료로 기록되어 버린다.
+        /// </summary>
+        private void InvalidateActiveContext()
+        {
+            Changes.Clear();
+            SelectedChange = null;
+            _lastChangeRecords = new List<ChangeRecord>();
+            _failedCleanupPaths.Clear();
+            IsMapped = false;
+            IsInitialized = false;
+            WarningMessage = null;
+        }
 
         // ---------- 인증 ----------
 
@@ -316,22 +340,19 @@ namespace DBVC.Vsix.ViewModels
             ServerName = serverName;
             DatabaseName = databaseName;
 
-            Changes.Clear();
-            SelectedChange = null;
-            _lastChangeRecords = new List<ChangeRecord>();
+            // ServerName/DatabaseName setter는 값이 실제로 바뀔 때만 InvalidateActiveContext()를
+            // 호출한다(동일값 재대입은 early-return한다). ConnectCommand는 매번 SetContext(ServerName,
+            // DatabaseName)을 그대로 호출하므로 — 같은 대상으로 재접속하는 흔한 경로다 — 여기서
+            // 한 번 더 무효화해야 아래에서 판정하는 최신 상태로 다시 채워진다.
+            InvalidateActiveContext();
 
             if (!HasContext)
             {
-                IsMapped = false;
-                IsInitialized = false;
-                WarningMessage = null;
                 return;
             }
 
             if (!PersistCredential())
             {
-                IsMapped = false;
-                IsInitialized = false;
                 return;
             }
 

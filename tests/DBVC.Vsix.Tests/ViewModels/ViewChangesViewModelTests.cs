@@ -1441,6 +1441,24 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
+        public void TryFillFromSsms_DropsTheSsmsPassword_WhenTheUserRetargetsTheDatabase()
+        {
+            // 위 서버 재대입 테스트의 짝. DatabaseName setter도 ForgetSsmsPassword()를 호출한다 —
+            // 이 테스트만 없으면 그 경로가 회귀해도 잡히지 않는다.
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+            vm.TryFillFromSsms();
+
+            vm.DatabaseName = "OtherDb";
+
+            vm.ConnectCommand.Execute(null);
+
+            _credentials.Verify(c => c.SetSessionPassword(It.IsAny<string>(), It.IsAny<string>(), "fromSsms"),
+                Times.Never,
+                "데이터베이스를 바꿨는데 이전 데이터베이스에서 가져온 암호가 새 데이터베이스로 전송되면 안 됩니다");
+        }
+
+        [Test]
         public void Connect_DoesNotReuseTheSsmsPassword_AfterSwitchingToWindowsAuth()
         {
             // 채운 뒤 사용자가 콤보를 Windows 인증으로 바꾸는 경우. Save(..., Windows, ..., null)가
@@ -1457,6 +1475,24 @@ namespace DBVC.Vsix.Tests.ViewModels
             _credentials.Verify(c => c.SetSessionPassword(It.IsAny<string>(), It.IsAny<string>(), "fromSsms"),
                 Times.Never,
                 "Windows 인증으로 바꾼 뒤에도 SQL 암호가 세션 캐시에 남아있으면 안 됩니다");
+        }
+
+        [Test]
+        public void Connect_DoesNotReuseTheSsmsPassword_AfterTheUserChangesTheUserName()
+        {
+            // 채운 뒤 사용자가 계정명만 직접 고치는 경우. SSMS가 가져온 암호는 그 계정의 것이지
+            // 새로 입력한 계정의 것이 아니므로 함께 버려져야 한다.
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+            vm.TryFillFromSsms();
+
+            vm.UserName = "otherUser";
+
+            vm.ConnectCommand.Execute(null);
+
+            _credentials.Verify(c => c.SetSessionPassword(It.IsAny<string>(), It.IsAny<string>(), "fromSsms"),
+                Times.Never,
+                "계정을 바꿨는데 이전 계정에서 가져온 암호가 새 계정으로 전송되면 안 됩니다");
         }
 
         private sealed class RecordingSaveDialog : IFileSaveDialog

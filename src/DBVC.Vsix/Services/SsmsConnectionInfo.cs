@@ -30,6 +30,12 @@ namespace DBVC.Vsix.Services
 
         public string ServerName { get; }
         public string DatabaseName { get; }
+
+        /// <summary>
+        /// <see cref="UnsupportedReason"/>이 non-null이면 이 값은 의미가 없다 — 어댑터의 두 미지원
+        /// 분기(Entra ID, 계정명 없음)가 서로 다른 값(Windows/Sql)을 채워 넣지만, 호출자는
+        /// <see cref="UnsupportedReason"/>이 있으면 이 필드를 읽지 않는다.
+        /// </summary>
         public SqlAuthMode AuthMode { get; }
         public string? UserName { get; }
 
