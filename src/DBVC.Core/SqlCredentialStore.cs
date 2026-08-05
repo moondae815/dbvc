@@ -24,6 +24,7 @@ namespace DBVC.Core
 
         private readonly string _filePath;
         private readonly IPasswordProtector _protector;
+        private readonly SessionPasswordCache _sessionPasswords;
         private readonly object _fileLock = new object();
 
         public static string DefaultFilePath => Path.Combine(
@@ -35,7 +36,10 @@ namespace DBVC.Core
         {
         }
 
-        public SqlCredentialStore(string filePath, IPasswordProtector? protector = null)
+        public SqlCredentialStore(
+            string filePath,
+            IPasswordProtector? protector = null,
+            SessionPasswordCache? sessionPasswords = null)
         {
             if (string.IsNullOrWhiteSpace(filePath))
             {
@@ -43,6 +47,7 @@ namespace DBVC.Core
             }
             _filePath = filePath;
             _protector = protector ?? new DpapiPasswordProtector();
+            _sessionPasswords = sessionPasswords ?? new SessionPasswordCache();
             Load();
         }
 
@@ -109,6 +114,16 @@ namespace DBVC.Core
                 fullySaved = credential.ProtectedPassword != null;
             }
 
+            // 세션 암호(SSMS에서 가져온 값)를 언제 버리는지가 우선순위 규칙이다.
+            //   - Windows 인증으로 되돌렸다 → 암호 자체가 필요 없다
+            //   - 평문이 들어왔다(빈 문자열 포함) → 사용자가 직접 입력했으므로 그 값이 이긴다
+            // plainPassword == null은 "저장된 것을 그대로 둔다"는 뜻이고 SSMS 경로가 쓰는 형태이므로
+            // 여기서 지우면 안 된다.
+            if (authMode != SqlAuthMode.Sql || plainPassword != null)
+            {
+                _sessionPasswords.Remove(serverName, databaseName);
+            }
+
             _credentials[key] = credential;
             SaveToDisk();
             return fullySaved;
@@ -126,15 +141,36 @@ namespace DBVC.Core
             return removed;
         }
 
+        public void SetSessionPassword(string serverName, string databaseName, string? plainPassword)
+        {
+            ValidateServerAndDatabase(serverName, databaseName);
+            _sessionPasswords.Set(serverName, databaseName, plainPassword);
+        }
+
         /// <summary>
         /// 보호된 암호를 평문으로 되돌린다. 저장된 암호가 없거나 이 계정에서 풀 수 없으면 <c>null</c>.
+        ///
+        /// 세션 암호를 먼저 본다. SSMS에서 방금 가져온 연결이 예전에 저장해 둔 암호보다 최신이고,
+        /// 애초에 디스크에 없는 값이므로 이 경로가 아니면 쓰일 곳이 없다.
         /// </summary>
         public string? ResolvePassword(SqlCredential? credential)
         {
-            if (credential == null || string.IsNullOrEmpty(credential.ProtectedPassword))
+            if (credential == null)
             {
                 return null;
             }
+
+            var sessionPassword = _sessionPasswords.TryGet(credential.ServerName, credential.DatabaseName);
+            if (sessionPassword != null)
+            {
+                return sessionPassword;
+            }
+
+            if (string.IsNullOrEmpty(credential.ProtectedPassword))
+            {
+                return null;
+            }
+
             return _protector.Unprotect(
                 credential.ProtectedPassword,
                 GetKey(credential.ServerName, credential.DatabaseName));

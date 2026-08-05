@@ -43,7 +43,9 @@ namespace DBVC.Core
                 throw new SqlCredentialException(
                     $"'{serverName}.{databaseName}'은(는) SQL 인증으로 설정되어 있으나 저장된 암호를 사용할 수 없습니다. " +
                     "Connect에서 사용자명과 암호를 다시 입력하세요. " +
-                    "(암호는 저장한 Windows 계정에서만 복호화됩니다 — 다른 계정으로 로그온했다면 다시 입력해야 합니다.)");
+                    "(암호는 저장한 Windows 계정에서만 복호화됩니다 — 다른 계정으로 로그온했다면 다시 입력해야 합니다.) " +
+                    "SSMS 개체 탐색기에서 이 데이터베이스에 접속한 뒤 DBVC 창의 'SSMS 연결' 버튼을 누르면 " +
+                    "그 연결의 인증 정보를 그대로 가져옵니다 — 이 방식으로 가져온 암호는 디스크에 저장되지 않습니다.");
             }
 
             return BuildSql(serverName, databaseName, credential.UserName!, password!);

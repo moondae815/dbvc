@@ -29,6 +29,13 @@ namespace DBVC.Core
         bool Save(string serverName, string databaseName, SqlAuthMode authMode, string? userName, string? plainPassword);
         bool Remove(string serverName, string databaseName);
         string? ResolvePassword(SqlCredential? credential);
+
+        /// <summary>
+        /// 이 프로세스에서만 유효한 암호를 기록한다. 디스크에 쓰지 않는다.
+        /// SSMS 개체 탐색기에서 가져온 암호가 이 경로로 들어온다.
+        /// <c>null</c>이거나 빈 문자열이면 기존 세션 암호를 제거한다.
+        /// </summary>
+        void SetSessionPassword(string serverName, string databaseName, string? plainPassword);
     }
 
     public interface IStateTracker
