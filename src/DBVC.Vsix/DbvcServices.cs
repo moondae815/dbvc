@@ -74,11 +74,18 @@ namespace DBVC.Vsix
         /// </summary>
         public ViewChangesViewModel SharedViewChangesViewModel => _sharedViewModel ??= CreateViewChangesViewModel();
 
-        public ViewChangesViewModel CreateViewChangesViewModel(IUserNotifier? notifier = null)
+        /// <summary>
+        /// 도구 창이 쓸 ViewModel을 만든다. SSMS 개체 탐색기 연동은 기본으로 켠다 —
+        /// 셸 밖에서는 어댑터가 <c>null</c>을 돌려줄 뿐이므로 안전하다.
+        /// </summary>
+        public ViewChangesViewModel CreateViewChangesViewModel(
+            IUserNotifier? notifier = null,
+            ISsmsConnectionSource? ssmsConnectionSource = null)
         {
             return new ViewChangesViewModel(
                 ConfigManager, StateTracker, GitManager, SmoManager, notifier,
-                credentialStore: CredentialStore);
+                credentialStore: CredentialStore,
+                ssmsConnectionSource: ssmsConnectionSource ?? new ObjectExplorerConnectionSource());
         }
 
         public DiffService CreateDiffService()

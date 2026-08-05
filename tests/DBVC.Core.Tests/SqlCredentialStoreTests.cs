@@ -195,6 +195,132 @@ namespace DBVC.Core.Tests
                 "항목별 엔트로피가 걸려 있어 다른 항목으로 옮긴 값은 풀리면 안 됩니다");
         }
 
+        // ---------- 세션 전용 암호 ----------
+
+        [Test]
+        public void ResolvePassword_PrefersTheSessionPassword_OverTheStoredOne()
+        {
+            var store = NewStore();
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", "onDisk");
+
+            store.SetSessionPassword("srv", "db", "fromSsms");
+
+            Assert.That(store.ResolvePassword(store.TryGet("srv", "db")), Is.EqualTo("fromSsms"),
+                "SSMS에서 방금 가져온 연결이 예전에 저장해 둔 암호보다 최신입니다");
+        }
+
+        [Test]
+        public void SetSessionPassword_NeverTouchesTheFile()
+        {
+            var store = NewStore();
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", null);
+
+            store.SetSessionPassword("srv", "db", "OnlyInMemory123");
+
+            Assert.That(File.Exists(_path), Is.True);
+            Assert.That(File.ReadAllText(_path), Does.Not.Contain("OnlyInMemory123"),
+                "SSMS에서 가져온 암호는 어떤 형태로도 디스크에 남지 않아야 합니다");
+        }
+
+        [Test]
+        public void SessionPassword_IsGoneInANewProcess()
+        {
+            NewStore().SetSessionPassword("srv", "db", "fromSsms");
+            NewStore().Save("srv", "db", SqlAuthMode.Sql, "sa", null);
+
+            // 새 인스턴스 = 새 캐시. 프로세스를 다시 띄운 것과 같다.
+            var reloaded = new SqlCredentialStore(_path, new ReversibleProtector());
+
+            Assert.That(reloaded.ResolvePassword(reloaded.TryGet("srv", "db")), Is.Null);
+        }
+
+        [Test]
+        public void Save_ClearsTheSessionPassword_WhenAPlainPasswordIsGiven()
+        {
+            var store = NewStore();
+            store.SetSessionPassword("srv", "db", "fromSsms");
+
+            // 사용자가 암호를 직접 입력하고 Connect를 눌렀다.
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", "typed");
+
+            Assert.That(store.ResolvePassword(store.TryGet("srv", "db")), Is.EqualTo("typed"),
+                "직접 입력한 값이 SSMS에서 가져온 값을 이겨야 합니다");
+        }
+
+        [Test]
+        public void Save_KeepsTheSessionPassword_WhenPasswordIsNull()
+        {
+            var store = NewStore();
+            store.SetSessionPassword("srv", "db", "fromSsms");
+
+            // SSMS 경로: 인증 방식·계정명만 남기고 암호는 건드리지 않는다.
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", null);
+
+            Assert.That(store.ResolvePassword(store.TryGet("srv", "db")), Is.EqualTo("fromSsms"));
+        }
+
+        [Test]
+        public void Save_ClearsTheSessionPassword_WhenSwitchingBackToWindowsAuth()
+        {
+            var store = NewStore();
+            store.SetSessionPassword("srv", "db", "fromSsms");
+
+            store.Save("srv", "db", SqlAuthMode.Windows, null, null);
+
+            Assert.That(store.ResolvePassword(store.TryGet("srv", "db")), Is.Null,
+                "Windows 인증으로 되돌렸으면 세션 암호도 들고 있을 이유가 없습니다");
+        }
+
+        [Test]
+        public void SetSessionPassword_ThrowsArgumentException_WhenServerOrDatabaseIsMissing()
+        {
+            var store = NewStore();
+
+            Assert.Throws<ArgumentException>(() => store.SetSessionPassword("", "db", "p@ss"));
+            Assert.Throws<ArgumentException>(() => store.SetSessionPassword("srv", "", "p@ss"));
+        }
+
+        [Test]
+        public void Save_ClearsTheSessionPassword_WhenTheUserNameChanges()
+        {
+            var store = NewStore();
+            // 디스크 암호는 없다 — 세션 암호가 제대로 지워지는지만 본다.
+            // (디스크 암호까지 있으면 그쪽 폴백 때문에 세션 무효화 여부가 가려진다.)
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", null);
+            store.SetSessionPassword("srv", "db", "fromSsms");
+
+            // 계정을 바꿔서 다시 Connect했다. 세션 암호는 옛 계정의 것이다.
+            store.Save("srv", "db", SqlAuthMode.Sql, "otherUser", null);
+
+            Assert.That(store.ResolvePassword(store.TryGet("srv", "db")), Is.Null,
+                "한 계정에서 받아 온 암호를 다른 계정에 짝지으면 안 됩니다");
+        }
+
+        [Test]
+        public void Save_KeepsTheSessionPassword_WhenTheUserNameIsUnchanged()
+        {
+            var store = NewStore();
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", "p@ss");
+            store.SetSessionPassword("srv", "db", "fromSsms");
+
+            // SSMS 경로: 같은 계정으로 다시 Connect했다.
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", null);
+
+            Assert.That(store.ResolvePassword(store.TryGet("srv", "db")), Is.EqualTo("fromSsms"));
+        }
+
+        [Test]
+        public void Save_ClearsTheSessionPassword_WhenTheTypedPasswordIsEmpty()
+        {
+            var store = NewStore();
+            store.SetSessionPassword("srv", "db", "fromSsms");
+
+            // 사용자가 암호 칸을 일부러 비워 두고 Connect를 눌렀다.
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", "");
+
+            Assert.That(store.ResolvePassword(store.TryGet("srv", "db")), Is.Null);
+        }
+
         // ---------- 제거 ----------
 
         [Test]
@@ -206,6 +332,25 @@ namespace DBVC.Core.Tests
             Assert.That(store.Remove("srv", "db"), Is.True);
             Assert.That(store.TryGet("srv", "db"), Is.Null);
             Assert.That(store.Remove("srv", "db"), Is.False);
+        }
+
+        [Test]
+        public void Remove_AlsoDropsTheSessionPassword()
+        {
+            var store = NewStore();
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", null);
+            store.SetSessionPassword("srv", "db", "fromSsms");
+
+            store.Remove("srv", "db");
+
+            Assert.That(store.ResolvePassword(new SqlCredential
+            {
+                ServerName = "srv",
+                DatabaseName = "db",
+                AuthMode = SqlAuthMode.Sql,
+                UserName = "sa"
+            }), Is.Null,
+                "파일 항목을 지운 뒤에도 세션 암호가 남아 있으면 두 저장소가 서로 다른 이야기를 합니다");
         }
 
         // ---------- 손상된 파일 ----------

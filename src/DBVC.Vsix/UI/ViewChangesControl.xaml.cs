@@ -37,12 +37,32 @@ namespace DBVC.Vsix.UI
             NewTextEditor.TextArea.TextView.ScrollOffsetChanged += OnNewScrollOffsetChanged;
 
             _viewModel.SelectionChanged += OnSelectionChanged;
+            // 이 구독은 일부러 Unloaded에서 해제하지 않는다. Unloaded는 도구 창을 다시 도킹할
+            // 때도 뜨는데(비주얼 트리에서 빠졌다 다시 붙는 것뿐), 여기서 해제하면 그 뒤로는
+            // 세션이 끝날 때까지 자동 채움이 조용히 멈춘다. 핸들러는 리소스를 들고 있지 않고
+            // 호출 비용도 낮으므로 컨트롤 수명 내내 살려 둔다.
+            IsVisibleChanged += OnIsVisibleChanged;
             Unloaded += (_, __) =>
             {
                 _viewModel.SelectionChanged -= OnSelectionChanged;
                 OldTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnOldScrollOffsetChanged;
                 NewTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnNewScrollOffsetChanged;
             };
+        }
+
+        /// <summary>
+        /// 도구 창이 보여질 때 SSMS 개체 탐색기의 현재 연결을 입력란으로 가져온다.
+        /// 처음 열 때와 다른 탭에서 돌아올 때를 함께 덮는다. 개체 탐색기와 나란히 도킹해 두어
+        /// 이 이벤트가 뜨지 않는 배치는 'SSMS 연결' 버튼이 담당한다.
+        ///
+        /// 반환값을 무시하는 것은 의도다 — 가져올 연결이 없으면 입력란이 그대로인 것이 정상이다.
+        /// </summary>
+        private void OnIsVisibleChanged(object sender, System.Windows.DependencyPropertyChangedEventArgs e)
+        {
+            if (e.NewValue is bool visible && visible)
+            {
+                _viewModel.TryFillFromSsms();
+            }
         }
 
         /// <summary>

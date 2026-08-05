@@ -92,6 +92,33 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void Build_UsesTheSessionPassword_WhenNothingWasPersisted()
+        {
+            var store = NewStore();
+            // SSMS 경로가 만드는 상태: 디스크에는 인증 방식과 계정명만, 암호는 메모리에만.
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", null);
+            store.SetSessionPassword("srv", "db", "fromSsms");
+
+            var connectionString = new SqlConnectionFactory(store).Build("srv", "db");
+
+            Assert.That(connectionString, Does.Contain("User ID=sa"));
+            Assert.That(connectionString, Does.Contain("fromSsms"));
+            Assert.That(connectionString, Does.Not.Contain("Integrated Security=True"));
+        }
+
+        [Test]
+        public void Build_PointsAtObjectExplorer_WhenSqlAuthHasNoUsablePassword()
+        {
+            var store = NewStore();
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", "");
+
+            var ex = Assert.Throws<SqlCredentialException>(() => new SqlConnectionFactory(store).Build("srv", "db"));
+
+            Assert.That(ex!.Message, Does.Contain("개체 탐색기"),
+                "이제 직접 입력 말고도 SSMS 연결을 가져오는 길이 있으므로 안내에 담겨야 합니다");
+        }
+
+        [Test]
         public void BuildSql_DoesNotPersistSecurityInfo()
         {
             // 연결 후 ConnectionString 속성에서 암호가 다시 읽히면 로그·예외 메시지로 샐 수 있다.

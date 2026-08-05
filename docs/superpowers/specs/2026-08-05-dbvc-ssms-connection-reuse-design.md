@@ -117,8 +117,8 @@ DBVC는 데이터베이스 없이는 아무 일도 못 한다.
    **두 개 이상이면 `null`** — 다중 선택에서 어느 것을 뜻하는지 정할 근거가 없다.
 4. 노드가 `INodeContext`를 구현하는지 확인하고 `Connection`(객체)과 `Context`(URN 문자열)를 읽는다.
 5. `Connection`에서 `ServerName`, `UserName`, `UseIntegratedSecurity`, `Password`(없으면
-   `SecurePassword`를 평문으로 환원)를 읽는다. `Authentication` 속성은 **있으면** 읽는다
-   (기반 타입에는 없다).
+   `SecurePassword`를 평문으로 환원)를 읽는다. `Authentication`과 `AccessToken` 속성은
+   **있으면** 읽는다(기반 타입에는 없다).
 6. 데이터베이스 이름은 `Context` URN에서만 얻는다(4.4). 얻지 못하면 `null` 반환.
 
 **`Connection.DatabaseName`으로 폴백하지 않는다.** 서버 노드를 선택하면 URN에 `Database` 마디가
@@ -128,11 +128,26 @@ DBVC는 데이터베이스 없이는 아무 일도 못 한다.
 
 **인증 방식 판정**
 
-| `Connection` 상태 | 결과 |
-| --- | --- |
-| `UseIntegratedSecurity == true` | `AuthMode.Windows`, 암호 없음 |
-| `Authentication`이 `ActiveDirectory*` | `UnsupportedReason` 설정, 서버·DB만 채움 |
-| 그 밖 (`SqlPassword`·`NotSpecified` + 사용자명 존재) | `AuthMode.Sql` + 사용자명 + 암호(있으면) |
+순서대로 묻는다. 앞 단계에서 걸리면 뒤는 보지 않는다.
+
+1. `AccessToken`(파생 타입에만 존재)이 `null`이 아니면 → `UnsupportedReason` = Entra 사유, 서버·DB만
+   채움. 토큰 기반 연결은 사용자명·암호로 환원할 수 없다.
+2. 그렇지 않고 `Authentication`(파생 타입에만 존재)이 `ActiveDirectory*`로 시작하면 → 위와 동일하게
+   `UnsupportedReason` = Entra 사유.
+3. 그렇지 않고 `UseIntegratedSecurity == true`이면 → `AuthMode.Windows`, 암호 없음.
+4. 그렇지 않고 `UserName`이 비어 있으면 → `UnsupportedReason` = "계정 정보를 읽지 못함" 사유, 서버·DB만
+   채움.
+5. 그 밖(사용자명이 있음) → `AuthMode.Sql` + 사용자명 + 암호(있으면).
+
+**이 순서가 계약이다.** 측정된 SSMS 21(`SqlConnectionInfo`, `Microsoft.SqlServer.ConnectionInfo`
+17.100) 동작: `UseIntegratedSecurity`는 새 인스턴스에서 기본값이 `true`이고, `UserName`을 설정하는
+부수 효과로만 `false`가 된다. `Authentication`을 Entra 계열 값(`ActiveDirectoryPassword`·
+`Interactive`·`DeviceCodeFlow`·`ManagedIdentity`·`MSI`·`ServicePrincipal`·`Default` 등)으로
+설정해도 `UseIntegratedSecurity`는 그대로 `true`로 남는다 — `ActiveDirectoryIntegrated`만 예외적으로
+`false`다. 그래서 `UseIntegratedSecurity`를 먼저 물으면 이런 Entra 연결들이 전부 "Windows 인증,
+재사용 가능"으로 오판된다. `AccessToken`은 토큰 기반 연결의 확정적 표지이므로 가장 먼저 걸러내고,
+그다음 `Authentication` 문자열로 나머지 Entra 케이스를 걸러낸 뒤에야 `UseIntegratedSecurity`를 믿을
+수 있다.
 
 **모든 단계가 실패에 관대하다.** 어느 리플렉션 단계에서든 예외가 나면 `Debug.WriteLine` 후 `null`을
 반환한다. 자동 채움이 안 되는 것과 도구 창이 죽는 것은 비교할 문제가 아니다.
@@ -198,11 +213,14 @@ ResolvePassword(credential):
 | --- | --- |
 | `authMode != Sql` | 제거 — Windows 인증으로 되돌렸으므로 |
 | `plainPassword`가 비-null (빈 문자열 포함) | 제거 — 사용자가 명시적으로 입력했다 |
-| `plainPassword == null` ("저장된 것을 그대로 둔다") | 유지 — SSMS 경로가 쓰는 형태 |
+| 계정명이 기존 항목과 다름(대소문자 무시, 기존 항목이 있을 때만) | 제거 — 세션 암호는 옛 계정의 것이라 새 계정과 짝지으면 안 된다 |
+| `plainPassword == null` ("저장된 것을 그대로 둔다")이고 계정명도 그대로 | 유지 — SSMS 경로가 쓰는 형태 |
 
-세 번째 칸이 SSMS 경로다. `plainPassword: null`은 기존 계약상 "디스크 암호를 건드리지 않는다"이므로,
+마지막 칸이 SSMS 경로다. `plainPassword: null`은 기존 계약상 "디스크 암호를 건드리지 않는다"이므로,
 같은 호출로 인증 방식·계정명만 디스크에 남기고 암호는 손대지 않는 동작이 이미 성립한다.
-새 의미를 만들 필요가 없다.
+새 의미를 만들 필요가 없다. 다만 SSMS가 이전과 다른 계정으로 연결을 가져온 경우에는 계정명 자체가
+바뀌므로 세 번째 칸이 먼저 적용되어 세션 암호가 지워진다 — SSMS 경로는 `Save` 직후 항상
+`SetSessionPassword`를 다시 호출하므로 곧바로 새 값으로 채워져 문제가 없다.
 
 #### 4.3.3. 부수 효과
 
@@ -255,6 +273,14 @@ public string? Password
 `ViewChangesControl.OnSqlPasswordChanged`가 이 setter를 쓰므로, 자동 채움 후 사용자가 PasswordBox에
 한 글자라도 치면 그 순간 사용자 입력으로 전환된다. 자동 채움만 백킹 필드에 직접 쓴다.
 
+**출처 플래그는 대상에도 묶인다.** SSMS에서 가져온 암호는 그것을 가져올 당시의
+(서버, 데이터베이스, 인증 방식, 계정) 네 가지에만 속한다. 넷 중 하나라도 바뀌면 더 이상 그 암호가
+맞는 대상이 아니므로 들고 있어서는 안 된다 — 들고 있으면 Connect가 다른 서버로 그 암호를 보내는
+접속을 시도하게 된다. 그래서 `ServerName`·`DatabaseName`·`AuthMode`·`UserName` 네 setter가 모두
+(값이 실제로 바뀔 때) `ForgetSsmsPassword()`를 호출해 `_password`·`_passwordFromSsms`·
+`ConnectionSourceMessage`를 함께 정리한다. 사용자가 직접 입력한 암호는 이 경로를 타지 않으므로
+건드리지 않는다.
+
 #### 4.5.2. `TryFillFromSsms()`
 
 ```
@@ -266,11 +292,14 @@ public bool TryFillFromSsms()
     // 사용자가 입력 중인 암호를 지우지 않는다.
     if (!_passwordFromSsms && !string.IsNullOrEmpty(_password)) return false;
 
-    ServerName = info.ServerName;        // setter가 LoadSavedCredential()을 부른다
+    ServerName = info.ServerName;        // setter가 ForgetSsmsPassword() 후 LoadSavedCredential()을 부른다
     DatabaseName = info.DatabaseName;
 
     if (info.UnsupportedReason != null)
     {
+        // 대상이 바뀌었다면 위 두 setter가 이미 SSMS 암호를 버렸다. 배너만 여기서 한 번 더 내린다 —
+        // 대상이 그대로인데 지원 여부만 바뀐 경우는 setter가 호출되지 않기 때문이다.
+        ConnectionSourceMessage = null;
         WarningMessage = info.UnsupportedReason;
         return true;
     }
@@ -299,7 +328,7 @@ public bool TryFillFromSsms()
 #### 4.5.3. `PersistCredential()` 분기
 
 ```
-if (_passwordFromSsms)
+if (_passwordFromSsms && AuthMode == SqlAuthMode.Sql)
 {
     _credentialStore.Save(ServerName!, DatabaseName!, AuthMode, UserName, null);  // 암호는 건드리지 않음
     _credentialStore.SetSessionPassword(ServerName!, DatabaseName!, _password);
@@ -308,8 +337,14 @@ if (_passwordFromSsms)
 // 기존 경로: Save(..., _password) + fullySaved 가드
 ```
 
-`finally`에서 `_password = null; _passwordFromSsms = false;`로 정리한다. 평문은 지금처럼 ViewModel에
-남지 않는다 — 세션 캐시가 들고 있다.
+`AuthMode == SqlAuthMode.Sql` 조건은 2차 방어선이다. 정상적인 흐름에서는 4.5.1의 네 setter가 대상이나
+인증 방식이 바뀌는 순간 이미 `_passwordFromSsms`를 내린다. 이 조건이 없어도 지금은 항상 거짓/참이
+일치하지만, 앞으로 그 setter들 중 하나가 잘못 고쳐져 더 이상 플래그를 내리지 않게 되더라도 이
+조건이 있으면 Windows 인증으로 표시된 대상에 SQL 암호가 조용히 쓰이는 일만은 막는다.
+
+`finally`에서 `_password = null; _passwordFromSsms = false; ConnectionSourceMessage = null;`로 정리한다.
+평문은 지금처럼 ViewModel에 남지 않는다 — 세션 캐시가 들고 있다. 배너까지 내리는 이유는 접속을
+확정한 뒤에는 "가져왔습니다" 안내가 더 이상 현재 상태를 설명하지 않기 때문이다.
 
 #### 4.5.4. `RefreshFromSsmsCommand` (신규)
 

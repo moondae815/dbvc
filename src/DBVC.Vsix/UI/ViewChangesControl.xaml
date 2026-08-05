@@ -19,7 +19,8 @@
             대상 데이터베이스 지정. 인증 입력란이 붙어 좁게 도킹하면 잘리므로
             아래 Top Area와 같은 이유로 WrapPanel을 쓴다.
         -->
-        <WrapPanel Grid.Row="0" Orientation="Horizontal" Margin="5,5,5,0">
+        <StackPanel Grid.Row="0">
+            <WrapPanel Orientation="Horizontal" Margin="5,5,5,0">
             <TextBlock Text="Server:" VerticalAlignment="Center" Margin="0,0,4,4"/>
             <TextBox Text="{Binding ServerName, UpdateSourceTrigger=PropertyChanged}" Width="140" Margin="0,0,10,4"/>
             <TextBlock Text="Database:" VerticalAlignment="Center" Margin="0,0,4,4"/>
@@ -48,8 +49,20 @@
                          Visibility="{Binding IsSqlAuth, Converter={StaticResource BoolToVis}}"
                          ToolTip="비워 두면 이전에 저장한 암호를 그대로 사용합니다."/>
 
-            <Button Content="Connect" Command="{Binding ConnectCommand}" Width="80" Margin="0,0,0,4"/>
-        </WrapPanel>
+            <Button Content="Connect" Command="{Binding ConnectCommand}" Width="80" Margin="0,0,6,4"/>
+                <Button Content="SSMS 연결" Command="{Binding RefreshFromSsmsCommand}" Width="90" Margin="0,0,0,4"
+                        ToolTip="SSMS 개체 탐색기에서 선택한 데이터베이스의 연결 정보를 가져옵니다. 가져온 암호는 디스크에 저장되지 않습니다."/>
+            </WrapPanel>
+
+            <!--
+                SSMS에서 가져온 암호는 PasswordBox에 넣지 않는다(넣으면 Password setter를 타서
+                디스크 저장 경로로 새어 나간다). 그래서 암호 칸이 비어 있는데 암호는 실려 있는
+                상태가 되므로, 그 사실을 여기서 알린다.
+            -->
+            <TextBlock Text="{Binding ConnectionSourceMessage}" Foreground="#3A6B35"
+                       TextWrapping="Wrap" Margin="5,0,5,4"
+                       Visibility="{Binding HasConnectionSourceMessage, Converter={StaticResource BoolToVis}}"/>
+        </StackPanel>
 
         <!--
             경고 배너. 초기화 여부와 무관하게 보여야 매핑되지 않은 DB에서도
