@@ -117,8 +117,8 @@ DBVC는 데이터베이스 없이는 아무 일도 못 한다.
    **두 개 이상이면 `null`** — 다중 선택에서 어느 것을 뜻하는지 정할 근거가 없다.
 4. 노드가 `INodeContext`를 구현하는지 확인하고 `Connection`(객체)과 `Context`(URN 문자열)를 읽는다.
 5. `Connection`에서 `ServerName`, `UserName`, `UseIntegratedSecurity`, `Password`(없으면
-   `SecurePassword`를 평문으로 환원)를 읽는다. `Authentication` 속성은 **있으면** 읽는다
-   (기반 타입에는 없다).
+   `SecurePassword`를 평문으로 환원)를 읽는다. `Authentication`과 `AccessToken` 속성은
+   **있으면** 읽는다(기반 타입에는 없다).
 6. 데이터베이스 이름은 `Context` URN에서만 얻는다(4.4). 얻지 못하면 `null` 반환.
 
 **`Connection.DatabaseName`으로 폴백하지 않는다.** 서버 노드를 선택하면 URN에 `Database` 마디가

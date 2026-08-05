@@ -37,12 +37,29 @@ namespace DBVC.Vsix.UI
             NewTextEditor.TextArea.TextView.ScrollOffsetChanged += OnNewScrollOffsetChanged;
 
             _viewModel.SelectionChanged += OnSelectionChanged;
+            IsVisibleChanged += OnIsVisibleChanged;
             Unloaded += (_, __) =>
             {
                 _viewModel.SelectionChanged -= OnSelectionChanged;
                 OldTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnOldScrollOffsetChanged;
                 NewTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnNewScrollOffsetChanged;
+                IsVisibleChanged -= OnIsVisibleChanged;
             };
+        }
+
+        /// <summary>
+        /// 도구 창이 보여질 때 SSMS 개체 탐색기의 현재 연결을 입력란으로 가져온다.
+        /// 처음 열 때와 다른 탭에서 돌아올 때를 함께 덮는다. 개체 탐색기와 나란히 도킹해 두어
+        /// 이 이벤트가 뜨지 않는 배치는 'SSMS 연결' 버튼이 담당한다.
+        ///
+        /// 반환값을 무시하는 것은 의도다 — 가져올 연결이 없으면 입력란이 그대로인 것이 정상이다.
+        /// </summary>
+        private void OnIsVisibleChanged(object sender, System.Windows.DependencyPropertyChangedEventArgs e)
+        {
+            if (e.NewValue is bool visible && visible)
+            {
+                _viewModel.TryFillFromSsms();
+            }
         }
 
         /// <summary>
