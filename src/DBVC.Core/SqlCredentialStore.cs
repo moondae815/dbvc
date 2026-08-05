@@ -117,9 +117,15 @@ namespace DBVC.Core
             // 세션 암호(SSMS에서 가져온 값)를 언제 버리는지가 우선순위 규칙이다.
             //   - Windows 인증으로 되돌렸다 → 암호 자체가 필요 없다
             //   - 평문이 들어왔다(빈 문자열 포함) → 사용자가 직접 입력했으므로 그 값이 이긴다
+            //   - 계정명이 바뀌었다 → 세션 암호는 예전 계정의 것이라 새 계정과 짝지으면 안 된다
             // plainPassword == null은 "저장된 것을 그대로 둔다"는 뜻이고 SSMS 경로가 쓰는 형태이므로
-            // 여기서 지우면 안 된다.
-            if (authMode != SqlAuthMode.Sql || plainPassword != null)
+            // 그 자체로는 지우지 않는다. 다만 SSMS 경로는 Save 직후 SetSessionPassword를 다시 호출하므로
+            // 계정명이 함께 바뀌어 여기서 지워지더라도 곧바로 새 값으로 채워져 문제가 없다.
+            bool userNameChanged = !string.Equals(
+                existing?.UserName,
+                userName,
+                StringComparison.OrdinalIgnoreCase);
+            if (authMode != SqlAuthMode.Sql || plainPassword != null || (existing != null && userNameChanged))
             {
                 _sessionPasswords.Remove(serverName, databaseName);
             }

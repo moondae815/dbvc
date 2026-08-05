@@ -280,6 +280,47 @@ namespace DBVC.Core.Tests
             Assert.Throws<ArgumentException>(() => store.SetSessionPassword("srv", "", "p@ss"));
         }
 
+        [Test]
+        public void Save_ClearsTheSessionPassword_WhenTheUserNameChanges()
+        {
+            var store = NewStore();
+            // 디스크 암호는 없다 — 세션 암호가 제대로 지워지는지만 본다.
+            // (디스크 암호까지 있으면 그쪽 폴백 때문에 세션 무효화 여부가 가려진다.)
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", null);
+            store.SetSessionPassword("srv", "db", "fromSsms");
+
+            // 계정을 바꿔서 다시 Connect했다. 세션 암호는 옛 계정의 것이다.
+            store.Save("srv", "db", SqlAuthMode.Sql, "otherUser", null);
+
+            Assert.That(store.ResolvePassword(store.TryGet("srv", "db")), Is.Null,
+                "한 계정에서 받아 온 암호를 다른 계정에 짝지으면 안 됩니다");
+        }
+
+        [Test]
+        public void Save_KeepsTheSessionPassword_WhenTheUserNameIsUnchanged()
+        {
+            var store = NewStore();
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", "p@ss");
+            store.SetSessionPassword("srv", "db", "fromSsms");
+
+            // SSMS 경로: 같은 계정으로 다시 Connect했다.
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", null);
+
+            Assert.That(store.ResolvePassword(store.TryGet("srv", "db")), Is.EqualTo("fromSsms"));
+        }
+
+        [Test]
+        public void Save_ClearsTheSessionPassword_WhenTheTypedPasswordIsEmpty()
+        {
+            var store = NewStore();
+            store.SetSessionPassword("srv", "db", "fromSsms");
+
+            // 사용자가 암호 칸을 일부러 비워 두고 Connect를 눌렀다.
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", "");
+
+            Assert.That(store.ResolvePassword(store.TryGet("srv", "db")), Is.Null);
+        }
+
         // ---------- 제거 ----------
 
         [Test]
