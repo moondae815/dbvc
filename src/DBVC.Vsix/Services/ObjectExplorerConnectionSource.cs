@@ -82,18 +82,10 @@ namespace DBVC.Vsix.Services
                     $"로드된 어셈블리 수={AppDomain.CurrentDomain.GetAssemblies().Length}");
             }
 
-            var provider = serviceCacheType
-                .GetProperty("ServiceProvider", BindingFlags.Public | BindingFlags.Static)
-                ?.GetValue(null) as IServiceProvider;
-            if (provider == null)
-            {
-                return Fail("ServiceCache.ServiceProvider가 null이거나 IServiceProvider가 아닙니다.");
-            }
-
-            var explorer = provider.GetService(explorerServiceType);
+            var explorer = TryGetObjectExplorerService(explorerServiceType, serviceCacheType);
             if (explorer == null)
             {
-                return Fail("ServiceProvider가 IObjectExplorerService를 돌려주지 않았습니다.");
+                return Fail("어느 공급자에서도 IObjectExplorerService를 얻지 못했습니다.");
             }
 
             // 인터페이스 타입에서 메서드를 찾는다(위에서 이미 확보한 explorerServiceType). explorer.GetType()으로 찾으면
@@ -200,6 +192,62 @@ namespace DBVC.Vsix.Services
                 userName,
                 password,
                 null);
+        }
+
+        /// <summary>
+        /// 개체 탐색기 서비스를 공급자 후보에서 차례로 찾는다.
+        ///
+        /// <c>ServiceCache.ServiceProvider</c> 하나만 믿었다가 실패했다. 측정된 SSMS 21에서
+        /// 그 어셈블리는 아무도 로드하지 않으며 — 즉 셸이 <c>ServiceCache.Init()</c>을 부른 적이
+        /// 없으며 — 우리가 강제로 로드해 봤자 static 필드가 비어 있는 사본을 얻을 뿐이다.
+        /// SSMS 21에서 <c>ServiceCache</c>는 더 이상 쓰이지 않는 레거시 경로다.
+        ///
+        /// 그래서 VS 셸의 전역 공급자를 먼저 본다. 이 확장은 이미 <c>Microsoft.VisualStudio.Shell</c>을
+        /// 참조하므로 리플렉션 없이 부를 수 있다. 어느 경로가 통했는지는 진단 로그가 남긴다 —
+        /// 이 코드는 SSMS 안에서만 실행되므로 그 기록이 유일한 근거다.
+        /// </summary>
+        private static object? TryGetObjectExplorerService(Type explorerServiceType, Type serviceCacheType)
+        {
+            try
+            {
+                var global = Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider;
+                var service = global?.GetService(explorerServiceType);
+                if (service != null)
+                {
+                    SsmsDiagnostics.Trace("개체 탐색기 서비스: VS 전역 공급자에서 얻었습니다.");
+                    return service;
+                }
+                SsmsDiagnostics.Trace(
+                    $"VS 전역 공급자가 IObjectExplorerService를 돌려주지 않았습니다 " +
+                    $"(공급자={(global == null ? "null" : "있음")}).");
+            }
+            catch (Exception ex)
+            {
+                SsmsDiagnostics.Trace($"VS 전역 공급자 조회 실패: {ex.GetType().Name} — {ex.Message}");
+            }
+
+            try
+            {
+                var cached = serviceCacheType
+                    .GetProperty("ServiceProvider", BindingFlags.Public | BindingFlags.Static)
+                    ?.GetValue(null) as IServiceProvider;
+                if (cached == null)
+                {
+                    SsmsDiagnostics.Trace("ServiceCache.ServiceProvider가 null입니다(초기화되지 않은 사본).");
+                    return null;
+                }
+
+                var service = cached.GetService(explorerServiceType);
+                SsmsDiagnostics.Trace(service != null
+                    ? "개체 탐색기 서비스: ServiceCache에서 얻었습니다."
+                    : "ServiceCache도 IObjectExplorerService를 돌려주지 않았습니다.");
+                return service;
+            }
+            catch (Exception ex)
+            {
+                SsmsDiagnostics.Trace($"ServiceCache 조회 실패: {ex.GetType().Name} — {ex.Message}");
+                return null;
+            }
         }
 
         /// <summary>
