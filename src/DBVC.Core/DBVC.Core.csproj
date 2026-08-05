@@ -9,8 +9,25 @@
 
   <ItemGroup>
     <PackageReference Include="LibGit2Sharp" Version="0.32.0" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.2" />
-    <PackageReference Include="Microsoft.SqlServer.SqlManagementObjects" Version="181.25.0" />
+    <!--
+      이 두 버전은 SSMS 21이 배포하는 것에 맞춰 고정한다. 임의로 올리지 말 것.
+
+      SSMS 21.4가 프로세스에 먼저 올리는 것: Microsoft.Data.SqlClient asm 5.0.0.0
+      (파일 5.16, 네이티브 짝은 Microsoft.Data.SqlClient.SNI.x64.dll 5.1.1),
+      Microsoft.SqlServer.Smo asm 17.100.0.0.
+
+      전에는 MDS 7.0.2(asm 7.0.0.0) + SMO 181.25.0(asm 18.100.0.0)을 실었는데, 그러면
+      확장이 SSMS의 것과 다른 어셈블리를 프로세스에 끌어들이게 되고 그 의존성까지 전부
+      직접 실어야 한다. 실제로 System.Diagnostics.DiagnosticSource 10.0.0.3을 요구하는데
+      SSMS는 9.0을 제공하고 SSMS.exe.config가 4.0.0.0-9.0.0.0으로 묶어 두어 대체되지도
+      않았다. VSSDK는 "VS가 제공한다"고 보고 .vsix에서 제외해 버려서, 결과적으로
+      SqlConnection 형식 이니셜라이저가 FileNotFoundException으로 죽었다 —
+      인증 방식과 무관하게 어떤 DB에도 접속되지 않았다.
+
+      SMO 171.30.0은 MDS를 [5.1.4, 6.0.0)으로 요구하므로 두 버전은 함께 움직인다.
+    -->
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.1.5" />
+    <PackageReference Include="Microsoft.SqlServer.SqlManagementObjects" Version="171.30.0" />
     <!--
       DPAPI(ProtectedData)로 SQL 인증 암호를 보호한다. netstandard2.0에서도 컴파일되지만
       런타임 동작은 Windows 전용이다 — DpapiPasswordProtector가 그 경계를 처리한다.

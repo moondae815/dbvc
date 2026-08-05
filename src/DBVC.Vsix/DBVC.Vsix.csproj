@@ -71,6 +71,16 @@
   <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
     <CreateVsixContainer>true</CreateVsixContainer>
     <GeneratePkgDefFile>true</GeneratePkgDefFile>
+    <!--
+      이것이 없으면 GeneratePkgDef가 패키지를 어셈블리 표시 이름으로만 등록한다
+      ("Assembly"="DBVC.Vsix, Version=..."). 그러면 셸이 GAC에서 찾으려 하는데 우리 DLL은
+      확장 폴더에 있으므로 해석에 실패하고, Menus.ctmenu를 읽지 못해 메뉴 명령이 하나도
+      등록되지 않는다. 빌드도 설치도 성공하므로 증상이 "메뉴가 안 보인다"로만 나타난다.
+      실제 기록: ActivityLog.Setup.xml — HrLoadNativeUILibrary failed with 0x800a006f,
+      "파일이나 어셈블리 'DBVC.Vsix, Version=1.0.0.0'... 을(를) 로드할 수 없습니다".
+      true로 두면 "CodeBase"="$PackageFolder$\DBVC.Vsix.dll" 로 등록된다.
+    -->
+    <RegisterWithCodebase>true</RegisterWithCodebase>
     <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>
     <IncludeDebugSymbolsInVSIXContainer>false</IncludeDebugSymbolsInVSIXContainer>
     <CopyBuildOutputToOutputDirectory>true</CopyBuildOutputToOutputDirectory>

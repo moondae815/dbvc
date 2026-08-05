@@ -7,9 +7,17 @@
   <Commands package="guidDbvcPackage">
 
     <Groups>
-      <!-- View > Other Windows 안에 DBVC 명령을 배치한다. -->
+      <!--
+        보기(View) 메뉴 본체에 직접 건다.
+        원래는 IDG_VS_WNDO_OTRWNDWS1(View > Other Windows)에 걸었는데, SSMS 21에서는 그
+        "다른 창" 캐스케이드가 Visible=False다 — 하위 항목(소스 제어 탐색기, 기록 등)이
+        전부 숨겨져 있어 거기에 넣으면 영원히 보이지 않는다. Visual Studio에서만 통하는
+        배치였다.
+        메뉴 본체(IDM_VS_MENU_VIEW)는 SSMS에도 그대로 있고, 개체 탐색기·등록된 서버·
+        템플릿 탐색기 같은 SSMS 도구 창들도 여기에 직접 놓인다.
+      -->
       <Group guid="guidDbvcPackageCmdSet" id="DbvcMenuGroup" priority="0x0600">
-        <Parent guid="guidSHLMainMenu" id="IDG_VS_WNDO_OTRWNDWS1"/>
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_VIEW"/>
       </Group>
 
       <!-- SQL 에디터(코드 창) 컨텍스트 메뉴. Feature 11 -->

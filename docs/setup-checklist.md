@@ -28,6 +28,8 @@ Pull이 거부되고, 폴더가 Git 저장소가 아니면 DBVC가 매핑을 거
 - [ ] 개발 노트북에 **Visual Studio 2022**가 설치되어 있고 **Visual Studio 확장 개발** 워크로드가
       포함되어 있는지 확인한다. `.vsix`를 만들려면 이 워크로드가 필요하다.
 - [ ] 두 기계에 **SSMS 21**이 설치되어 있는지 확인한다.
+- [ ] 두 기계에서 **로컬 관리자 권한**이 있는지 확인한다. `.vsix` 설치가 전체 사용자 설치라
+      UAC 승인이 필요하다 (4단계). 없으면 그 단계에서 막힌다.
 - [ ] 각 기계에서 **어떤 인증으로 SQL Server에 붙을지** 정한다. DBVC는 **Windows 통합 인증과
       SQL Server 인증을 모두** 지원하며, (서버, 데이터베이스)마다 따로 기억한다.
       개발 노트북은 Windows 인증, 폐쇄망 운영 PC는 SQL 인증처럼 섞어 써도 된다.
@@ -162,9 +164,15 @@ clone은 그 문제를 애초에 만들지 않는다.
 ## 4단계 — SSMS에 설치하고 첫 연결 (개발 노트북)
 
 - [ ] **SSMS 21을 완전히 종료한다.**
-- [ ] 1단계에서 만든 `.vsix`를 더블클릭해 설치한다.
-- [ ] SSMS 21을 실행하고 **View(보기) > Other Windows(다른 창) > DBVC View Changes**를 연다.
+- [ ] 1단계에서 만든 `.vsix`를 더블클릭해 설치한다. **UAC 창이 뜨면 "예"를 누른다.**
+      DBVC는 전체 사용자 설치(매니페스트의 `AllUsers="true"`)라 관리자 권한이 필요하다.
+      설치 위치는 `...\SSMS 21\Release\Common7\IDE\Extensions\` 아래다.
+  > 개발 노트북에 **Visual Studio도 설치되어 있다면** 설치 대상이 SSMS 21인지 확인한다.
+  > DBVC는 `Microsoft.VisualStudio.Ssms`만 대상으로 하므로 VS에는 설치되지 않는 것이 정상이다.
+- [ ] SSMS 21을 실행하고 **View(보기) 메뉴 > DBVC View Changes**를 연다. 메뉴 아래쪽에 있다.
       메뉴에 항목이 없으면 설치가 안 된 것이다 — SSMS를 껐다 켜고 다시 확인한다.
+  > "다른 창(Other Windows)" 안이 **아니다.** SSMS에서는 그 하위 메뉴 자체가 숨겨져 있어
+  > 거기에 넣으면 보이지 않는다 (Visual Studio와 다른 점이다).
 
 - [ ] 패널 상단 **Server / Database** 입력란에 대상을 입력한다.
       Server는 SSMS 접속 시 쓰는 것과 같은 값(예: `localhost`, `SQLSRV01\INST1`).
@@ -356,7 +364,9 @@ clone은 그 문제를 애초에 만들지 않는다.
 
 | 증상 | 확인할 것 |
 | --- | --- |
-| 메뉴에 DBVC가 없다 | SSMS를 완전히 종료한 뒤 `.vsix` 재설치. 확장 관리자에서 설치 여부 확인 |
+| 메뉴에 DBVC가 없다 | **보기 메뉴 본체**를 봤는지 ("다른 창" 안이 아니다). SSMS를 완전히 종료한 뒤 `.vsix` 재설치. 확장 관리자에서 설치 여부 확인 |
+| `.vsix` 설치가 "관리 권한이 있어야 합니다"로 끝난다 | 관리자 권한으로 설치해야 한다. UAC 승인 창을 놓쳤는지 확인 |
+| SSMS가 아니라 Visual Studio에 설치됐다 | 두 제품이 다 있을 때 생길 수 있다. VS에서 제거하고, SSMS의 `VSIXInstaller.exe`에 `/instanceIds:<SSMS 인스턴스ID>` 를 주어 설치한다 (`vswhere.exe -all -products *` 로 ID 확인) |
 | "저장소 연결..."이 오류를 낸다 | 고른 폴더에 `.git` 이 있는지. clone된 최상위 폴더인지 |
 | Setup DBVC가 실패한다 | 0단계의 권한 확인. `CREATE TABLE`·`CREATE TRIGGER` 권한 |
 | Connect가 "로그인하지 못했습니다"를 낸다 | 사용자명·암호, 그리고 서버가 혼합 모드인지 (`SERVERPROPERTY('IsIntegratedSecurityOnly')` 가 `0`) |

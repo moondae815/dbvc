@@ -9,8 +9,17 @@
     <Tags>SQL, SSMS, Git, Version Control, Database</Tags>
   </Metadata>
   <Installation InstalledByMsi="false" AllUsers="true">
-    <!-- SSMS 21은 VS 2022(17.x) 셸 기반이고 64비트다. ProductArchitecture는 VS 2022부터 필수다. -->
-    <InstallationTarget Id="Microsoft.VisualStudio.Pro" Version="[17.0, 18.0)">
+    <!--
+      SSMS 21은 VS 2022(17.x) 셸 기반이지만, 확장 대상으로는 자기 자신을
+      Id="Microsoft.VisualStudio.Ssms", 버전 21.4로 광고한다 (셸 버전이 아니라 제품 버전이다).
+      그래서 Microsoft.VisualStudio.Pro [17.0,18.0)으로 잡으면 SSMS에는 설치되지 않고,
+      오히려 17.x 확장 호환 모드를 가진 Visual Studio 2026이 이것을 받아간다.
+      실제 증상: SSMS 대상 설치는 NoApplicableSKUsException, VS 2026에는 원치 않는 설치.
+
+      ProductArchitecture는 VS 2022 이후 대상에 필수다. SSMS 21은 x64 전용이다
+      (SSMS.isolation.ini의 ProductArch=x64).
+    -->
+    <InstallationTarget Id="Microsoft.VisualStudio.Ssms" Version="[21.0, 22.0)">
       <ProductArchitecture>amd64</ProductArchitecture>
     </InstallationTarget>
   </Installation>
@@ -18,7 +27,11 @@
     <Dependency Id="Microsoft.Framework.NDP" DisplayName="Microsoft .NET Framework" Version="[4.8,)" />
   </Dependencies>
   <Prerequisites>
-    <Prerequisite Id="Microsoft.VisualStudio.Component.CoreEditor" Version="[17.0, 18.0)" DisplayName="Visual Studio core editor" />
+    <!--
+      상한을 두지 않는다. SSMS는 셸이 17.x여도 제품 버전이 21.x라 구성 요소 버전을
+      [17.0,18.0)으로 묶으면 전제 조건 검사에서 걸릴 수 있다.
+    -->
+    <Prerequisite Id="Microsoft.VisualStudio.Component.CoreEditor" Version="[17.0,)" DisplayName="Visual Studio core editor" />
   </Prerequisites>
   <Assets>
     <Asset Type="Microsoft.VisualStudio.VsPackage" d:Source="Project" d:ProjectName="%CurrentProject%" Path="|%CurrentProject%;PkgdefProjectOutputGroup|" />

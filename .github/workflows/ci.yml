@@ -106,6 +106,26 @@ jobs:
 #   있었고(vsshellids.h, guidNoSolution), 매니페스트에 ProductArchitecture와 LICENSE가
 #   빠져 있었다. 지금은 모두 수정되어 로컬에서 .vsix가 생성된다.
 #
+# .vsix가 생기고 나서도 SSMS 21에서는 동작하지 않았다. 네 가지가 더 잠복해 있었다.
+# 전부 "빌드 성공 + 설치 성공(exit 0)" 상태에서 조용히 깨져 있던 것들이다.
+#
+#   1. InstallationTarget이 Microsoft.VisualStudio.Pro [17.0,18.0)이었다. SSMS는 확장
+#      대상으로 자기를 Microsoft.VisualStudio.Ssms 21.x로 광고한다. SSMS엔 설치되지 않고
+#      (NoApplicableSKUsException) 17.x 호환 모드를 가진 Visual Studio 2026이 받아갔다.
+#   2. RegisterWithCodebase가 없어 pkgdef가 어셈블리 표시 이름으로만 등록됐다. 셸이 GAC에서
+#      찾다 실패해 Menus.ctmenu를 읽지 못했고, 결과적으로 명령이 하나도 등록되지 않았다.
+#   3. .vsct가 IDG_VS_WNDO_OTRWNDWS1(보기 > 다른 창)을 부모로 잡고 있었다. SSMS에서는 그
+#      캐스케이드가 Visible=False라 무엇을 넣어도 보이지 않는다. IDM_VS_MENU_VIEW로 옮겼다.
+#   4. Microsoft.Data.SqlClient 7.0 / SMO 18.100을 실었는데 SSMS는 5.0 / 17.100을 쓴다.
+#      MDS 7.0이 요구하는 System.Diagnostics.DiagnosticSource 10.0.0.3을 SSMS는 제공하지
+#      않고(9.0 + SSMS.exe.config의 4.0.0.0-9.0.0.0 리디렉션) VSSDK는 "VS가 제공한다"고
+#      보고 .vsix에서 제외해, SqlConnection 형식 이니셜라이저가 죽었다. 인증 방식과 무관하게
+#      어떤 DB에도 접속되지 않았다. 패키지 버전을 SSMS에 맞추는 것으로 해결했다
+#      (DBVC.Core.csproj 주석 참고 — 임의로 올리면 같은 문제가 재발한다).
+#
+#   교훈: 이 목록의 어느 것도 빌드나 설치의 실패로 나타나지 않았다. SSMS에서 실제로 메뉴를
+#   누르고 DB에 붙어 보는 것 외에 이들을 잡아낼 방법은 없었다.
+#
 # 그럼에도 CI에 넣지 않는 이유:
 #   .NET Framework MSBuild가 필요하다(dotnet build로는 VSSDK 타깃이 돌지 않는다).
 #   windows-latest 러너에 "Visual Studio 확장 빌드 도구" 워크로드가 있다는 보장이 없어,
