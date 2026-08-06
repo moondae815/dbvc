@@ -89,42 +89,29 @@ namespace DBVC.Vsix.UI
         }
 
         /// <summary>
-        /// 도구 창이 보여질 때 SSMS 개체 탐색기의 현재 연결을 입력란으로 가져온다.
-        /// 처음 열 때와 다른 탭에서 돌아올 때를 함께 덮는다. 개체 탐색기와 나란히 도킹해 두어
-        /// 이 이벤트가 뜨지 않는 배치는 'SSMS 연결' 버튼이 담당한다.
+        /// 도구 창이 보여질 때 개체 탐색기 선택을 현재 대상과 대조한다.
+        /// 처음 열 때와 다른 탭에서 돌아올 때를 함께 덮는다.
         ///
-        /// 반환값을 무시하는 것은 의도다 — 가져올 연결이 없으면 입력란이 그대로인 것이 정상이다.
+        /// 채울 입력란이 없으므로 여기서 할 수 있는 일은 안내를 맞춰 두는 것뿐이다.
+        /// 접속은 언제나 사용자가 Connect를 눌러야 일어난다.
         /// </summary>
         private void OnIsVisibleChanged(object sender, System.Windows.DependencyPropertyChangedEventArgs e)
         {
             if (e.NewValue is bool visible && visible)
             {
-                _viewModel.TryFillFromSsms();
+                _viewModel.CheckSsmsSelection();
             }
         }
 
         /// <summary>
-        /// 패널에 마우스가 들어오거나 포커스가 올 때 개체 탐색기 선택을 현재 입력란과 대조한다.
+        /// 패널에 마우스가 들어오거나 포커스가 올 때 개체 탐색기 선택을 현재 대상과 대조한다.
         ///
-        /// 입력란을 건드리지 않는다 — 갱신은 '개체 탐색기에서 가져오기' 버튼이 한다. 그래서
-        /// 지나가던 마우스가 사용자가 입력 중이던 값을 덮어쓸 일이 없다.
+        /// 대상을 건드리지 않는다 — 전환은 Connect 버튼이 한다. 그래서
+        /// 지나가던 마우스가 대상을 바꿀 일이 없다.
         /// </summary>
         private void OnPointerOrFocusEntered(object sender, System.Windows.RoutedEventArgs e)
         {
             _viewModel.CheckSsmsSelection();
-        }
-
-        /// <summary>
-        /// PasswordBox.Password는 DependencyProperty가 아니라 바인딩할 수 없다.
-        /// ViewModel은 Connect 직후 이 값을 버리므로, 사용자가 다시 입력하지 않고 Connect를
-        /// 눌러도 "저장된 암호를 그대로 쓴다"로 해석되어 정상 동작한다.
-        /// </summary>
-        private void OnSqlPasswordChanged(object sender, System.Windows.RoutedEventArgs e)
-        {
-            if (sender is PasswordBox box)
-            {
-                _viewModel.Password = box.Password;
-            }
         }
 
         /// <summary>

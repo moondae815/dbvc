@@ -16,69 +16,19 @@
         </Grid.RowDefinitions>
 
         <!--
-            대상 데이터베이스 지정. 인증 입력란이 붙어 좁게 도킹하면 잘리므로
-            아래 Top Area와 같은 이유로 WrapPanel을 쓴다.
+            대상 표시와 유일한 연결 버튼. 연결 정보는 SSMS 개체 탐색기에서만 오므로
+            입력란이 없다.
         -->
         <StackPanel Grid.Row="0">
             <WrapPanel Orientation="Horizontal" Margin="5,5,5,0">
-            <TextBlock Text="Server:" VerticalAlignment="Center" Margin="0,0,4,4"/>
-            <TextBox Text="{Binding ServerName, UpdateSourceTrigger=PropertyChanged}" Width="140" Margin="0,0,10,4"/>
-            <TextBlock Text="Database:" VerticalAlignment="Center" Margin="0,0,4,4"/>
-            <TextBox Text="{Binding DatabaseName, UpdateSourceTrigger=PropertyChanged}" Width="140" Margin="0,0,10,4"/>
-
-            <ComboBox ItemsSource="{Binding AuthModes}"
-                      DisplayMemberPath="Label"
-                      SelectedValuePath="Mode"
-                      SelectedValue="{Binding AuthMode}"
-                      Width="130" Margin="0,0,10,4"
-                      ToolTip="Windows 통합 인증과 SQL Server 인증 중 하나를 고릅니다."/>
-
-            <TextBlock Text="User:" VerticalAlignment="Center" Margin="0,0,4,4"
-                       Visibility="{Binding IsSqlAuth, Converter={StaticResource BoolToVis}}"/>
-            <TextBox Text="{Binding UserName, UpdateSourceTrigger=PropertyChanged}" Width="110" Margin="0,0,10,4"
-                     Visibility="{Binding IsSqlAuth, Converter={StaticResource BoolToVis}}"/>
-
-            <TextBlock Text="Password:" VerticalAlignment="Center" Margin="0,0,4,4"
-                       Visibility="{Binding IsSqlAuth, Converter={StaticResource BoolToVis}}"/>
-            <!--
-                PasswordBox는 Password를 바인딩할 수 없다(DependencyProperty가 아니다).
-                코드 비하인드가 PasswordChanged에서 ViewModel로 밀어 넣는다.
-
-                SSMS에서 가져온 암호를 이 안에 넣지는 않는다 — 넣으면 Password setter를 타서
-                출처 표시가 풀리고 디스크 저장 경로로 새어 나간다. 대신 같은 칸 위에 표시
-                전용 마스킹을 덮어, 비어 있는 칸을 보고 "암호를 다시 입력해야 하나" 헷갈리지
-                않게 한다. IsHitTestVisible=False라 클릭·툴팁은 그대로 PasswordBox가 받고,
-                한 글자라도 입력하면 Password setter가 출처 표시를 내려 마스킹이 사라진다.
-                길이는 실제 암호와 무관한 고정 8자다.
-            -->
-            <Grid Margin="0,0,10,4"
-                  Visibility="{Binding IsSqlAuth, Converter={StaticResource BoolToVis}}">
-                <PasswordBox x:Name="SqlPasswordBox" Width="110"
-                             PasswordChanged="OnSqlPasswordChanged"
-                             ToolTip="비워 두면 이전에 저장한 암호를 그대로 사용합니다."/>
-                <TextBlock Text="••••••••" IsHitTestVisible="False"
-                           Foreground="#606060" VerticalAlignment="Center" Margin="5,0,0,0"
-                           ToolTip="SSMS에서 가져온 암호입니다. 이 기계에 저장되지 않습니다."
-                           Visibility="{Binding HasSsmsPassword, Converter={StaticResource BoolToVis}}"/>
-            </Grid>
-
-            <Button Content="Connect" Command="{Binding ConnectCommand}" Width="80" Margin="0,0,6,4"/>
-            <Button Content="개체 탐색기에서 가져오기" Command="{Binding RefreshFromSsmsCommand}"
-                    Padding="8,0" Margin="0,0,0,4"
-                    ToolTip="SSMS 개체 탐색기에서 선택한 데이터베이스의 연결 정보를 가져옵니다. 가져온 암호는 디스크에 저장되지 않습니다."/>
+                <Button Content="Connect" Command="{Binding ConnectCommand}" Width="80" Margin="0,0,10,4"
+                        ToolTip="SSMS 개체 탐색기에서 선택한 데이터베이스로 접속합니다. 인증 정보는 그 연결에서만 오며 디스크에 저장되지 않습니다."/>
+                <TextBlock Text="{Binding TargetSummary}" VerticalAlignment="Center" Margin="0,0,0,4"/>
             </WrapPanel>
 
             <!--
-                입력란의 값이 어디서 왔는지 알리는 사후 보고. 특히 암호 칸이 비어 있는데
-                암호는 실려 있는 상태를 설명한다.
-            -->
-            <TextBlock Text="{Binding ConnectionSourceMessage}" Foreground="#3A6B35"
-                       TextWrapping="Wrap" Margin="5,0,5,4"
-                       Visibility="{Binding HasConnectionSourceMessage, Converter={StaticResource BoolToVis}}"/>
-
-            <!--
-                행동 안내. 개체 탐색기 선택이 입력란과 달라졌거나, 버튼을 눌러도 가져오지
-                않은 이유가 있을 때 뜬다. 위의 초록 줄과 동시에 참일 수 있으므로 따로 둔다.
+                행동 안내. 개체 탐색기 선택이 지금 대상과 다르거나, 아직 아무것도 고르지
+                않았을 때 뜬다. 입력란이 사라진 뒤로 "무엇을 눌러야 하는가"를 말하는 유일한 곳이다.
             -->
             <TextBlock Text="{Binding SsmsHintMessage}" Foreground="#8A6D1F"
                        TextWrapping="Wrap" Margin="5,0,5,4"
