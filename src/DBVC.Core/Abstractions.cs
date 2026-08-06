@@ -25,6 +25,15 @@ namespace DBVC.Core
         /// <summary>이 플랫폼에서 암호를 안전하게 저장할 수 있는지.</summary>
         bool CanPersistPasswords { get; }
 
+        /// <summary>
+        /// 인증 정보를 보관하는 파일 경로.
+        ///
+        /// 저장이 되었는지 확인하려면 어디를 봐야 하는지 알아야 한다. 저장 실패는 접속을
+        /// 막지 않도록 삼켜지므로(<see cref="Save"/>), 이 경로 없이는 "저장이 실패했다"와
+        /// "저장을 시도조차 하지 않았다"를 구분할 방법이 없다.
+        /// </summary>
+        string FilePath { get; }
+
         SqlCredential? TryGet(string serverName, string databaseName);
         bool Save(string serverName, string databaseName, SqlAuthMode authMode, string? userName, string? plainPassword);
         bool Remove(string serverName, string databaseName);

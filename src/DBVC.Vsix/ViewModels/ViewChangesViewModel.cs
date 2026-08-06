@@ -445,6 +445,12 @@ namespace DBVC.Vsix.ViewModels
             ConnectionSourceMessage = PasswordFromSsms
                 ? "SSMS 개체 탐색기 연결에서 가져왔습니다 (암호 포함). Connect를 누르세요."
                 : "SSMS 개체 탐색기 연결에서 가져왔습니다. Connect를 누르세요.";
+
+            // 채웠다는 기록은 채운 쪽이 남긴다. 어댑터는 읽기만 하고, 그 읽기는 대조 목적으로도
+            // 일어나므로 거기서 "채웠다"고 적으면 로그가 일어나지 않은 일을 보고하게 된다.
+            SsmsDiagnostics.Trace(
+                $"자동 채움: {ServerName}.{DatabaseName} {AuthMode} 인증, " +
+                $"계정={UserName ?? "(없음)"}, 암호 실림={PasswordFromSsms}");
             return true;
         }
 
@@ -495,6 +501,32 @@ namespace DBVC.Vsix.ViewModels
         }
 
         /// <summary>
+        /// Connect가 무엇을 저장하려 했고 파일이 실제로 생겼는지 남긴다.
+        ///
+        /// 저장 실패는 이번 세션의 접속까지 막지 않도록 저장소가 삼킨다. 그 판단은 옳지만,
+        /// 흔적이 없으면 "Connect를 누르지 않았다"와 "저장이 조용히 실패했다"가 화면에서
+        /// 똑같아 보인다 — 둘은 완전히 다른 문제이고 고칠 곳도 다르다.
+        /// </summary>
+        private void TraceSave(string passwordSource, bool fullySaved)
+        {
+            bool fileExists;
+            try
+            {
+                fileExists = System.IO.File.Exists(_credentialStore.FilePath);
+            }
+            catch (Exception ex)
+            {
+                fileExists = false;
+                SsmsDiagnostics.Trace($"인증 파일 확인 실패: {ex.GetType().Name} — {ex.Message}");
+            }
+
+            SsmsDiagnostics.Trace(
+                $"Connect 저장: {ServerName}.{DatabaseName} {AuthMode} 인증, 계정={UserName ?? "(없음)"}, " +
+                $"암호 출처={passwordSource}, 저장 성공={fullySaved}, " +
+                $"파일 존재={fileExists} ({_credentialStore.FilePath})");
+        }
+
+        /// <summary>
         /// 입력된 인증 정보를 저장소에 반영한다. 저장할 수 없으면 배너에 사유를 남기고 false.
         /// </summary>
         private bool PersistCredential()
@@ -512,11 +544,13 @@ namespace DBVC.Vsix.ViewModels
                     // 계정명만 파일에 남고, 암호는 세션 캐시가 이 프로세스 동안만 들고 있는다.
                     _credentialStore.Save(ServerName!, DatabaseName!, AuthMode, UserName, null);
                     _credentialStore.SetSessionPassword(ServerName!, DatabaseName!, _password);
+                    TraceSave("SSMS 암호(세션)", true);
                     return true;
                 }
 
                 bool fullySaved = _credentialStore.Save(
                     ServerName!, DatabaseName!, AuthMode, UserName, _password);
+                TraceSave(_password == null ? "암호 변경 없음" : "입력한 암호", fullySaved);
 
                 if (AuthMode == SqlAuthMode.Sql && !fullySaved)
                 {

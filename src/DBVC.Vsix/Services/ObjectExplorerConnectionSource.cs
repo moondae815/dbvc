@@ -64,7 +64,7 @@ namespace DBVC.Vsix.Services
         /// </summary>
         private static SsmsConnectionInfo? Fail(string reason)
         {
-            SsmsDiagnostics.Trace($"자동 채움 중단: {reason}");
+            SsmsDiagnostics.Trace($"개체 탐색기 연결 읽기 중단: {reason}");
             return null;
         }
 
@@ -75,12 +75,17 @@ namespace DBVC.Vsix.Services
         /// 계정없음 세 경로는 아무 줄도 남기지 않았다. 로그가 "서비스를 얻었습니다"에서 끊기면
         /// 잘 채운 것인지 조용히 죽은 것인지 구분할 방법이 없다 — 그 구분이 이 파일의 존재
         /// 이유이므로, 나가는 문을 하나로 모아 전부 남긴다.
+        ///
+        /// 문구가 "자동 채움"이 아닌 것은 이 타입이 읽기만 하기 때문이다. 호출자는 둘이다 —
+        /// 실제로 입력란을 채우는 쪽과, 선택이 달라졌는지 대조만 하는 쪽(마우스가 지나갈
+        /// 때마다 불린다). 여기서 "자동 채움"이라고 적으면 로그의 대부분이 실제로는 일어나지
+        /// 않은 채움을 보고하게 된다. 채웠다는 기록은 채운 쪽이 남긴다.
         /// </summary>
         private static SsmsConnectionInfo Succeed(SsmsConnectionInfo info)
         {
             SsmsDiagnostics.Trace(info.UnsupportedReason != null
-                ? $"자동 채움 제한: {info.ServerName}.{info.DatabaseName} — {info.UnsupportedReason}"
-                : $"자동 채움: {info.ServerName}.{info.DatabaseName} " +
+                ? $"개체 탐색기 연결 제한: {info.ServerName}.{info.DatabaseName} — {info.UnsupportedReason}"
+                : $"개체 탐색기 연결 읽음: {info.ServerName}.{info.DatabaseName} " +
                   $"{(info.AuthMode == SqlAuthMode.Sql ? "SQL" : "Windows")} 인증, " +
                   $"계정={info.UserName ?? "(없음)"}, 암호 확보={info.Password != null}");
             return info;
@@ -208,6 +213,25 @@ namespace DBVC.Vsix.Services
                 null));
         }
 
+        private static string? _lastProviderReport;
+
+        /// <summary>
+        /// 어느 공급자가 서비스를 줬는지는 <b>바뀔 때만</b> 남긴다.
+        ///
+        /// 이 조회는 도구 창이 보일 때뿐 아니라 마우스가 패널을 지날 때마다 일어난다.
+        /// 매번 적으면 같은 줄이 수십 개 쌓여, 사이에 낀 진짜 사건이 묻힌다.
+        /// <see cref="SsmsDiagnostics"/>의 중복 제거는 <i>연속된</i> 같은 줄만 걸러내는데,
+        /// 여기서는 조회 결과가 사이에 끼어들어 매번 새 줄로 취급된다.
+        ///
+        /// 공급자가 바뀌거나 실패로 돌아서면 그때는 남는다 — 그것이 알고 싶은 사건이다.
+        /// </summary>
+        private static void TraceProvider(string message)
+        {
+            if (string.Equals(_lastProviderReport, message, StringComparison.Ordinal)) return;
+            _lastProviderReport = message;
+            SsmsDiagnostics.Trace(message);
+        }
+
         /// <summary>
         /// 개체 탐색기 서비스를 공급자 후보에서 차례로 찾는다.
         ///
@@ -228,16 +252,16 @@ namespace DBVC.Vsix.Services
                 var service = global?.GetService(explorerServiceType);
                 if (service != null)
                 {
-                    SsmsDiagnostics.Trace("개체 탐색기 서비스: VS 전역 공급자에서 얻었습니다.");
+                    TraceProvider("개체 탐색기 서비스: VS 전역 공급자에서 얻었습니다.");
                     return service;
                 }
-                SsmsDiagnostics.Trace(
+                TraceProvider(
                     $"VS 전역 공급자가 IObjectExplorerService를 돌려주지 않았습니다 " +
                     $"(공급자={(global == null ? "null" : "있음")}).");
             }
             catch (Exception ex)
             {
-                SsmsDiagnostics.Trace($"VS 전역 공급자 조회 실패: {ex.GetType().Name} — {ex.Message}");
+                TraceProvider($"VS 전역 공급자 조회 실패: {ex.GetType().Name} — {ex.Message}");
             }
 
             try
@@ -247,19 +271,19 @@ namespace DBVC.Vsix.Services
                     ?.GetValue(null) as IServiceProvider;
                 if (cached == null)
                 {
-                    SsmsDiagnostics.Trace("ServiceCache.ServiceProvider가 null입니다(초기화되지 않은 사본).");
+                    TraceProvider("ServiceCache.ServiceProvider가 null입니다(초기화되지 않은 사본).");
                     return null;
                 }
 
                 var service = cached.GetService(explorerServiceType);
-                SsmsDiagnostics.Trace(service != null
+                TraceProvider(service != null
                     ? "개체 탐색기 서비스: ServiceCache에서 얻었습니다."
                     : "ServiceCache도 IObjectExplorerService를 돌려주지 않았습니다.");
                 return service;
             }
             catch (Exception ex)
             {
-                SsmsDiagnostics.Trace($"ServiceCache 조회 실패: {ex.GetType().Name} — {ex.Message}");
+                TraceProvider($"ServiceCache 조회 실패: {ex.GetType().Name} — {ex.Message}");
                 return null;
             }
         }
