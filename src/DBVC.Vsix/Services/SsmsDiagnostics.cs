@@ -21,6 +21,16 @@ namespace DBVC.Vsix.Services
         private static readonly object Lock = new object();
         private static string? _lastMessage;
 
+        /// <summary>
+        /// 진단을 파일에 남길지 여부. 기본값은 켬 — 이 로그가 없어서 원인을 못 찾는 상황이
+        /// 이 클래스가 생긴 이유이므로, 꺼지는 쪽이 기본이어서는 안 된다.
+        ///
+        /// 단위 테스트는 자동 채움의 실패 경로를 일부러 실행한다. 그대로 두면 개발 기계의
+        /// 진짜 <see cref="FilePath"/>가 테스트 잡음으로 덮여, 정작 SSMS에서 무슨 일이
+        /// 있었는지 읽을 수 없게 된다. 테스트 어셈블리가 시작할 때 한 번 끈다.
+        /// </summary>
+        public static bool Enabled { get; set; } = true;
+
         public static string FilePath => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "DBVC",
@@ -28,6 +38,11 @@ namespace DBVC.Vsix.Services
 
         public static void Trace(string message)
         {
+            if (!Enabled)
+            {
+                return;
+            }
+
             try
             {
                 lock (Lock)
