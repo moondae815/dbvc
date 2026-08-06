@@ -61,10 +61,16 @@ namespace DBVC.Core.Tests
         [Test]
         public void DeleteIfPresent_SwallowsFailures()
         {
-            // 디렉터리를 경로로 주면 File.Delete가 던진다. 삭제 실패로 플러그인이 뜨지
-            // 않는 것과 옛 파일이 남는 것은 비교할 문제가 아니다.
-            Assert.DoesNotThrow(() => LegacyCredentialFile.DeleteIfPresent(_dir));
-            Assert.That(Directory.Exists(_dir), Is.True);
+            // 파일을 열려 있는 상태에서 삭제하려 하면 IOException이 던져진다.
+            // 삭제 실패로 플러그인이 뜨지 않는 것과 옛 파일이 남는 것은 비교할 문제가 아니다.
+            File.WriteAllText(_file, "[]");
+
+            using (var handle = File.Open(_file, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                Assert.DoesNotThrow(() => LegacyCredentialFile.DeleteIfPresent(_file));
+            }
+
+            Assert.That(File.Exists(_file), Is.True);
         }
 
         [Test]
