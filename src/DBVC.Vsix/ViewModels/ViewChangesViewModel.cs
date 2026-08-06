@@ -61,7 +61,7 @@ namespace DBVC.Vsix.ViewModels
             ISsmsConnectionSource? ssmsConnectionSource = null)
         {
             _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
-            _credentialStore = credentialStore ?? new SqlCredentialStore();
+            _credentialStore = credentialStore ?? new SessionCredentialStore();
             // null이면 자동 채움이 꺼진 것과 같다. 단위 테스트와 비SSMS 환경이 이 경로다.
             _ssmsConnectionSource = ssmsConnectionSource;
             _gitManager = gitManager ?? new GitManager(_configManager);
@@ -273,11 +273,6 @@ namespace DBVC.Vsix.ViewModels
             ConnectionSourceMessage = null;
         }
 
-        /// <summary>
-        /// 이 기계에서 암호를 저장할 수 없으면(비Windows 등) Connect마다 다시 입력해야 한다.
-        /// </summary>
-        public bool CanPersistPasswords => _credentialStore.CanPersistPasswords;
-
         private string? _connectionSourceMessage;
 
         /// <summary>
@@ -473,10 +468,7 @@ namespace DBVC.Vsix.ViewModels
                 return;
             }
 
-            if (!PersistCredential())
-            {
-                return;
-            }
+            PersistCredential();
 
             // 접속부터 확인한다. 실패를 "초기화되지 않음"으로 뭉개면
             // 사용자는 Setup DBVC 버튼만 보고 원인을 알 수 없다.
@@ -501,74 +493,25 @@ namespace DBVC.Vsix.ViewModels
         }
 
         /// <summary>
-        /// Connect가 무엇을 저장하려 했고 파일이 실제로 생겼는지 남긴다.
+        /// 입력·수집된 인증 정보를 저장소에 반영한다.
         ///
-        /// 저장 실패는 이번 세션의 접속까지 막지 않도록 저장소가 삼킨다. 그 판단은 옳지만,
-        /// 흔적이 없으면 "Connect를 누르지 않았다"와 "저장이 조용히 실패했다"가 화면에서
-        /// 똑같아 보인다 — 둘은 완전히 다른 문제이고 고칠 곳도 다르다.
+        /// 반환값이 없어졌다. 디스크 쓰기가 사라지면서 "저장에 실패해 접속할 수 없다"는 상태
+        /// 자체가 없어졌기 때문이다 — 메모리 사전 대입은 실패하지 않는다.
         /// </summary>
-        private void TraceSave(string passwordSource, bool fullySaved)
-        {
-            bool fileExists;
-            try
-            {
-                fileExists = System.IO.File.Exists(_credentialStore.FilePath);
-            }
-            catch (Exception ex)
-            {
-                fileExists = false;
-                SsmsDiagnostics.Trace($"인증 파일 확인 실패: {ex.GetType().Name} — {ex.Message}");
-            }
-
-            SsmsDiagnostics.Trace(
-                $"Connect 저장: {ServerName}.{DatabaseName} {AuthMode} 인증, 계정={UserName ?? "(없음)"}, " +
-                $"암호 출처={passwordSource}, 저장 성공={fullySaved}, " +
-                $"파일 존재={fileExists} ({_credentialStore.FilePath})" +
-                $"{(_credentialStore.LastSaveError == null ? "" : $", 쓰기 실패={_credentialStore.LastSaveError}")}");
-        }
-
-        /// <summary>
-        /// 입력된 인증 정보를 저장소에 반영한다. 저장할 수 없으면 배너에 사유를 남기고 false.
-        /// </summary>
-        private bool PersistCredential()
+        private void PersistCredential()
         {
             try
             {
-                // ServerName/DatabaseName/AuthMode/UserName의 setter가 이미 ForgetSsmsPassword()로
-                // 대상이 바뀌면 플래그를 내린다. AuthMode == Sql 조건은 그 위에 얹는 2차 방어선이다 —
-                // 앞으로 그 setter들 중 하나가 잘못 고쳐져 더 이상 플래그를 내리지 않게 되더라도,
-                // 이 조건이 없으면 Windows 인증으로 표시된 대상에 SQL 암호가 조용히 쓰여 버린다.
-                if (PasswordFromSsms && AuthMode == SqlAuthMode.Sql)
-                {
-                    // SSMS에서 가져온 암호는 디스크에 쓰지 않기로 했다.
-                    // plainPassword: null은 "저장된 암호를 건드리지 않는다"이므로 인증 방식과
-                    // 계정명만 파일에 남고, 암호는 세션 캐시가 이 프로세스 동안만 들고 있는다.
-                    _credentialStore.Save(ServerName!, DatabaseName!, AuthMode, UserName, null);
-                    _credentialStore.SetSessionPassword(ServerName!, DatabaseName!, _password);
-                    TraceSave("SSMS 암호(세션)", true);
-                    return true;
-                }
-
-                bool fullySaved = _credentialStore.Save(
-                    ServerName!, DatabaseName!, AuthMode, UserName, _password);
-                TraceSave(_password == null ? "암호 변경 없음" : "입력한 암호", fullySaved);
-
-                if (AuthMode == SqlAuthMode.Sql && !fullySaved)
-                {
-                    WarningMessage =
-                        "암호를 이 기계에 안전하게 저장하지 못했습니다(DPAPI를 사용할 수 없습니다). " +
-                        "인증 정보가 저장되지 않았으므로 접속할 수 없습니다.";
-                    return false;
-                }
-                return true;
+                _credentialStore.Set(ServerName!, DatabaseName!, AuthMode, UserName, _password);
+                SsmsDiagnostics.Trace(
+                    $"인증 정보 반영: {ServerName}.{DatabaseName} {AuthMode} 인증, " +
+                    $"계정={UserName ?? "(없음)"}, 암호 실림={!string.IsNullOrEmpty(_password)}");
             }
             finally
             {
-                // 평문을 ViewModel에 남기지 않는다. 저장소가 보호된 형태로, 또는 세션 캐시가 들고 있다.
+                // 평문을 ViewModel이 세션 내내 들고 있을 이유가 없다. 저장소가 들고 있다.
                 _password = null;
                 PasswordFromSsms = false;
-                // 접속을 확정했으므로 자동 채움 배너("...암호 포함...")는 더 이상 현재 상태를
-                // 설명하지 않는다. 남겨두면 Connect 이후에도 마치 아직 채워둔 게 있는 것처럼 보인다.
                 ConnectionSourceMessage = null;
             }
         }

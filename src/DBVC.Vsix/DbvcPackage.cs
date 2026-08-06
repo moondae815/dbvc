@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using DBVC.Core;
 using DBVC.Vsix.Commands;
 using DBVC.Vsix.UI;
 using Microsoft.VisualStudio.Shell;
@@ -28,6 +29,11 @@ namespace DBVC.Vsix
         protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
         {
             await base.InitializeAsync(cancellationToken, progress);
+
+            // 자격증명을 디스크에 두지 않기로 했으므로, 예전 버전이 남긴 파일을 지운다.
+            // DbvcServices가 아니라 여기인 이유: 그 클래스는 셸 없이 단위 테스트에서 그대로
+            // 생성되므로, 거기에 두면 테스트를 돌릴 때마다 개발자의 실제 파일이 사라진다.
+            LegacyCredentialFile.DeleteIfPresent();
 
             // 명령 등록은 UI 스레드에서 이루어져야 한다.
             await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);

@@ -17,16 +17,16 @@ namespace DBVC.Core
 
         public SqlConnectionFactory(ISqlCredentialStore? credentialStore = null)
         {
-            _credentialStore = credentialStore ?? new SqlCredentialStore();
+            _credentialStore = credentialStore ?? new SessionCredentialStore();
         }
 
         /// <summary>
-        /// 저장된 인증 정보로 연결 문자열을 만든다.
-        /// 인증 정보가 없으면 Windows 통합 인증으로 간주한다 — SQL 인증이 도입되기 전에
-        /// 매핑해 둔 데이터베이스가 그대로 동작해야 하기 때문이다.
+        /// 보관된 인증 정보로 연결 문자열을 만든다.
+        /// 인증 정보가 없으면 Windows 통합 인증으로 간주한다 — 정상 흐름에서는 Connect가 항상
+        /// 인증 정보를 넣으므로 닿지 않는 갈래이고, 남겨 두는 것은 방어다.
         /// </summary>
         /// <exception cref="SqlCredentialException">
-        /// SQL 인증으로 설정되어 있으나 암호를 확보할 수 없는 경우.
+        /// SQL 인증으로 설정되어 있으나 계정명이나 암호가 없는 경우.
         /// </exception>
         public string Build(string serverName, string databaseName)
         {
@@ -37,18 +37,15 @@ namespace DBVC.Core
                 return BuildWindows(serverName, databaseName);
             }
 
-            var password = _credentialStore.ResolvePassword(credential);
-            if (string.IsNullOrEmpty(credential.UserName) || password == null)
+            if (string.IsNullOrEmpty(credential.UserName) || string.IsNullOrEmpty(credential.Password))
             {
                 throw new SqlCredentialException(
-                    $"'{serverName}.{databaseName}'은(는) SQL 인증으로 설정되어 있으나 저장된 암호를 사용할 수 없습니다. " +
-                    "Connect에서 사용자명과 암호를 다시 입력하세요. " +
-                    "(암호는 저장한 Windows 계정에서만 복호화됩니다 — 다른 계정으로 로그온했다면 다시 입력해야 합니다.) " +
-                    "SSMS 개체 탐색기에서 이 데이터베이스에 접속한 뒤 DBVC 창의 'SSMS 연결' 버튼을 누르면 " +
-                    "그 연결의 인증 정보를 그대로 가져옵니다 — 이 방식으로 가져온 암호는 디스크에 저장되지 않습니다.");
+                    $"'{serverName}.{databaseName}'은(는) SQL 인증으로 설정되어 있으나 암호를 사용할 수 없습니다. " +
+                    "SSMS 개체 탐색기에서 이 데이터베이스에 접속한 뒤 DBVC 창에서 Connect를 누르세요. " +
+                    "(인증 정보는 SSMS를 닫으면 사라지므로 재시작 후에는 다시 눌러야 합니다.)");
             }
 
-            return BuildSql(serverName, databaseName, credential.UserName!, password!);
+            return BuildSql(serverName, databaseName, credential.UserName!, credential.Password!);
         }
 
         /// <summary>Windows 통합 인증 연결 문자열.</summary>

@@ -14,7 +14,7 @@ namespace DBVC.Core
     /// <see cref="LegacyCredentialFile"/>가 따로 맡는다. 여기에 파일 접근을 들이면
     /// "디스크에 아무것도 쓰지 않는다"는 계약을 단위 테스트로 증명할 수 없게 된다.
     /// </summary>
-    public class SessionCredentialStore
+    public class SessionCredentialStore : ISqlCredentialStore
     {
         private readonly ConcurrentDictionary<string, SqlCredential> _credentials =
             new ConcurrentDictionary<string, SqlCredential>(StringComparer.OrdinalIgnoreCase);

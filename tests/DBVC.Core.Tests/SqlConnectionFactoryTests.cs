@@ -1,5 +1,3 @@
-using System;
-using System.IO;
 using DBVC.Core;
 using DBVC.Core.Models;
 using NUnit.Framework;
@@ -9,33 +7,13 @@ namespace DBVC.Core.Tests
     [TestFixture]
     public class SqlConnectionFactoryTests
     {
-        private string _path = null!;
-
-        [SetUp]
-        public void SetUp()
-        {
-            _path = Path.Combine(
-                Path.GetTempPath(),
-                "dbvc_cred_" + Guid.NewGuid().ToString("N"),
-                "credentials.json");
-        }
-
-        [TearDown]
-        public void TearDown()
-        {
-            var dir = Path.GetDirectoryName(_path);
-            if (dir != null && Directory.Exists(dir))
-            {
-                try { Directory.Delete(dir, true); } catch { }
-            }
-        }
-
-        private SqlCredentialStore NewStore() => new SqlCredentialStore(_path, new ReversibleProtector());
+        private static SessionCredentialStore NewStore() => new SessionCredentialStore();
 
         [Test]
         public void Build_UsesWindowsAuth_WhenNoCredentialIsStored()
         {
-            // SQL 인증 도입 전에 매핑해 둔 데이터베이스가 그대로 동작해야 한다.
+            // 정상 흐름에서는 Connect가 항상 Set을 부르므로 이 갈래에 닿지 않는다.
+            // 남겨 두는 것은 방어다 — 통합 인증으로 한 번 시도하는 편이 예외로 죽는 것보다 낫다.
             var connectionString = new SqlConnectionFactory(NewStore()).Build("srv", "db");
 
             Assert.That(connectionString, Does.Contain("Integrated Security=True"));
@@ -47,7 +25,7 @@ namespace DBVC.Core.Tests
         public void Build_UsesWindowsAuth_WhenTheStoredModeIsWindows()
         {
             var store = NewStore();
-            store.Save("srv", "db", SqlAuthMode.Windows, null, null);
+            store.Set("srv", "db", SqlAuthMode.Windows, null, null);
 
             var connectionString = new SqlConnectionFactory(store).Build("srv", "db");
 
@@ -58,7 +36,7 @@ namespace DBVC.Core.Tests
         public void Build_UsesTheStoredUserAndPassword_ForSqlAuth()
         {
             var store = NewStore();
-            store.Save("srv", "db", SqlAuthMode.Sql, "sa", "p@ss");
+            store.Set("srv", "db", SqlAuthMode.Sql, "sa", "p@ss");
 
             var connectionString = new SqlConnectionFactory(store).Build("srv", "db");
 
@@ -68,54 +46,39 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
-        public void Build_Throws_WhenSqlAuthHasNoUsablePassword()
+        public void Build_Throws_WhenSqlAuthHasNoPassword()
         {
             var store = NewStore();
-            store.Save("srv", "db", SqlAuthMode.Sql, "sa", "");
+            store.Set("srv", "db", SqlAuthMode.Sql, "sa", null);
 
             var factory = new SqlConnectionFactory(store);
 
             var ex = Assert.Throws<SqlCredentialException>(() => factory.Build("srv", "db"));
             Assert.That(ex!.Message, Does.Contain("SQL 인증"),
-                "영문 libgit2 스타일 원문 대신 한국어 안내가 나와야 합니다");
+                "영문 원문 대신 한국어 안내가 나와야 합니다");
         }
 
         [Test]
         public void Build_Throws_WhenSqlAuthHasNoUserName()
         {
             var store = NewStore();
-            store.Save("srv", "db", SqlAuthMode.Sql, null, "p@ss");
+            store.Set("srv", "db", SqlAuthMode.Sql, null, "p@ss");
 
-            var factory = new SqlConnectionFactory(store);
-
-            Assert.Throws<SqlCredentialException>(() => factory.Build("srv", "db"));
+            Assert.Throws<SqlCredentialException>(() => new SqlConnectionFactory(store).Build("srv", "db"));
         }
 
         [Test]
-        public void Build_UsesTheSessionPassword_WhenNothingWasPersisted()
+        public void Build_PointsAtObjectExplorer_WhenSqlAuthHasNoPassword()
         {
             var store = NewStore();
-            // SSMS 경로가 만드는 상태: 디스크에는 인증 방식과 계정명만, 암호는 메모리에만.
-            store.Save("srv", "db", SqlAuthMode.Sql, "sa", null);
-            store.SetSessionPassword("srv", "db", "fromSsms");
-
-            var connectionString = new SqlConnectionFactory(store).Build("srv", "db");
-
-            Assert.That(connectionString, Does.Contain("User ID=sa"));
-            Assert.That(connectionString, Does.Contain("fromSsms"));
-            Assert.That(connectionString, Does.Not.Contain("Integrated Security=True"));
-        }
-
-        [Test]
-        public void Build_PointsAtObjectExplorer_WhenSqlAuthHasNoUsablePassword()
-        {
-            var store = NewStore();
-            store.Save("srv", "db", SqlAuthMode.Sql, "sa", "");
+            store.Set("srv", "db", SqlAuthMode.Sql, "sa", null);
 
             var ex = Assert.Throws<SqlCredentialException>(() => new SqlConnectionFactory(store).Build("srv", "db"));
 
             Assert.That(ex!.Message, Does.Contain("개체 탐색기"),
-                "이제 직접 입력 말고도 SSMS 연결을 가져오는 길이 있으므로 안내에 담겨야 합니다");
+                "이제 인증 정보를 얻는 길이 개체 탐색기뿐이므로 안내가 그리로 보내야 합니다");
+            Assert.That(ex.Message, Does.Not.Contain("Windows 계정"),
+                "DPAPI가 사라졌으므로 '저장한 Windows 계정에서만 복호화된다'는 안내는 거짓입니다");
         }
 
         [Test]
