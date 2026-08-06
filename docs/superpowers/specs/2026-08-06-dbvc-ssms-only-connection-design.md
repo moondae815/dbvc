@@ -289,8 +289,10 @@ internal static class LegacyCredentialFile
 * **디렉터리는 건드리지 않는다.** 같은 폴더에 `mappings.json`이 있다.
 * **실패는 삼킨다.** 파일을 지우지 못하는 것과 플러그인이 뜨지 않는 것은 비교할 문제가 아니다.
   `Debug.WriteLine`으로 사유만 남긴다.
-* **호출 지점은 `DbvcServices` 생성자다.** 합성 루트가 일회성 정리의 자리다.
-  멱등이므로 생성자가 여럿이어도 중복 호출이 무해하다.
+* **호출 지점은 `DbvcPackage.InitializeAsync`다.** `DbvcServices`가 아니다 — 그 클래스는 VS 셸
+  없이 단위 테스트에서 그대로 생성되므로, 거기에 두면 테스트를 한 번 돌릴 때마다 개발자의
+  실제 `%APPDATA%\DBVC\credentials.json`이 지워진다. 확장이 실제로 로드될 때만 도는 자리는
+  패키지 초기화뿐이다.
 * 테스트를 위해 경로를 주입받는다. 기본값은 옛 `SqlCredentialStore.DefaultFilePath`와 같은 경로다.
 
 ### 4.5. `SqlConnectionFactory`
@@ -322,8 +324,8 @@ return BuildSql(serverName, databaseName, credential.UserName!, credential.Passw
 
 ### 4.6. `DbvcServices`
 
-`new SqlCredentialStore()` → `new SessionCredentialStore()`, 그리고 생성자에서
-`LegacyCredentialFile.DeleteIfPresent()`를 부른다.
+`new SqlCredentialStore()` → `new SessionCredentialStore()`. 옛 파일 삭제는 여기가 아니라
+`DbvcPackage.InitializeAsync`에서 부른다 (4.4.5).
 
 **저장소를 하나만 공유해야 한다는 기존 제약이 더 엄격해진다.** 지금까지는 인스턴스가 갈려도
 각자 디스크에서 같은 파일을 읽었으므로 최악의 경우 값이 오래된 정도였다. 이제는 갈리는 순간
