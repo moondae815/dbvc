@@ -14,7 +14,9 @@ namespace DBVC.Vsix.Services
     /// SSMS 어셈블리를 컴파일 타임에 참조하지 않는다. 그 어셈블리들은 SSMS 설치 폴더에만 있고
     /// GAC에 없으므로, 참조하면 (a) 빌드가 특정 SSMS 설치에 묶이고 — 이 저장소는 비Windows에서도
     /// 컴파일과 단위 테스트가 돌아간다 — (b) 어셈블리 버전이 고정되어 다음 SSMS에서 로드가 깨진다.
-    /// 리플렉션은 두 문제를 모두 피하고 실패를 "자동 채움이 안 됨"으로 국한한다.
+    /// 리플렉션은 두 문제를 모두 피한다. 다만 실패를 국한하지는 못한다 — 입력란과 저장된
+    /// 자격증명이 없는 지금은 이 읽기가 유일한 연결 경로이므로, 리플렉션이 실패하면
+    /// 일부 기능이 아니라 플러그인 전체가 접속할 수단을 잃는다.
     ///
     /// 판단 로직을 여기에 두지 않는다. SSMS 밖에서 테스트할 수 없기 때문이다 —
     /// URN 파싱은 <see cref="SsmsUrn"/>로, 나머지는 속성 읽기와 얇은 분기로 유지한다.
@@ -35,11 +37,12 @@ namespace DBVC.Vsix.Services
             "Microsoft.SqlServer.Management.UI.VSIntegration.ObjectExplorer.INodeContext";
 
         private const string EntraReason =
-            "SSMS가 Microsoft Entra ID로 접속해 있습니다. DBVC는 토큰 기반 연결을 재사용할 수 없으니 " +
-            "인증 방식과 계정을 직접 지정하세요.";
+            "SSMS가 Microsoft Entra ID로 접속해 있습니다. DBVC는 토큰 기반 연결을 재사용할 수 없습니다. " +
+            "개체 탐색기에서 SQL 인증이나 Windows 인증으로 만든 연결을 선택한 뒤 Connect를 다시 누르세요.";
 
         private const string NoUserNameReason =
-            "SSMS 연결에서 계정 정보를 읽지 못했습니다. 인증 방식과 계정을 직접 지정하세요.";
+            "SSMS 연결에서 계정 정보를 읽지 못했습니다. 개체 탐색기에서 해당 서버에 다시 접속한 뒤 " +
+            "Connect를 다시 누르세요.";
 
         public SsmsConnectionInfo? TryGetCurrent()
         {
@@ -49,9 +52,11 @@ namespace DBVC.Vsix.Services
             }
             catch (Exception ex)
             {
-                // 어느 단계가 깨지든 결과는 "자동 채움 없음"이다. 도구 창은 계속 동작해야 한다.
+                // 어느 단계가 깨지든 이 어댑터는 null을 돌려주고 예외를 삼킨다. 도구 창은
+                // 계속 동작해야 하지만, 유일한 연결 경로가 막혔다는 뜻이므로 사용자는
+                // Connect를 눌러도 접속할 수 없다.
                 Debug.WriteLine($"ObjectExplorerConnectionSource.TryGetCurrent failed: {ex.Message}");
-                SsmsDiagnostics.Trace($"자동 채움 중단: 예외 {ex.GetType().Name} — {ex.Message}");
+                SsmsDiagnostics.Trace($"개체 탐색기 연결 읽기 중단: 예외 {ex.GetType().Name} — {ex.Message}");
                 return null;
             }
         }
@@ -76,10 +81,11 @@ namespace DBVC.Vsix.Services
         /// 잘 채운 것인지 조용히 죽은 것인지 구분할 방법이 없다 — 그 구분이 이 파일의 존재
         /// 이유이므로, 나가는 문을 하나로 모아 전부 남긴다.
         ///
-        /// 문구가 "자동 채움"이 아닌 것은 이 타입이 읽기만 하기 때문이다. 호출자는 둘이다 —
-        /// 실제로 입력란을 채우는 쪽과, 선택이 달라졌는지 대조만 하는 쪽(마우스가 지나갈
-        /// 때마다 불린다). 여기서 "자동 채움"이라고 적으면 로그의 대부분이 실제로는 일어나지
-        /// 않은 채움을 보고하게 된다. 채웠다는 기록은 채운 쪽이 남긴다.
+        /// 문구가 "채택했다"가 아닌 것은 이 타입이 읽기만 하기 때문이다. 호출자는 둘이다 —
+        /// 대상을 실제로 채택하는 <c>Connect()</c>와, 선택이 달라졌는지 대조만 하고 아무것도
+        /// 바꾸지 않는 <c>CheckSsmsSelection()</c>(마우스가 지나갈 때마다 불린다). 여기서
+        /// "채택했다"고 적으면 로그의 대부분이 실제로는 일어나지 않은 채택을 보고하게 된다.
+        /// 채택했다는 기록은 채택한 쪽(<c>Connect()</c>)이 남긴다.
         /// </summary>
         private static SsmsConnectionInfo Succeed(SsmsConnectionInfo info)
         {
@@ -144,7 +150,11 @@ namespace DBVC.Vsix.Services
 
             var urn = nodeContextType.GetProperty("Context")?.GetValue(node) as string;
             var databaseName = SsmsUrn.TryGetDatabaseName(urn);
-            if (string.IsNullOrEmpty(databaseName))
+            // SessionCredentialStore.Set은 공백만 있는 값도 IsNullOrWhiteSpace로 걸러 던진다.
+            // 여기서 IsNullOrEmpty만 쓰면 " " 같은 값이 이 관문은 통과했다가 저장소에서
+            // 예외로 터진다 — RelayCommand.Execute 안이라 잡을 곳이 없다. 두 층이 같은
+            // 판정을 써야 한다.
+            if (string.IsNullOrWhiteSpace(databaseName))
             {
                 return Fail($"URN에서 데이터베이스를 얻지 못했습니다 (Context='{urn}').");
             }
@@ -156,7 +166,9 @@ namespace DBVC.Vsix.Services
             }
 
             var serverName = ReadString(connection, "ServerName");
-            if (string.IsNullOrEmpty(serverName))
+            // 위 databaseName과 같은 이유로 IsNullOrWhiteSpace를 쓴다 — 리플렉션으로 읽은
+            // 값이라 공백만 있는 문자열도 나올 수 있고, 그 값이 그대로 저장소로 가면 예외가 된다.
+            if (string.IsNullOrWhiteSpace(serverName))
             {
                 return Fail($"연결의 ServerName이 비어 있습니다 (연결 타입={connection.GetType().FullName}).");
             }
@@ -198,8 +210,8 @@ namespace DBVC.Vsix.Services
             var userName = ReadString(connection, "UserName");
             if (string.IsNullOrEmpty(userName))
             {
-                // 로그인 계정이 없는 SQL 인증 주장은 저장소가 방금 복원해 둔 사용자 이름을
-                // null로 덮어써 지운다. 자동 채움을 포기하는 편이 낫다.
+                // 계정명 없는 SQL 인증 주장은 접속에 쓸 수 없다. 이 값을 그대로 채택 대신
+                // NoUserNameReason과 함께 미지원으로 돌려보내는 편이 낫다.
                 return Succeed(new SsmsConnectionInfo(
                     serverName!, databaseName!, SqlAuthMode.Sql, null, null, NoUserNameReason));
             }
@@ -295,7 +307,7 @@ namespace DBVC.Vsix.Services
         /// <c>SqlWorkbench.Interfaces</c>(개체 탐색기 인터페이스)는 로드되어 있는데
         /// <c>Microsoft.SqlServer.SqlTools.VSIntegration</c>(<c>ServiceCache</c>)은 그렇지 않았다 —
         /// 도구 창을 열어 볼 때까지 아무도 그 어셈블리를 건드리지 않기 때문이다.
-        /// 그래서 자동 채움이 첫 관문에서 조용히 멈췄다.
+        /// 그래서 연결 읽기가 첫 관문에서 조용히 멈췄다.
         ///
         /// <see cref="Assembly.Load(AssemblyName)"/>은 SSMS.exe의 기준 디렉터리(IDE 폴더)를 뒤지므로
         /// 설치 경로를 하드코딩하지 않아도 된다. 셸 밖(단위 테스트)에서는 그냥 실패해

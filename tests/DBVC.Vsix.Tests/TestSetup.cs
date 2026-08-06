@@ -6,7 +6,7 @@ using DBVC.Vsix.Services;
 public class TestSetup
 {
     /// <summary>
-    /// 테스트는 자동 채움의 실패 경로를 일부러 실행한다. 진단을 켜 둔 채로 두면
+    /// 테스트는 개체 탐색기 연결 읽기의 실패 경로를 일부러 실행한다. 진단을 켜 둔 채로 두면
     /// 개발 기계의 실제 %APPDATA%\DBVC\ssms-diagnostics.log가 테스트 잡음으로 채워져,
     /// SSMS에서 실제로 무슨 일이 있었는지 읽을 수 없게 된다.
     /// </summary>

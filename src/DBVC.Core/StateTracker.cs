@@ -169,7 +169,7 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
         {
             if (string.IsNullOrWhiteSpace(serverName) || string.IsNullOrWhiteSpace(databaseName))
             {
-                return "Server와 Database를 모두 입력하세요.";
+                return "접속 대상(서버·데이터베이스)이 정해지지 않았습니다.";
             }
 
             string connectionString;

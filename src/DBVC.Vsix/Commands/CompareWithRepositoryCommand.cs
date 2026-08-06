@@ -61,7 +61,10 @@ namespace DBVC.Vsix.Commands
             var viewModel = _package.Services.SharedViewChangesViewModel;
             if (!viewModel.TrySelectObject(schema, name))
             {
-                _notifier.ShowError("DBVC", $"'{name}'은(는) 현재 변경 목록에 없습니다. 먼저 Refresh를 실행하세요.");
+                _notifier.ShowError(
+                    "DBVC",
+                    $"'{name}'은(는) 현재 변경 목록에 없습니다. 이번 세션에서 아직 Connect를 누르지 " +
+                    "않았다면 먼저 DBVC 창에서 Connect를 누르세요. 이미 접속했다면 Refresh를 실행하세요.");
                 return;
             }
 

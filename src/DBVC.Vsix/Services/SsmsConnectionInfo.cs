@@ -7,8 +7,9 @@ namespace DBVC.Vsix.Services
     ///
     /// <see cref="ServerName"/>과 <see cref="DatabaseName"/>이 non-null인 것은 계약이다.
     /// 둘 중 하나라도 확정할 수 없으면 <see cref="ISsmsConnectionSource.TryGetCurrent"/>가
-    /// <c>null</c>을 반환한다 — 절반짜리 값으로 입력란을 채우면 사용자가 직접 입력해 둔
-    /// 데이터베이스 이름을 지우게 된다.
+    /// <c>null</c>을 반환한다 — 개체 탐색기 읽기가 유일한 연결 경로인 지금, 절반짜리 값을
+    /// 대상으로 채택해 봤자 DBVC는 데이터베이스 없이 아무 것도 할 수 없고, 잘못 채택하면
+    /// Connect가 엉뚱한 대상을 가리키게 된다.
     /// </summary>
     public sealed class SsmsConnectionInfo
     {
@@ -39,7 +40,12 @@ namespace DBVC.Vsix.Services
         public SqlAuthMode AuthMode { get; }
         public string? UserName { get; }
 
-        /// <summary>SSMS가 암호를 들고 있지 않으면 <c>null</c>. 그 경우 저장된 암호로 폴백한다.</summary>
+        /// <summary>
+        /// SSMS가 암호를 들고 있지 않으면 <c>null</c>. 폴백은 없다 — 디스크에 저장된 암호가
+        /// 없으므로 이 값이 <c>null</c>인 채로 <c>SessionCredentialStore</c>에 실리면,
+        /// 이후 접속 시도에서 <c>SqlConnectionFactory.Build</c>가 <c>SqlCredentialException</c>을
+        /// 던진다.
+        /// </summary>
         public string? Password { get; }
 
         /// <summary>

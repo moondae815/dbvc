@@ -62,7 +62,8 @@ namespace DBVC.Vsix.ViewModels
         {
             _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
             _credentialStore = credentialStore ?? new SessionCredentialStore();
-            // null이면 자동 채움이 꺼진 것과 같다. 단위 테스트와 비SSMS 환경이 이 경로다.
+            // null이면 Connect 자체가 비활성화된다 — 개체 탐색기를 읽을 수단이 없으므로
+            // 접속할 방법이 아예 없다는 뜻이다. 단위 테스트와 비SSMS 환경이 이 경로다.
             _ssmsConnectionSource = ssmsConnectionSource;
             _gitManager = gitManager ?? new GitManager(_configManager);
             _stateTracker = stateTracker ?? new StateTracker(_configManager, _gitManager, _credentialStore);

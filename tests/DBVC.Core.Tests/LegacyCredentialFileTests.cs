@@ -61,16 +61,25 @@ namespace DBVC.Core.Tests
         [Test]
         public void DeleteIfPresent_SwallowsFailures()
         {
-            // 파일을 열려 있는 상태에서 삭제하려 하면 IOException이 던져진다.
+            // FileShare.None으로 여는 방식은 강제 잠금이라, Linux/macOS에서는 권고 잠금이라
+            // File.Delete가 그냥 성공해 이 테스트가 검증하려는 실패 자체가 일어나지 않는다.
+            // File.SetAttributes로 읽기 전용을 걸면 두 플랫폼 모두에서 File.Delete가
+            // UnauthorizedAccessException을 던지므로 이식성 있게 실패를 강제할 수 있다.
             // 삭제 실패로 플러그인이 뜨지 않는 것과 옛 파일이 남는 것은 비교할 문제가 아니다.
             File.WriteAllText(_file, "[]");
+            File.SetAttributes(_file, FileAttributes.ReadOnly);
 
-            using (var handle = File.Open(_file, FileMode.Open, FileAccess.Read, FileShare.None))
+            try
             {
                 Assert.DoesNotThrow(() => LegacyCredentialFile.DeleteIfPresent(_file));
-            }
 
-            Assert.That(File.Exists(_file), Is.True);
+                Assert.That(File.Exists(_file), Is.True);
+            }
+            finally
+            {
+                // 읽기 전용을 풀어야 TearDown의 Directory.Delete가 정리를 끝낼 수 있다.
+                File.SetAttributes(_file, FileAttributes.Normal);
+            }
         }
 
         [Test]

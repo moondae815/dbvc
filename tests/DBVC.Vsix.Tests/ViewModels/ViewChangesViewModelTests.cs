@@ -74,7 +74,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             // 목을 쓰는 이유: 저장소에 무엇이 어떤 인자로 전달됐는지 Moq로 직접 검증하기 위해서다.
             _credentials = new Mock<ISqlCredentialStore>();
 
-            // 기본값: SSMS 연결 없음 = 자동 채움이 아무 일도 하지 않는다.
+            // 기본값: SSMS 연결 없음 = 개체 탐색기에서 읽어 올 대상이 없다.
             _ssms = new Mock<ISsmsConnectionSource>();
             _ssms.Setup(s => s.TryGetCurrent()).Returns((SsmsConnectionInfo?)null);
         }
