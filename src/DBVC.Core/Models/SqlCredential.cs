@@ -32,5 +32,13 @@ namespace DBVC.Core.Models
         /// 이 문자열을 직접 해석하지 않는다.
         /// </summary>
         public string? ProtectedPassword { get; set; }
+
+        /// <summary>
+        /// 평문 암호. 이 프로세스가 사는 동안만 존재하며 디스크에 닿지 않는다.
+        ///
+        /// 값의 출처는 SSMS 개체 탐색기뿐이고, SSMS가 닫히면 함께 사라진다.
+        /// 이 타입을 로그에 통째로 싣지 말 것 — 진단에는 존재 여부만 남긴다.
+        /// </summary>
+        public string? Password { get; set; }
     }
 }
