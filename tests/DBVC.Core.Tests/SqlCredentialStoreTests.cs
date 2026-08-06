@@ -67,6 +67,45 @@ namespace DBVC.Core.Tests
         private SqlCredentialStore NewStore(IPasswordProtector? protector = null)
             => new SqlCredentialStore(_path, protector ?? new ReversibleProtector());
 
+        // ---------- 쓰기 실패의 흔적 ----------
+
+        [Test]
+        public void LastSaveError_IsNull_AfterASuccessfulSave()
+        {
+            var store = NewStore();
+
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", "p@ss");
+
+            Assert.That(store.LastSaveError, Is.Null);
+        }
+
+        [Test]
+        public void LastSaveError_ExplainsWhy_WhenTheFileCannotBeWritten()
+        {
+            // 쓰기 실패는 접속을 막지 않도록 삼켜진다. 삼키기만 하면 호출자에게는 "저장했다"와
+            // 구분되지 않고, 사용자는 파일이 왜 없는지 알 방법이 없다.
+            // 파일이 놓일 자리에 디렉터리를 만들어 두면 WriteAllText가 실패한다.
+            Directory.CreateDirectory(_path);
+            var store = NewStore();
+
+            store.Save("srv", "db", SqlAuthMode.Sql, "sa", "p@ss");
+
+            Assert.That(store.LastSaveError, Is.Not.Null.And.Not.Empty);
+        }
+
+        [Test]
+        public void Save_StillReportsSuccess_WhenOnlyTheDiskWriteFailed()
+        {
+            // 반환값은 "요청대로 암호를 보호했는가"이지 "디스크에 썼는가"가 아니다.
+            // 이 구분이 없으면 TraceSave가 남기는 두 값이 같은 말을 하게 되어,
+            // 쓰기 실패를 암호 보호 실패로 오진하게 된다.
+            Directory.CreateDirectory(_path);
+            var store = NewStore();
+
+            Assert.That(store.Save("srv", "db", SqlAuthMode.Sql, "sa", "p@ss"), Is.True);
+            Assert.That(store.LastSaveError, Is.Not.Null);
+        }
+
         // ---------- 기본 동작 ----------
 
         [Test]

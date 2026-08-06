@@ -523,7 +523,8 @@ namespace DBVC.Vsix.ViewModels
             SsmsDiagnostics.Trace(
                 $"Connect 저장: {ServerName}.{DatabaseName} {AuthMode} 인증, 계정={UserName ?? "(없음)"}, " +
                 $"암호 출처={passwordSource}, 저장 성공={fullySaved}, " +
-                $"파일 존재={fileExists} ({_credentialStore.FilePath})");
+                $"파일 존재={fileExists} ({_credentialStore.FilePath})" +
+                $"{(_credentialStore.LastSaveError == null ? "" : $", 쓰기 실패={_credentialStore.LastSaveError}")}");
         }
 
         /// <summary>

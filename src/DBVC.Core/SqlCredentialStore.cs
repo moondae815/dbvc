@@ -53,6 +53,15 @@ namespace DBVC.Core
 
         public string FilePath => _filePath;
 
+        /// <summary>
+        /// 마지막 디스크 쓰기가 실패했다면 그 사유. 성공했으면 <c>null</c>.
+        ///
+        /// 쓰기 실패를 삼키는 것은 의도다 — 파일에 못 쓴다고 이번 세션의 접속까지 막을
+        /// 이유가 없다. 다만 삼키기만 하면 호출자에게는 "저장했다"와 구분되지 않는다.
+        /// 예외를 던지지 않으면서 사유는 남기려고 여기에 둔다.
+        /// </summary>
+        public string? LastSaveError { get; private set; }
+
         public bool CanPersistPasswords => _protector.IsSupported;
 
         public SqlCredential? TryGet(string serverName, string databaseName)
@@ -242,10 +251,12 @@ namespace DBVC.Core
                     }
                     File.WriteAllText(_filePath, SqlCredentialSerializer.Serialize(_credentials.Values.ToList()));
                 }
+                LastSaveError = null;
             }
             catch (Exception ex)
             {
                 // 저장 실패가 이번 세션의 접속까지 막아서는 안 된다.
+                LastSaveError = $"{ex.GetType().Name}: {ex.Message}";
                 Debug.WriteLine($"SqlCredentialStore.SaveToDisk failed for '{_filePath}': {ex.Message}");
             }
         }

@@ -34,6 +34,12 @@ namespace DBVC.Core
         /// </summary>
         string FilePath { get; }
 
+        /// <summary>
+        /// 마지막 디스크 쓰기가 실패했다면 그 사유. 성공했으면 <c>null</c>.
+        /// 실패는 삼켜지므로(접속을 막지 않기 위해) 사유를 볼 곳이 여기뿐이다.
+        /// </summary>
+        string? LastSaveError { get; }
+
         SqlCredential? TryGet(string serverName, string databaseName);
         bool Save(string serverName, string databaseName, SqlAuthMode authMode, string? userName, string? plainPassword);
         bool Remove(string serverName, string databaseName);
