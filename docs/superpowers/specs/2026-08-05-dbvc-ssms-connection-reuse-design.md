@@ -119,7 +119,17 @@ DBVC는 데이터베이스 없이는 아무 일도 못 한다.
    그렇지 않았다(도구 창을 열 때까지 아무도 그 어셈블리를 건드리지 않는다). 그래서 자동 채움이
    첫 관문에서 조용히 멈췄다 — 진단 로그가 없었다면 원인을 추정할 수밖에 없었을 종류의 실패다.
    `Assembly.Load`는 SSMS.exe의 기준 디렉터리(IDE 폴더)를 뒤지므로 설치 경로를 하드코딩하지 않는다.
-2. `ServiceCache.ServiceProvider` (정적 속성) → `GetService(typeof(IObjectExplorerService))`
+2. `Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider`(컴파일 타임에 이미 참조하는
+   타입) → `GetService(typeof(IObjectExplorerService))`. 실패하면 `ServiceCache.ServiceProvider`로
+   물러선다.
+
+   **`ServiceCache`를 첫 경로로 삼은 처음 설계는 SSMS 21에서 동작하지 않는다.** 1번의
+   `Assembly.Load`로 어셈블리를 얻어도 `ServiceCache.ServiceProvider`는 여전히 `null`이었다 —
+   SSMS 21이 그 어셈블리를 로드하지 않는다는 것은 곧 아무도 `ServiceCache.Init()`을 부르지
+   않았다는 뜻이고, 강제로 로드한 사본은 초기화되지 않은 빈 껍데기다. `ServiceCache`는 이
+   버전에서 사실상 레거시다. VS 전역 공급자는 같은 서비스를 돌려주며, SSMS 21에서 측정으로
+   확인했다(`자동 채움: localhost.Northwind SQL 인증, 암호 확보=True`). 두 경로를 모두
+   남겨 두는 것은 SSMS 20 이하에서도 동작할 여지를 버리지 않기 위해서다.
 3. `GetSelectedNodes`를 `object[] { 0, null }`로 호출하고 out 인자를 회수한다. 노드가 없거나
    **두 개 이상이면 `null`** — 다중 선택에서 어느 것을 뜻하는지 정할 근거가 없다.
 4. 노드가 `INodeContext`를 구현하는지 확인하고 `Connection`(객체)과 `Context`(URN 문자열)를 읽는다.
@@ -324,6 +334,12 @@ public bool TryFillFromSsms()
 `AuthMode`와 `UserName`을 저장소 값으로 덮어쓴다. 그러므로 서버·DB를 **먼저** 넣고 SSMS 값을
 **나중에** 얹어야 한다. 반대로 하면 SSMS에서 가져온 인증 정보가 디스크의 옛 값으로 되돌아간다.
 이 순서를 지키는 테스트를 둔다.
+
+**서버·DB가 바뀌면 활성 컨텍스트도 무효화한다.** `ServerName`·`DatabaseName` setter는
+`InvalidateActiveContext()`를 함께 호출해 `Changes`·`SelectedChange`·`IsMapped`·`IsInitialized`·
+`WarningMessage`를 비운다. 자동 채움이 없던 시절에는 대상이 사용자의 타이핑으로만 바뀌었지만,
+이제는 도구 창을 여는 것만으로 바뀔 수 있다. 그대로 두면 화면에는 A 데이터베이스의 변경 목록이
+남아 있는데 입력란은 B를 가리키게 되고, 커밋이 엉뚱한 대상으로 나간다.
 
 **`ConnectionSourceMessage`(신규, 읽기 전용 바인딩).** PasswordBox는 비어 있는데 암호는 실려 있는
 상태가 되므로, 그 사실을 한 줄로 알린다: `"SSMS 개체 탐색기 연결에서 가져왔습니다 (암호 포함). Connect를 누르세요."`
