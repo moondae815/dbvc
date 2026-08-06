@@ -68,6 +68,24 @@ namespace DBVC.Vsix.Services
             return null;
         }
 
+        /// <summary>
+        /// 무엇을 돌려주는지 남기고 그대로 통과시킨다.
+        ///
+        /// 처음에는 SQL 인증 성공 경로에만 추적을 두었는데, 그 결과 Windows 인증·Entra·
+        /// 계정없음 세 경로는 아무 줄도 남기지 않았다. 로그가 "서비스를 얻었습니다"에서 끊기면
+        /// 잘 채운 것인지 조용히 죽은 것인지 구분할 방법이 없다 — 그 구분이 이 파일의 존재
+        /// 이유이므로, 나가는 문을 하나로 모아 전부 남긴다.
+        /// </summary>
+        private static SsmsConnectionInfo Succeed(SsmsConnectionInfo info)
+        {
+            SsmsDiagnostics.Trace(info.UnsupportedReason != null
+                ? $"자동 채움 제한: {info.ServerName}.{info.DatabaseName} — {info.UnsupportedReason}"
+                : $"자동 채움: {info.ServerName}.{info.DatabaseName} " +
+                  $"{(info.AuthMode == SqlAuthMode.Sql ? "SQL" : "Windows")} 인증, " +
+                  $"계정={info.UserName ?? "(없음)"}, 암호 확보={info.Password != null}");
+            return info;
+        }
+
         private static SsmsConnectionInfo? Read()
         {
             var serviceCacheType = FindType(VsIntegrationAssembly, ServiceCacheTypeName);
@@ -151,8 +169,8 @@ namespace DBVC.Vsix.Services
             // 사용자 이름/암호로 환원할 수 없다 — 다른 속성이 무엇을 말하든 무조건 재사용 불가다.
             if (ReadObject(connection, "AccessToken") != null)
             {
-                return new SsmsConnectionInfo(
-                    serverName!, databaseName!, SqlAuthMode.Windows, null, null, EntraReason);
+                return Succeed(new SsmsConnectionInfo(
+                    serverName!, databaseName!, SqlAuthMode.Windows, null, null, EntraReason));
             }
 
             // Authentication도 파생 타입에만 있다. 없으면 이 단계에서는 Entra가 아니라는 뜻이다.
@@ -160,16 +178,16 @@ namespace DBVC.Vsix.Services
                 ?.GetValue(connection)?.ToString();
             if (authentication != null && authentication.StartsWith("ActiveDirectory", StringComparison.Ordinal))
             {
-                return new SsmsConnectionInfo(
-                    serverName!, databaseName!, SqlAuthMode.Windows, null, null, EntraReason);
+                return Succeed(new SsmsConnectionInfo(
+                    serverName!, databaseName!, SqlAuthMode.Windows, null, null, EntraReason));
             }
 
             // 여기까지 왔다면 두 Entra 표지가 모두 없었다는 뜻이므로, 이제야 UseIntegratedSecurity를
             // 믿고 진짜 Windows 통합 인증으로 판정할 수 있다.
             if (ReadBool(connection, "UseIntegratedSecurity"))
             {
-                return new SsmsConnectionInfo(
-                    serverName!, databaseName!, SqlAuthMode.Windows, null, null, null);
+                return Succeed(new SsmsConnectionInfo(
+                    serverName!, databaseName!, SqlAuthMode.Windows, null, null, null));
             }
 
             var userName = ReadString(connection, "UserName");
@@ -177,21 +195,17 @@ namespace DBVC.Vsix.Services
             {
                 // 로그인 계정이 없는 SQL 인증 주장은 저장소가 방금 복원해 둔 사용자 이름을
                 // null로 덮어써 지운다. 자동 채움을 포기하는 편이 낫다.
-                return new SsmsConnectionInfo(
-                    serverName!, databaseName!, SqlAuthMode.Sql, null, null, NoUserNameReason);
+                return Succeed(new SsmsConnectionInfo(
+                    serverName!, databaseName!, SqlAuthMode.Sql, null, null, NoUserNameReason));
             }
 
-            var password = ReadPassword(connection);
-            SsmsDiagnostics.Trace(
-                $"자동 채움: {serverName}.{databaseName} SQL 인증, 계정={userName}, 암호 확보={password != null}");
-
-            return new SsmsConnectionInfo(
+            return Succeed(new SsmsConnectionInfo(
                 serverName!,
                 databaseName!,
                 SqlAuthMode.Sql,
                 userName,
-                password,
-                null);
+                ReadPassword(connection),
+                null));
         }
 
         /// <summary>

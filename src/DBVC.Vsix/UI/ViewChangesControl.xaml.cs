@@ -43,6 +43,12 @@ namespace DBVC.Vsix.UI
             // 호출 비용도 낮으므로 컨트롤 수명 내내 살려 둔다.
             IsVisibleChanged += OnIsVisibleChanged;
 
+            // 도구 창이 계속 보이는 채로 개체 탐색기 선택만 바뀌면 위 이벤트는 뜨지 않는다.
+            // 사용자가 이 패널로 시선을 옮기는 순간에 확인해, 선택이 달라졌으면 알린다.
+            // 위와 같은 이유로 Unloaded에서 해제하지 않는다.
+            MouseEnter += OnPointerOrFocusEntered;
+            GotKeyboardFocus += OnPointerOrFocusEntered;
+
             // 위 구독들은 Unloaded에서 해제되므로 다시 붙을 때 되살려야 한다.
             Loaded += OnLoaded;
             Unloaded += OnUnloaded;
@@ -95,6 +101,17 @@ namespace DBVC.Vsix.UI
             {
                 _viewModel.TryFillFromSsms();
             }
+        }
+
+        /// <summary>
+        /// 패널에 마우스가 들어오거나 포커스가 올 때 개체 탐색기 선택을 현재 입력란과 대조한다.
+        ///
+        /// 입력란을 건드리지 않는다 — 갱신은 '개체 탐색기에서 가져오기' 버튼이 한다. 그래서
+        /// 지나가던 마우스가 사용자가 입력 중이던 값을 덮어쓸 일이 없다.
+        /// </summary>
+        private void OnPointerOrFocusEntered(object sender, System.Windows.RoutedEventArgs e)
+        {
+            _viewModel.CheckSsmsSelection();
         }
 
         /// <summary>

@@ -141,6 +141,10 @@ namespace DBVC.Vsix.ViewModels
             IsMapped = false;
             IsInitialized = false;
             WarningMessage = null;
+            // 대상이 바뀌면 "개체 탐색기 선택이 다릅니다"의 판정 근거가 사라진다. 남겨 두면
+            // 사용자가 직접 서버를 개체 탐색기와 같게 고쳐도 배너가 계속 다르다고 우긴다.
+            // 여전히 다르다면 다음 CheckSsmsSelection()에서 다시 뜬다.
+            SsmsHintMessage = null;
         }
 
         // ---------- 인증 ----------
@@ -217,12 +221,38 @@ namespace DBVC.Vsix.ViewModels
             set
             {
                 _password = value;
-                _passwordFromSsms = false;
+                PasswordFromSsms = false;
             }
         }
 
-        /// <summary>현재 들고 있는 암호가 SSMS에서 온 것인지. 참이면 디스크에 저장하지 않는다.</summary>
         private bool _passwordFromSsms;
+
+        /// <summary>
+        /// 현재 들고 있는 암호가 SSMS에서 온 것인지. 참이면 디스크에 저장하지 않는다.
+        ///
+        /// 필드가 아니라 속성인 이유는 UI가 이 상태를 봐야 하기 때문이다
+        /// (<see cref="HasSsmsPassword"/>). 대입 지점이 네 곳으로 흩어져 있어, 각 지점에서
+        /// 알림을 따로 올리게 두면 언젠가 하나가 빠진다.
+        /// </summary>
+        private bool PasswordFromSsms
+        {
+            get => _passwordFromSsms;
+            set
+            {
+                if (_passwordFromSsms == value) return;
+                _passwordFromSsms = value;
+                OnPropertyChanged(nameof(HasSsmsPassword));
+            }
+        }
+
+        /// <summary>
+        /// 암호 칸은 비어 있는데 SSMS에서 가져온 암호가 실려 있는 상태인지.
+        ///
+        /// UI는 이 값이 참일 때 암호 칸 위에 표시 전용 마스킹을 덮는다. 실제 문자를
+        /// PasswordBox에 넣지 않는 것은 <see cref="Password"/> setter를 타는 순간 출처 표시가
+        /// 풀려 그 암호가 디스크로 새어 나가기 때문이다 — 이번 기능의 핵심 계약과 정반대다.
+        /// </summary>
+        public bool HasSsmsPassword => _passwordFromSsms;
 
         /// <summary>
         /// SSMS에서 가져온 암호를 버린다.
@@ -236,10 +266,10 @@ namespace DBVC.Vsix.ViewModels
         /// </summary>
         private void ForgetSsmsPassword()
         {
-            if (!_passwordFromSsms) return;
+            if (!PasswordFromSsms) return;
 
             _password = null;
-            _passwordFromSsms = false;
+            PasswordFromSsms = false;
             ConnectionSourceMessage = null;
         }
 
@@ -270,6 +300,73 @@ namespace DBVC.Vsix.ViewModels
         }
 
         public bool HasConnectionSourceMessage => !string.IsNullOrEmpty(ConnectionSourceMessage);
+
+        private string? _ssmsHintMessage;
+
+        /// <summary>
+        /// 개체 탐색기와 관련해 사용자가 지금 알아야 할 한 줄. 없으면 <c>null</c>이고 UI에서 숨는다.
+        ///
+        /// <see cref="ConnectionSourceMessage"/>와 나눠 둔 이유가 있다. 그쪽은 "지금 입력란에 있는
+        /// 값이 어디서 왔는가"를 말하는 사후 보고이고, 이쪽은 "무언가 하려면 무엇을 눌러야
+        /// 하는가"를 말하는 행동 안내다. 두 문장은 동시에 참일 수 있다 — SSMS에서 가져온 값을
+        /// 들고 있는 채로 개체 탐색기 선택만 다른 곳으로 옮겨 간 상태가 그렇다.
+        /// </summary>
+        public string? SsmsHintMessage
+        {
+            get => _ssmsHintMessage;
+            private set
+            {
+                if (_ssmsHintMessage == value) return;
+                _ssmsHintMessage = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasSsmsHintMessage));
+            }
+        }
+
+        public bool HasSsmsHintMessage => !string.IsNullOrEmpty(SsmsHintMessage);
+
+        /// <summary>
+        /// 이 세션에서 자동 채움이 한 번이라도 성공했는지.
+        ///
+        /// <see cref="CheckSsmsSelection"/>의 전제다. 개체 탐색기를 쓰지 않고 직접 입력만 하는
+        /// 사용자에게는 "선택이 다릅니다"가 참이면서도 아무 의미가 없다 — 패널을 볼 때마다
+        /// 뜨는 배너는 읽히지 않고 진짜 경고까지 같이 묻히게 만든다.
+        /// </summary>
+        private bool _ssmsFillEverSucceeded;
+
+        /// <summary>
+        /// 개체 탐색기의 현재 선택이 입력란과 다른지 확인하고, 다르면 안내를 띄운다.
+        /// <b>입력란을 건드리지 않는다</b> — 갱신은 사용자가 버튼을 눌러야 일어난다.
+        ///
+        /// 개체 탐색기의 선택 변경 이벤트를 구독하는 대신, 사용자가 이 패널로 시선을 옮기는
+        /// 순간(마우스 진입·포커스)에만 확인한다. 배경 비용이 없고, 안내가 필요한 바로 그
+        /// 시점에만 뜬다.
+        /// </summary>
+        public void CheckSsmsSelection()
+        {
+            if (!_ssmsFillEverSucceeded || _ssmsConnectionSource == null)
+            {
+                return;
+            }
+
+            var info = _ssmsConnectionSource.TryGetCurrent();
+            if (info == null)
+            {
+                // 고를 수 없는 선택(선택 없음·다중 선택·서버 노드)은 "달라졌다"고 말할 근거가
+                // 아니다. 개체 탐색기에서 잠깐 다른 것을 클릭했다고 배너가 뜨면 안 된다.
+                SsmsHintMessage = null;
+                return;
+            }
+
+            bool sameTarget =
+                string.Equals(info.ServerName, ServerName, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(info.DatabaseName, DatabaseName, StringComparison.OrdinalIgnoreCase);
+
+            SsmsHintMessage = sameTarget
+                ? null
+                : $"개체 탐색기 선택이 다릅니다 — {info.ServerName}.{info.DatabaseName}. " +
+                  "[개체 탐색기에서 가져오기]를 누르면 이 값으로 갱신됩니다.";
+        }
 
         /// <summary>
         /// 대상이 정해지면 저장된 인증 정보를 입력란에 되살린다.
@@ -306,10 +403,13 @@ namespace DBVC.Vsix.ViewModels
 
             // 사용자가 입력 중인 암호를 지우지 않는다. 도구 창이 다시 보일 때마다 이 메서드가
             // 불리므로(가시성 트리거), 가드가 없으면 타이핑 중이던 값이 사라진다.
-            if (!_passwordFromSsms && !string.IsNullOrEmpty(_password))
+            if (!PasswordFromSsms && !string.IsNullOrEmpty(_password))
             {
-                // 버튼을 눌러도 아무 일이 없는 것처럼 보이는 경우가 여기다.
+                // 버튼을 눌러도 아무 일이 없는 것처럼 보이는 경우가 여기다. 사용자에게는
+                // 버튼이 고장 난 것과 구분되지 않으므로, 진단만 남기지 말고 화면에도 알린다.
                 SsmsDiagnostics.Trace("자동 채움 건너뜀: 사용자가 입력한 암호가 남아 있습니다.");
+                SsmsHintMessage =
+                    "암호 칸에 입력한 값이 있어 가져오지 않았습니다. 암호 칸을 비우고 다시 누르세요.";
                 return false;
             }
 
@@ -317,6 +417,11 @@ namespace DBVC.Vsix.ViewModels
             // AuthMode·UserName을 저장소 값으로 되돌리므로, SSMS 값은 반드시 그 뒤에 얹는다.
             ServerName = info.ServerName;
             DatabaseName = info.DatabaseName;
+
+            // 입력란이 개체 탐색기와 같아졌으므로 "선택이 다릅니다"는 더 이상 참이 아니다.
+            // 여기서 내리지 않으면 방금 누른 버튼이 배너를 남긴 것처럼 보인다.
+            _ssmsFillEverSucceeded = true;
+            SsmsHintMessage = null;
 
             if (info.UnsupportedReason != null)
             {
@@ -335,9 +440,9 @@ namespace DBVC.Vsix.ViewModels
             AuthMode = info.AuthMode;
             UserName = info.UserName;
             _password = info.Password;
-            _passwordFromSsms = info.Password != null;
+            PasswordFromSsms = info.Password != null;
 
-            ConnectionSourceMessage = _passwordFromSsms
+            ConnectionSourceMessage = PasswordFromSsms
                 ? "SSMS 개체 탐색기 연결에서 가져왔습니다 (암호 포함). Connect를 누르세요."
                 : "SSMS 개체 탐색기 연결에서 가져왔습니다. Connect를 누르세요.";
             return true;
@@ -400,7 +505,7 @@ namespace DBVC.Vsix.ViewModels
                 // 대상이 바뀌면 플래그를 내린다. AuthMode == Sql 조건은 그 위에 얹는 2차 방어선이다 —
                 // 앞으로 그 setter들 중 하나가 잘못 고쳐져 더 이상 플래그를 내리지 않게 되더라도,
                 // 이 조건이 없으면 Windows 인증으로 표시된 대상에 SQL 암호가 조용히 쓰여 버린다.
-                if (_passwordFromSsms && AuthMode == SqlAuthMode.Sql)
+                if (PasswordFromSsms && AuthMode == SqlAuthMode.Sql)
                 {
                     // SSMS에서 가져온 암호는 디스크에 쓰지 않기로 했다.
                     // plainPassword: null은 "저장된 암호를 건드리지 않는다"이므로 인증 방식과
@@ -426,7 +531,7 @@ namespace DBVC.Vsix.ViewModels
             {
                 // 평문을 ViewModel에 남기지 않는다. 저장소가 보호된 형태로, 또는 세션 캐시가 들고 있다.
                 _password = null;
-                _passwordFromSsms = false;
+                PasswordFromSsms = false;
                 // 접속을 확정했으므로 자동 채움 배너("...암호 포함...")는 더 이상 현재 상태를
                 // 설명하지 않는다. 남겨두면 Connect 이후에도 마치 아직 채워둔 게 있는 것처럼 보인다.
                 ConnectionSourceMessage = null;

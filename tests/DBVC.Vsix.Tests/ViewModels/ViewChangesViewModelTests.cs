@@ -1495,6 +1495,168 @@ namespace DBVC.Vsix.Tests.ViewModels
                 "계정을 바꿨는데 이전 계정에서 가져온 암호가 새 계정으로 전송되면 안 됩니다");
         }
 
+        // ---------- 암호 출처 표시 ----------
+
+        [Test]
+        public void HasSsmsPassword_IsTrue_WhileTheSsmsPasswordIsHeld()
+        {
+            // 암호 칸은 비어 있는데 암호는 실려 있는 상태. UI가 이 값을 보고 마스킹을 덮는다.
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+
+            vm.TryFillFromSsms();
+
+            Assert.That(vm.HasSsmsPassword, Is.True);
+        }
+
+        [Test]
+        public void HasSsmsPassword_IsFalse_WhenTheSsmsConnectionHadNoPassword()
+        {
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection(password: null));
+            var vm = NewViewModel();
+
+            vm.TryFillFromSsms();
+
+            Assert.That(vm.HasSsmsPassword, Is.False,
+                "가져온 암호가 없는데 마스킹을 덮으면 있지도 않은 암호가 실린 것처럼 보입니다");
+        }
+
+        [Test]
+        public void HasSsmsPassword_GoesFalseAndNotifies_WhenTheUserTypesAPassword()
+        {
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+            vm.TryFillFromSsms();
+            var changed = new List<string?>();
+            vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+            vm.Password = "typed";
+
+            Assert.That(vm.HasSsmsPassword, Is.False);
+            Assert.That(changed, Does.Contain(nameof(ViewChangesViewModel.HasSsmsPassword)),
+                "알림이 없으면 사용자가 입력을 시작해도 마스킹이 화면에 남습니다");
+        }
+
+        [Test]
+        public void HasSsmsPassword_IsFalse_AfterConnect()
+        {
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+            vm.TryFillFromSsms();
+
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.HasSsmsPassword, Is.False,
+                "Connect가 평문을 넘긴 뒤에도 마스킹이 남으면 아직 들고 있는 것처럼 보입니다");
+        }
+
+        // ---------- 개체 탐색기 선택 불일치 안내 ----------
+
+        [Test]
+        public void CheckSsmsSelection_SaysNothing_BeforeAnyFillHasSucceeded()
+        {
+            // 개체 탐색기를 쓰지 않고 직접 입력만 하는 사용자에게는 이 안내가 소음이다.
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+            vm.ServerName = "TypedServer";
+            vm.DatabaseName = "TypedDb";
+
+            vm.CheckSsmsSelection();
+
+            Assert.That(vm.SsmsHintMessage, Is.Null);
+        }
+
+        [Test]
+        public void CheckSsmsSelection_PointsAtTheNewTarget_WhenTheSelectionMoved()
+        {
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+            vm.TryFillFromSsms();
+
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(
+                new SsmsConnectionInfo("OtherServer", "OtherDb", SqlAuthMode.Sql, "sa", "p", null));
+            vm.CheckSsmsSelection();
+
+            Assert.That(vm.HasSsmsHintMessage, Is.True);
+            Assert.That(vm.SsmsHintMessage, Does.Contain("OtherServer.OtherDb"));
+        }
+
+        [Test]
+        public void CheckSsmsSelection_DoesNotTouchTheFields()
+        {
+            // 확인은 확인일 뿐이다. 마우스가 지나갔다고 입력란이 바뀌면 사용자가 입력하던
+            // 값이 사라진다 — 버튼을 유지하기로 한 결정의 전부가 이것이다.
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+            vm.TryFillFromSsms();
+
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(
+                new SsmsConnectionInfo("OtherServer", "OtherDb", SqlAuthMode.Sql, "sa", "p", null));
+            vm.CheckSsmsSelection();
+
+            Assert.That(vm.ServerName, Is.EqualTo(Server));
+            Assert.That(vm.DatabaseName, Is.EqualTo(Database));
+        }
+
+        [Test]
+        public void CheckSsmsSelection_SaysNothing_WhenTheSelectionStillMatches()
+        {
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+            vm.TryFillFromSsms();
+
+            vm.CheckSsmsSelection();
+
+            Assert.That(vm.SsmsHintMessage, Is.Null);
+        }
+
+        [Test]
+        public void CheckSsmsSelection_SaysNothing_WhenTheSelectionIsNotUsable()
+        {
+            // 서버 노드·다중 선택·선택 없음은 "달라졌다"고 말할 근거가 아니다.
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+            vm.TryFillFromSsms();
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(
+                new SsmsConnectionInfo("OtherServer", "OtherDb", SqlAuthMode.Sql, "sa", "p", null));
+            vm.CheckSsmsSelection();
+
+            _ssms.Setup(s => s.TryGetCurrent()).Returns((SsmsConnectionInfo?)null);
+            vm.CheckSsmsSelection();
+
+            Assert.That(vm.SsmsHintMessage, Is.Null);
+        }
+
+        [Test]
+        public void TryFillFromSsms_ClearsTheHint_WhenItActuallyFills()
+        {
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+            vm.TryFillFromSsms();
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(
+                new SsmsConnectionInfo("OtherServer", "OtherDb", SqlAuthMode.Sql, "sa", "p", null));
+            vm.CheckSsmsSelection();
+            Assert.That(vm.HasSsmsHintMessage, Is.True, "전제: 배너가 떠 있어야 합니다");
+
+            vm.TryFillFromSsms();
+
+            Assert.That(vm.SsmsHintMessage, Is.Null,
+                "방금 누른 버튼이 배너를 남기면 눌러도 소용없는 것처럼 보입니다");
+        }
+
+        [Test]
+        public void TryFillFromSsms_ExplainsWhy_WhenATypedPasswordBlocksIt()
+        {
+            // 진단 로그에만 남기면 사용자에게는 버튼이 고장 난 것과 구분되지 않는다.
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
+            var vm = NewViewModel();
+            vm.Password = "typing";
+
+            Assert.That(vm.TryFillFromSsms(), Is.False);
+
+            Assert.That(vm.SsmsHintMessage, Does.Contain("암호 칸"));
+        }
+
         private sealed class RecordingSaveDialog : IFileSaveDialog
         {
             public string? PathToReturn { get; set; }
