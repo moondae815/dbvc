@@ -71,13 +71,10 @@ namespace DBVC.Vsix.Tests.ViewModels
             _git.Setup(g => g.GetHistory(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
                 .Returns(new List<CommitInfo>());
 
-            // 실제 SqlCredentialStore를 쓰면 테스트가 %APPDATA%에 파일을 남긴다.
+            // 목을 쓰는 이유: 저장소에 무엇이 어떤 인자로 전달됐는지 Moq로 직접 검증하기 위해서다.
             _credentials = new Mock<ISqlCredentialStore>();
-            _credentials.Setup(c => c.CanPersistPasswords).Returns(true);
-            _credentials.Setup(c => c.Save(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SqlAuthMode>(),
-                It.IsAny<string>(), It.IsAny<string>())).Returns(true);
 
-            // 기본값: SSMS 연결 없음 = 자동 채움이 아무 일도 하지 않는다.
+            // 기본값: SSMS 연결 없음 = 개체 탐색기에서 읽어 올 대상이 없다.
             _ssms = new Mock<ISsmsConnectionSource>();
             _ssms.Setup(s => s.TryGetCurrent()).Returns((SsmsConnectionInfo?)null);
         }
@@ -89,12 +86,26 @@ namespace DBVC.Vsix.Tests.ViewModels
                 _cleaner.Object, _folderDialog, _credentials.Object, _ssms.Object);
         }
 
+        /// <summary>
+        /// 개체 탐색기가 Server/Database를 내주는 상태로 만들고 Connect를 누른다.
+        /// 실제 앱에 남은 유일한 접속 경로다.
+        /// </summary>
         private ViewChangesViewModel NewConnectedViewModel()
         {
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info());
             var vm = NewViewModel();
-            vm.SetContext(Server, Database);
+            vm.ConnectCommand.Execute(null);
             return vm;
         }
+
+        private static SsmsConnectionInfo Info(
+            string server = Server,
+            string database = Database,
+            SqlAuthMode authMode = SqlAuthMode.Windows,
+            string? userName = null,
+            string? password = null,
+            string? unsupportedReason = null)
+            => new SsmsConnectionInfo(server, database, authMode, userName, password, unsupportedReason);
 
         private static ChangeRecord Record(string schema, string name, string state, string path)
             => new ChangeRecord
@@ -184,56 +195,141 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.WarningMessage, Is.Null.Or.Empty);
         }
 
-        // ---------- 인증 ----------
+        // ---------- 연결 ----------
 
         [Test]
-        public void AuthMode_DefaultsToWindows()
+        public void TargetSummary_SaysNotConnected_BeforeAnyConnect()
         {
-            var vm = NewViewModel();
+            Assert.That(NewViewModel().TargetSummary, Is.EqualTo("(접속되지 않음)"));
+        }
 
+        [Test]
+        public void TargetSummary_ShowsTheWindowsAuthTarget()
+        {
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.TargetSummary, Is.EqualTo($"{Server}.{Database} — Windows 인증"));
+        }
+
+        [Test]
+        public void TargetSummary_ShowsTheSqlAuthAccount()
+        {
+            _ssms.Setup(s => s.TryGetCurrent())
+                .Returns(Info(authMode: SqlAuthMode.Sql, userName: "sa", password: "p@ss"));
+
+            var vm = NewViewModel();
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.TargetSummary, Is.EqualTo($"{Server}.{Database} — SQL 인증 (sa)"));
+        }
+
+        [Test]
+        public void ConnectCommand_AdoptsTheObjectExplorerTarget()
+        {
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.ServerName, Is.EqualTo(Server));
+            Assert.That(vm.DatabaseName, Is.EqualTo(Database));
+            Assert.That(vm.IsMapped, Is.True);
+            _stateTracker.Verify(s => s.IsInitialized(Server, Database), Times.Once);
+        }
+
+        [Test]
+        public void ConnectCommand_StoresTheCredentialFromObjectExplorer()
+        {
+            _ssms.Setup(s => s.TryGetCurrent())
+                .Returns(Info(authMode: SqlAuthMode.Sql, userName: "sa", password: "p@ss"));
+
+            NewViewModel().ConnectCommand.Execute(null);
+
+            _credentials.Verify(c => c.Set(Server, Database, SqlAuthMode.Sql, "sa", "p@ss"), Times.Once);
+        }
+
+        [Test]
+        public void ConnectCommand_ReplacesTheStoredCredential_WhenTheTargetMoves()
+        {
+            // 한 대상에서 모은 인증 정보가 다른 대상으로 흘러가면 안 된다.
+            // 예전에는 네 setter가 각각 ForgetSsmsPassword()로 막았고, 이제는 SetTarget이
+            // 네 값을 통째로 갈아 끼우는 것으로 같은 보장을 한다.
+            _ssms.Setup(s => s.TryGetCurrent())
+                .Returns(Info(authMode: SqlAuthMode.Sql, userName: "sa", password: "p@ss"));
+            var vm = NewViewModel();
+            vm.ConnectCommand.Execute(null);
+
+            _ssms.Setup(s => s.TryGetCurrent())
+                .Returns(Info(server: "OtherServer", database: "OtherDB"));
+            vm.ConnectCommand.Execute(null);
+
+            _credentials.Verify(c => c.Set("OtherServer", "OtherDB", SqlAuthMode.Windows, null, null), Times.Once);
+            _credentials.Verify(
+                c => c.Set("OtherServer", "OtherDB", SqlAuthMode.Sql, It.IsAny<string>(), It.IsAny<string>()),
+                Times.Never,
+                "이전 대상의 SQL 인증 정보가 새 대상으로 따라가면 안 됩니다");
             Assert.That(vm.AuthMode, Is.EqualTo(SqlAuthMode.Windows));
-            Assert.That(vm.IsSqlAuth, Is.False, "Windows 인증에서는 사용자명·암호 칸이 보이면 안 됩니다");
+            Assert.That(vm.UserName, Is.Null);
         }
 
         [Test]
-        public void IsSqlAuth_BecomesTrue_WhenSqlAuthIsSelected()
+        public void ConnectCommand_CanExecute_OnlyWhenAConnectionSourceIsWired()
         {
+            Assert.That(NewViewModel().ConnectCommand.CanExecute(null), Is.True);
+
+            var withoutSource = new ViewChangesViewModel(
+                _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
+                _cleaner.Object, _folderDialog, _credentials.Object, null);
+
+            Assert.That(withoutSource.ConnectCommand.CanExecute(null), Is.False,
+                "개체 탐색기를 읽을 수 없으면 누를 수 있는 것이 아무것도 없습니다");
+        }
+
+        [Test]
+        public void ConnectCommand_ExplainsWhatToSelect_WhenTheSelectionCannotBeRead()
+        {
+            // 기본값: _ssms가 null을 돌려준다
             var vm = NewViewModel();
 
-            vm.AuthMode = SqlAuthMode.Sql;
+            vm.ConnectCommand.Execute(null);
 
-            Assert.That(vm.IsSqlAuth, Is.True);
+            Assert.That(vm.WarningMessage, Does.Contain("개체 탐색기"));
+            Assert.That(vm.ServerName, Is.Null);
+            _stateTracker.Verify(s => s.TestConnection(It.IsAny<string>(), It.IsAny<string>()), Times.Never,
+                "대상을 모르는 채로 접속을 시도할 수는 없습니다");
         }
 
         [Test]
-        public void SetContext_SavesTheEnteredCredential()
+        public void ConnectCommand_KeepsTheCurrentTarget_WhenTheSelectionCannotBeRead()
         {
-            var vm = NewViewModel();
-            vm.AuthMode = SqlAuthMode.Sql;
-            vm.UserName = "sa";
-            vm.Password = "p@ss";
+            var vm = NewConnectedViewModel();
+            _ssms.Setup(s => s.TryGetCurrent()).Returns((SsmsConnectionInfo?)null);
 
-            vm.SetContext(Server, Database);
+            vm.ConnectCommand.Execute(null);
 
-            _credentials.Verify(c => c.Save(Server, Database, SqlAuthMode.Sql, "sa", "p@ss"), Times.Once);
+            Assert.That(vm.ServerName, Is.EqualTo(Server),
+                "읽지 못했다는 사실이 이미 잡아 둔 대상을 거짓으로 만들지는 않습니다");
+            Assert.That(vm.DatabaseName, Is.EqualTo(Database));
         }
 
         [Test]
-        public void SetContext_ClearsThePlainTextPassword_AfterSaving()
+        public void ConnectCommand_ShowsTheReason_AndDoesNotConnect_WhenTheConnectionIsUnsupported()
         {
+            _ssms.Setup(s => s.TryGetCurrent())
+                .Returns(Info(unsupportedReason: "Microsoft Entra ID 연결은 그대로 재사용할 수 없습니다."));
+
             var vm = NewViewModel();
-            vm.AuthMode = SqlAuthMode.Sql;
-            vm.UserName = "sa";
-            vm.Password = "p@ss";
+            vm.ConnectCommand.Execute(null);
 
-            vm.SetContext(Server, Database);
-
-            Assert.That(vm.Password, Is.Null,
-                "평문 암호를 ViewModel이 세션 내내 들고 있을 이유가 없습니다");
+            Assert.That(vm.ServerName, Is.EqualTo(Server), "서버·DB는 알 수 있으므로 표시한다");
+            Assert.That(vm.WarningMessage, Does.Contain("Entra"));
+            _stateTracker.Verify(s => s.TestConnection(It.IsAny<string>(), It.IsAny<string>()), Times.Never,
+                "실패가 확정된 접속을 시도해 낮은 수준 오류를 흘리면 안 됩니다");
+            _credentials.Verify(
+                c => c.Set(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SqlAuthMode>(),
+                    It.IsAny<string>(), It.IsAny<string>()),
+                Times.Never);
         }
 
         [Test]
-        public void SetContext_ShowsTheConnectionError_AndDoesNotClaimInitialized()
+        public void ConnectCommand_ShowsTheConnectionError_AndDoesNotClaimInitialized()
         {
             _stateTracker.Setup(s => s.TestConnection(Server, Database))
                 .Returns("'LocalServer'에 로그인하지 못했습니다. 사용자명과 암호를 확인하세요.");
@@ -248,98 +344,102 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
-        public void SetContext_WarnsAndStops_WhenThePasswordCannotBePersisted()
+        public void ConnectCommand_ClearsTheSelection_WhenTheTargetMoves()
         {
-            _credentials.Setup(c => c.Save(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SqlAuthMode>(),
-                It.IsAny<string>(), It.IsAny<string>())).Returns(false);
+            var vm = NewConnectedViewModel();
+            vm.SelectedChange = new ChangeItemViewModel { ObjectName = "dbo.Users", RelativePath = "dbo/Tables/Users.sql" };
 
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info(server: "OtherServer", database: "OtherDB"));
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.SelectedChange, Is.Null,
+                "A의 변경 목록이 남아 있으면 커밋이 B로 나갑니다");
+            Assert.That(vm.Changes, Is.Empty);
+        }
+
+        // ---------- 개체 탐색기 선택 대조 ----------
+
+        [Test]
+        public void CheckSsmsSelection_TellsWhatToSelect_WhenNothingIsConnectedAndNothingIsSelected()
+        {
             var vm = NewViewModel();
-            vm.AuthMode = SqlAuthMode.Sql;
-            vm.UserName = "sa";
-            vm.Password = "p@ss";
 
-            vm.SetContext(Server, Database);
+            vm.CheckSsmsSelection();
 
-            Assert.That(vm.WarningMessage, Does.Contain("저장하지 못했습니다"));
-            Assert.That(vm.IsInitialized, Is.False);
-            _stateTracker.Verify(s => s.TestConnection(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            Assert.That(vm.SsmsHintMessage, Does.Contain("선택"),
+                "입력란이 없어졌으므로 이 한 줄이 유일한 길잡이입니다");
         }
 
         [Test]
-        public void SettingTheTarget_RestoresTheStoredSqlAuth_SoConnectDoesNotOverwriteIt()
+        public void CheckSsmsSelection_PreviewsTheTarget_BeforeTheFirstConnect()
         {
-            // SSMS를 재시작하면 콤보는 기본값(Windows)이다. 대상만 입력하고 Connect를 누르면
-            // 저장해 둔 SQL 인증이 Windows 인증으로 덮어써져 폐쇄망에서 접속이 끊긴다.
-            _credentials.Setup(c => c.TryGet(Server, Database)).Returns(new SqlCredential
-            {
-                ServerName = Server,
-                DatabaseName = Database,
-                AuthMode = SqlAuthMode.Sql,
-                UserName = "sa",
-                ProtectedPassword = "protected"
-            });
-
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info());
             var vm = NewViewModel();
-            vm.ServerName = Server;
-            vm.DatabaseName = Database;
 
-            Assert.That(vm.AuthMode, Is.EqualTo(SqlAuthMode.Sql),
-                "대상을 입력하면 저장된 인증 방식이 복원되어야 합니다");
+            vm.CheckSsmsSelection();
+
+            Assert.That(vm.SsmsHintMessage, Does.Contain(Server));
+            Assert.That(vm.SsmsHintMessage, Does.Contain("Connect"));
+        }
+
+        [Test]
+        public void CheckSsmsSelection_PointsAtTheNewTarget_WhenTheSelectionMoved()
+        {
+            var vm = NewConnectedViewModel();
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info(server: "OtherServer", database: "OtherDB"));
+
+            vm.CheckSsmsSelection();
+
+            Assert.That(vm.SsmsHintMessage, Does.Contain("OtherServer"));
+            Assert.That(vm.HasSsmsHintMessage, Is.True);
+        }
+
+        [Test]
+        public void CheckSsmsSelection_DoesNotTouchTheTarget()
+        {
+            var vm = NewConnectedViewModel();
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info(server: "OtherServer", database: "OtherDB"));
+
+            vm.CheckSsmsSelection();
+
+            Assert.That(vm.ServerName, Is.EqualTo(Server),
+                "지나가던 마우스가 대상을 바꾸면 버튼을 유지하기로 한 결정이 무의미해집니다");
+        }
+
+        [Test]
+        public void CheckSsmsSelection_SaysNothing_WhenTheSelectionStillMatches()
+        {
+            var vm = NewConnectedViewModel();
+
+            vm.CheckSsmsSelection();
+
+            Assert.That(vm.SsmsHintMessage, Is.Null);
+        }
+
+        [Test]
+        public void CheckSsmsSelection_SaysNothing_WhenConnectedAndTheSelectionIsNotUsable()
+        {
+            var vm = NewConnectedViewModel();
+            _ssms.Setup(s => s.TryGetCurrent()).Returns((SsmsConnectionInfo?)null);
+
+            vm.CheckSsmsSelection();
+
+            Assert.That(vm.SsmsHintMessage, Is.Null,
+                "개체 탐색기에서 잠깐 다른 노드를 클릭했다고 배너가 뜨면 진짜 경고까지 묻힙니다");
+        }
+
+        [Test]
+        public void ConnectCommand_ClearsTheHint_WhenItAdoptsTheSelection()
+        {
+            var vm = NewConnectedViewModel();
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info(server: "OtherServer", database: "OtherDB"));
+            vm.CheckSsmsSelection();
+            Assert.That(vm.HasSsmsHintMessage, Is.True);
 
             vm.ConnectCommand.Execute(null);
 
-            _credentials.Verify(c => c.Save(Server, Database, SqlAuthMode.Sql, "sa", null), Times.Once);
-            _credentials.Verify(
-                c => c.Save(Server, Database, SqlAuthMode.Windows, It.IsAny<string>(), It.IsAny<string>()),
-                Times.Never,
-                "저장된 SQL 인증을 Windows 인증으로 덮어쓰면 안 됩니다");
-        }
-
-        [Test]
-        public void LoadSavedCredential_RestoresTheStoredAuthModeAndUserName()
-        {
-            _credentials.Setup(c => c.TryGet(Server, Database)).Returns(new SqlCredential
-            {
-                ServerName = Server,
-                DatabaseName = Database,
-                AuthMode = SqlAuthMode.Sql,
-                UserName = "sa"
-            });
-
-            var vm = NewViewModel();
-            vm.ServerName = Server;
-            vm.DatabaseName = Database;
-
-            vm.LoadSavedCredential();
-
-            Assert.That(vm.AuthMode, Is.EqualTo(SqlAuthMode.Sql));
-            Assert.That(vm.UserName, Is.EqualTo("sa"));
-        }
-
-        [Test]
-        public void ConnectCommand_AppliesTheEnteredServerAndDatabase()
-        {
-            var vm = NewViewModel();
-            vm.ServerName = Server;
-            vm.DatabaseName = Database;
-
-            vm.ConnectCommand.Execute(null);
-
-            Assert.That(vm.IsMapped, Is.True);
-            _stateTracker.Verify(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
-        }
-
-        [Test]
-        public void ConnectCommand_CannotExecute_UntilBothServerAndDatabaseAreEntered()
-        {
-            var vm = NewViewModel();
-            Assert.That(vm.ConnectCommand.CanExecute(null), Is.False);
-
-            vm.ServerName = Server;
-            Assert.That(vm.ConnectCommand.CanExecute(null), Is.False);
-
-            vm.DatabaseName = Database;
-            Assert.That(vm.ConnectCommand.CanExecute(null), Is.True);
+            Assert.That(vm.SsmsHintMessage, Is.Null,
+                "방금 누른 버튼이 배너를 남긴 것처럼 보이면 안 됩니다");
         }
 
         // ---------- Setup ----------
@@ -386,7 +486,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         [Test]
         public void SetupCommand_DoesNothing_WhenNoDatabaseContextIsSet()
         {
-            var vm = NewViewModel(); // SetContext 호출 안 함
+            var vm = NewViewModel(); // Connect 호출 안 함 — 대상이 없음
 
             vm.SetupCommand.Execute(null);
 
@@ -693,20 +793,6 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(vm.SelectedChange, Is.Null,
                 "목록을 비웠는데 선택이 남으면 Diff와 이력이 목록에 없는 객체를 가리킵니다");
-        }
-
-        [Test]
-        public void SetContext_ClearsTheSelection()
-        {
-            // Server/Database로 SetContext를 호출하면 매핑·초기화 상태를 만족해 Refresh()로 이어지고,
-            // Refresh 자체가 선택을 지운다 - 그 경로로는 SetContext가 스스로 선택을 지우는지 검증할 수 없다.
-            // 컨텍스트를 비우는 경로(null, null)는 Refresh를 타지 않으므로 SetContext 자체의 동작을 증명한다.
-            var vm = NewConnectedViewModel();
-            vm.SelectedChange = new ChangeItemViewModel { ObjectName = "dbo.Users", RelativePath = "dbo/Tables/Users.sql" };
-
-            vm.SetContext(null, null);
-
-            Assert.That(vm.SelectedChange, Is.Null);
         }
 
         // ---------- Pull ----------
@@ -1260,401 +1346,6 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.DoesNotThrow(() => vm.GenerateDeploymentScriptCommand.Execute(null));
 
             Assert.That(_notifier.Errors, Has.Count.EqualTo(1));
-        }
-
-        // ---------- SSMS 연결 자동 채움 ----------
-
-        private static SsmsConnectionInfo SsmsSqlConnection(string? password = "fromSsms")
-            => new SsmsConnectionInfo(Server, Database, SqlAuthMode.Sql, "sa", password, null);
-
-        [Test]
-        public void TryFillFromSsms_FillsTheTargetAndCredentialFields()
-        {
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-
-            Assert.That(vm.TryFillFromSsms(), Is.True);
-
-            Assert.That(vm.ServerName, Is.EqualTo(Server));
-            Assert.That(vm.DatabaseName, Is.EqualTo(Database));
-            Assert.That(vm.AuthMode, Is.EqualTo(SqlAuthMode.Sql));
-            Assert.That(vm.UserName, Is.EqualTo("sa"));
-            Assert.That(vm.ConnectionSourceMessage, Does.Contain("암호 포함"));
-        }
-
-        [Test]
-        public void TryFillFromSsms_KeepsTheSsmsCredential_WhenTheStoreHasAnOlderOne()
-        {
-            // Server/Database setter가 LoadSavedCredential()을 호출해 저장소 값을 덮어쓴다.
-            // SSMS 값은 그 뒤에 얹혀야 한다 — 순서가 뒤집히면 이 테스트가 잡는다.
-            _credentials.Setup(c => c.TryGet(Server, Database)).Returns(new SqlCredential
-            {
-                ServerName = Server,
-                DatabaseName = Database,
-                AuthMode = SqlAuthMode.Windows,
-                UserName = null
-            });
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-
-            vm.TryFillFromSsms();
-
-            Assert.That(vm.AuthMode, Is.EqualTo(SqlAuthMode.Sql));
-            Assert.That(vm.UserName, Is.EqualTo("sa"));
-        }
-
-        [Test]
-        public void TryFillFromSsms_ChangesNothing_WhenThereIsNoConnection()
-        {
-            var vm = NewViewModel();
-            vm.ServerName = "TypedServer";
-            vm.DatabaseName = "TypedDb";
-
-            Assert.That(vm.TryFillFromSsms(), Is.False);
-
-            Assert.That(vm.ServerName, Is.EqualTo("TypedServer"));
-            Assert.That(vm.DatabaseName, Is.EqualTo("TypedDb"));
-            Assert.That(vm.ConnectionSourceMessage, Is.Null);
-        }
-
-        [Test]
-        public void TryFillFromSsms_WarnsAndLeavesAuthAlone_WhenTheConnectionIsUnsupported()
-        {
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(new SsmsConnectionInfo(
-                Server, Database, SqlAuthMode.Windows, null, null, "Entra ID 연결은 재사용할 수 없습니다."));
-            var vm = NewViewModel();
-            vm.AuthMode = SqlAuthMode.Sql;
-            vm.UserName = "typedUser";
-
-            vm.TryFillFromSsms();
-
-            Assert.That(vm.ServerName, Is.EqualTo(Server));
-            Assert.That(vm.DatabaseName, Is.EqualTo(Database));
-            Assert.That(vm.WarningMessage, Does.Contain("Entra"));
-            Assert.That(vm.UserName, Is.EqualTo("typedUser"),
-                "재사용할 수 없는 연결이 사용자가 입력한 계정을 지워서는 안 됩니다");
-        }
-
-        [Test]
-        public void TryFillFromSsms_IsSkipped_WhileTheUserIsTypingAPassword()
-        {
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.ServerName = "TypedServer";
-            vm.Password = "typing";
-
-            Assert.That(vm.TryFillFromSsms(), Is.False);
-            Assert.That(vm.ServerName, Is.EqualTo("TypedServer"));
-            Assert.That(vm.Password, Is.EqualTo("typing"),
-                "가드가 타이핑 중인 값을 지웠다면 이 assert가 없어도 위의 False만으로는 드러나지 않습니다");
-        }
-
-        [Test]
-        public void Connect_KeepsTheSsmsPasswordInMemoryOnly()
-        {
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.TryFillFromSsms();
-
-            vm.ConnectCommand.Execute(null);
-
-            _credentials.Verify(c => c.Save(Server, Database, SqlAuthMode.Sql, "sa", null), Times.Once,
-                "SSMS에서 가져온 암호는 디스크에 저장하지 않습니다");
-            _credentials.Verify(c => c.SetSessionPassword(Server, Database, "fromSsms"), Times.Once);
-            _credentials.Verify(c => c.Save(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SqlAuthMode>(),
-                It.IsAny<string>(), It.IsNotNull<string>()), Times.Never,
-                "SSMS 경로에서는 어떤 호출도 평문 암호를 저장소에 넘기면 안 됩니다");
-        }
-
-        [Test]
-        public void Connect_StillPersistsAPasswordTypedByTheUser()
-        {
-            var vm = NewViewModel();
-            vm.ServerName = Server;
-            vm.DatabaseName = Database;
-            vm.AuthMode = SqlAuthMode.Sql;
-            vm.UserName = "sa";
-            vm.Password = "typed";
-
-            vm.ConnectCommand.Execute(null);
-
-            _credentials.Verify(c => c.Save(Server, Database, SqlAuthMode.Sql, "sa", "typed"), Times.Once);
-            _credentials.Verify(c => c.SetSessionPassword(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
-                Times.Never);
-        }
-
-        [Test]
-        public void Connect_FallsBackToTheStoredPassword_WhenSsmsHasNone()
-        {
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection(password: null));
-            var vm = NewViewModel();
-            vm.TryFillFromSsms();
-
-            vm.ConnectCommand.Execute(null);
-
-            // plainPassword: null = "저장된 암호를 그대로 쓴다". 세션 암호는 기록할 것이 없다.
-            _credentials.Verify(c => c.Save(Server, Database, SqlAuthMode.Sql, "sa", null), Times.Once);
-            _credentials.Verify(c => c.SetSessionPassword(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
-                Times.Never);
-            // Connect가 끝나면 PersistCredential이 배너를 내린다 - 접속을 확정한 뒤에도
-            // "가져왔습니다" 안내가 남아 있으면 더 이상 사실이 아닌 상태를 설명하게 된다.
-            Assert.That(vm.ConnectionSourceMessage, Is.Null);
-        }
-
-        [Test]
-        public void TryFillFromSsms_DropsTheSsmsPassword_WhenRetargetedToAnUnsupportedConnection()
-        {
-            // PROD-A.SalesDb에서 암호를 채운 뒤, Connect를 누르기 전에 Entra ID인 PROD-B.HrDb로
-            // 개체 탐색기 포커스가 옮겨가 가시성 트리거로 다시 채워지는 시나리오. 이전 서버의 암호가
-            // 살아남아 있으면 Connect가 그 암호를 PROD-B로 보낸다.
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.TryFillFromSsms();
-
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(new SsmsConnectionInfo(
-                "OtherServer", "OtherDb", SqlAuthMode.Windows, null, null, "Entra ID 연결은 재사용할 수 없습니다."));
-            vm.TryFillFromSsms();
-
-            vm.ConnectCommand.Execute(null);
-
-            _credentials.Verify(c => c.SetSessionPassword(It.IsAny<string>(), It.IsAny<string>(), "fromSsms"),
-                Times.Never,
-                "PROD-A의 암호가 재사용 불가능한 대상 PROD-B로 전송되면 안 됩니다");
-        }
-
-        [Test]
-        public void TryFillFromSsms_DropsTheSsmsPassword_WhenTheUserRetargetsTheServer()
-        {
-            // 채운 뒤 사용자가 직접 서버 입력란을 고치는 경우. PasswordBox는 비어 있으므로
-            // 사용자가 암호 칸을 건드릴 이유가 없다 — 그런데도 이전 암호가 남아 있으면 안 된다.
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.TryFillFromSsms();
-
-            vm.ServerName = "OtherServer";
-
-            vm.ConnectCommand.Execute(null);
-
-            _credentials.Verify(c => c.SetSessionPassword(It.IsAny<string>(), It.IsAny<string>(), "fromSsms"),
-                Times.Never,
-                "서버를 바꿨는데 이전 서버에서 가져온 암호가 새 서버로 전송되면 안 됩니다");
-        }
-
-        [Test]
-        public void TryFillFromSsms_DropsTheSsmsPassword_WhenTheUserRetargetsTheDatabase()
-        {
-            // 위 서버 재대입 테스트의 짝. DatabaseName setter도 ForgetSsmsPassword()를 호출한다 —
-            // 이 테스트만 없으면 그 경로가 회귀해도 잡히지 않는다.
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.TryFillFromSsms();
-
-            vm.DatabaseName = "OtherDb";
-
-            vm.ConnectCommand.Execute(null);
-
-            _credentials.Verify(c => c.SetSessionPassword(It.IsAny<string>(), It.IsAny<string>(), "fromSsms"),
-                Times.Never,
-                "데이터베이스를 바꿨는데 이전 데이터베이스에서 가져온 암호가 새 데이터베이스로 전송되면 안 됩니다");
-        }
-
-        [Test]
-        public void Connect_DoesNotReuseTheSsmsPassword_AfterSwitchingToWindowsAuth()
-        {
-            // 채운 뒤 사용자가 콤보를 Windows 인증으로 바꾸는 경우. Save(..., Windows, ..., null)가
-            // 세션 암호를 지우자마자 SetSessionPassword가 되살리면, Windows 인증으로 표시된 대상에
-            // 화면에는 보이지 않는 SQL 평문 암호가 프로세스 캐시에 계속 남는다.
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.TryFillFromSsms();
-
-            vm.AuthMode = SqlAuthMode.Windows;
-
-            vm.ConnectCommand.Execute(null);
-
-            _credentials.Verify(c => c.SetSessionPassword(It.IsAny<string>(), It.IsAny<string>(), "fromSsms"),
-                Times.Never,
-                "Windows 인증으로 바꾼 뒤에도 SQL 암호가 세션 캐시에 남아있으면 안 됩니다");
-        }
-
-        [Test]
-        public void Connect_DoesNotReuseTheSsmsPassword_AfterTheUserChangesTheUserName()
-        {
-            // 채운 뒤 사용자가 계정명만 직접 고치는 경우. SSMS가 가져온 암호는 그 계정의 것이지
-            // 새로 입력한 계정의 것이 아니므로 함께 버려져야 한다.
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.TryFillFromSsms();
-
-            vm.UserName = "otherUser";
-
-            vm.ConnectCommand.Execute(null);
-
-            _credentials.Verify(c => c.SetSessionPassword(It.IsAny<string>(), It.IsAny<string>(), "fromSsms"),
-                Times.Never,
-                "계정을 바꿨는데 이전 계정에서 가져온 암호가 새 계정으로 전송되면 안 됩니다");
-        }
-
-        // ---------- 암호 출처 표시 ----------
-
-        [Test]
-        public void HasSsmsPassword_IsTrue_WhileTheSsmsPasswordIsHeld()
-        {
-            // 암호 칸은 비어 있는데 암호는 실려 있는 상태. UI가 이 값을 보고 마스킹을 덮는다.
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-
-            vm.TryFillFromSsms();
-
-            Assert.That(vm.HasSsmsPassword, Is.True);
-        }
-
-        [Test]
-        public void HasSsmsPassword_IsFalse_WhenTheSsmsConnectionHadNoPassword()
-        {
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection(password: null));
-            var vm = NewViewModel();
-
-            vm.TryFillFromSsms();
-
-            Assert.That(vm.HasSsmsPassword, Is.False,
-                "가져온 암호가 없는데 마스킹을 덮으면 있지도 않은 암호가 실린 것처럼 보입니다");
-        }
-
-        [Test]
-        public void HasSsmsPassword_GoesFalseAndNotifies_WhenTheUserTypesAPassword()
-        {
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.TryFillFromSsms();
-            var changed = new List<string?>();
-            vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
-
-            vm.Password = "typed";
-
-            Assert.That(vm.HasSsmsPassword, Is.False);
-            Assert.That(changed, Does.Contain(nameof(ViewChangesViewModel.HasSsmsPassword)),
-                "알림이 없으면 사용자가 입력을 시작해도 마스킹이 화면에 남습니다");
-        }
-
-        [Test]
-        public void HasSsmsPassword_IsFalse_AfterConnect()
-        {
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.TryFillFromSsms();
-
-            vm.ConnectCommand.Execute(null);
-
-            Assert.That(vm.HasSsmsPassword, Is.False,
-                "Connect가 평문을 넘긴 뒤에도 마스킹이 남으면 아직 들고 있는 것처럼 보입니다");
-        }
-
-        // ---------- 개체 탐색기 선택 불일치 안내 ----------
-
-        [Test]
-        public void CheckSsmsSelection_SaysNothing_BeforeAnyFillHasSucceeded()
-        {
-            // 개체 탐색기를 쓰지 않고 직접 입력만 하는 사용자에게는 이 안내가 소음이다.
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.ServerName = "TypedServer";
-            vm.DatabaseName = "TypedDb";
-
-            vm.CheckSsmsSelection();
-
-            Assert.That(vm.SsmsHintMessage, Is.Null);
-        }
-
-        [Test]
-        public void CheckSsmsSelection_PointsAtTheNewTarget_WhenTheSelectionMoved()
-        {
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.TryFillFromSsms();
-
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(
-                new SsmsConnectionInfo("OtherServer", "OtherDb", SqlAuthMode.Sql, "sa", "p", null));
-            vm.CheckSsmsSelection();
-
-            Assert.That(vm.HasSsmsHintMessage, Is.True);
-            Assert.That(vm.SsmsHintMessage, Does.Contain("OtherServer.OtherDb"));
-        }
-
-        [Test]
-        public void CheckSsmsSelection_DoesNotTouchTheFields()
-        {
-            // 확인은 확인일 뿐이다. 마우스가 지나갔다고 입력란이 바뀌면 사용자가 입력하던
-            // 값이 사라진다 — 버튼을 유지하기로 한 결정의 전부가 이것이다.
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.TryFillFromSsms();
-
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(
-                new SsmsConnectionInfo("OtherServer", "OtherDb", SqlAuthMode.Sql, "sa", "p", null));
-            vm.CheckSsmsSelection();
-
-            Assert.That(vm.ServerName, Is.EqualTo(Server));
-            Assert.That(vm.DatabaseName, Is.EqualTo(Database));
-        }
-
-        [Test]
-        public void CheckSsmsSelection_SaysNothing_WhenTheSelectionStillMatches()
-        {
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.TryFillFromSsms();
-
-            vm.CheckSsmsSelection();
-
-            Assert.That(vm.SsmsHintMessage, Is.Null);
-        }
-
-        [Test]
-        public void CheckSsmsSelection_SaysNothing_WhenTheSelectionIsNotUsable()
-        {
-            // 서버 노드·다중 선택·선택 없음은 "달라졌다"고 말할 근거가 아니다.
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.TryFillFromSsms();
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(
-                new SsmsConnectionInfo("OtherServer", "OtherDb", SqlAuthMode.Sql, "sa", "p", null));
-            vm.CheckSsmsSelection();
-
-            _ssms.Setup(s => s.TryGetCurrent()).Returns((SsmsConnectionInfo?)null);
-            vm.CheckSsmsSelection();
-
-            Assert.That(vm.SsmsHintMessage, Is.Null);
-        }
-
-        [Test]
-        public void TryFillFromSsms_ClearsTheHint_WhenItActuallyFills()
-        {
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.TryFillFromSsms();
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(
-                new SsmsConnectionInfo("OtherServer", "OtherDb", SqlAuthMode.Sql, "sa", "p", null));
-            vm.CheckSsmsSelection();
-            Assert.That(vm.HasSsmsHintMessage, Is.True, "전제: 배너가 떠 있어야 합니다");
-
-            vm.TryFillFromSsms();
-
-            Assert.That(vm.SsmsHintMessage, Is.Null,
-                "방금 누른 버튼이 배너를 남기면 눌러도 소용없는 것처럼 보입니다");
-        }
-
-        [Test]
-        public void TryFillFromSsms_ExplainsWhy_WhenATypedPasswordBlocksIt()
-        {
-            // 진단 로그에만 남기면 사용자에게는 버튼이 고장 난 것과 구분되지 않는다.
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(SsmsSqlConnection());
-            var vm = NewViewModel();
-            vm.Password = "typing";
-
-            Assert.That(vm.TryFillFromSsms(), Is.False);
-
-            Assert.That(vm.SsmsHintMessage, Does.Contain("암호 칸"));
         }
 
         private sealed class RecordingSaveDialog : IFileSaveDialog

@@ -14,9 +14,10 @@ namespace DBVC.Core.Models
 
     /// <summary>
     /// 한 (서버, 데이터베이스)에 접속할 때 쓸 인증 정보.
-    /// 암호는 <see cref="ProtectedPassword"/>(보호된 형태)로만 보관하며 평문은 이 타입에 담지 않는다.
-    /// 평문이 필요한 시점은 연결 문자열을 만들 때뿐이고, 그때만
-    /// <see cref="DBVC.Core.ISqlCredentialStore.ResolvePassword"/>로 되돌린다.
+    ///
+    /// <see cref="Password"/>는 평문이며 이 프로세스 안에서만 산다 — 디스크에 닿는 경로가 없다.
+    /// 이 타입을 로그나 예외 메시지에 통째로 싣지 말 것. <c>ToString()</c>을 재정의하지 않는 것도
+    /// 같은 이유다.
     /// </summary>
     public class SqlCredential
     {
@@ -28,9 +29,11 @@ namespace DBVC.Core.Models
         public string? UserName { get; set; }
 
         /// <summary>
-        /// <see cref="IPasswordProtector"/>가 보호한 암호. 구현에 따라 형식이 다르므로
-        /// 이 문자열을 직접 해석하지 않는다.
+        /// 평문 암호. 이 프로세스가 사는 동안만 존재하며 디스크에 닿지 않는다.
+        ///
+        /// 값의 출처는 SSMS 개체 탐색기뿐이고, SSMS가 닫히면 함께 사라진다.
+        /// 이 타입을 로그에 통째로 싣지 말 것 — 진단에는 존재 여부만 남긴다.
         /// </summary>
-        public string? ProtectedPassword { get; set; }
+        public string? Password { get; set; }
     }
 }

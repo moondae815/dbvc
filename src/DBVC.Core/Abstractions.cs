@@ -17,40 +17,19 @@ namespace DBVC.Core
     }
 
     /// <summary>
-    /// (서버, 데이터베이스)별 SQL 접속 인증 정보를 보관한다.
-    /// 매핑과 수명이 다르므로 <see cref="IConfigManager"/>와 분리되어 있다.
+    /// (서버, 데이터베이스)별 SQL 접속 인증 정보를 이 프로세스가 사는 동안만 보관한다.
+    ///
+    /// 디스크에 쓰지 않는다 — 값의 출처는 SSMS 개체 탐색기뿐이고, SSMS가 닫히면 함께 사라진다.
+    /// 매핑(<see cref="IConfigManager"/>)과는 수명도 저장 매체도 다르므로 분리되어 있다.
     /// </summary>
     public interface ISqlCredentialStore
     {
-        /// <summary>이 플랫폼에서 암호를 안전하게 저장할 수 있는지.</summary>
-        bool CanPersistPasswords { get; }
-
-        /// <summary>
-        /// 인증 정보를 보관하는 파일 경로.
-        ///
-        /// 저장이 되었는지 확인하려면 어디를 봐야 하는지 알아야 한다. 저장 실패는 접속을
-        /// 막지 않도록 삼켜지므로(<see cref="Save"/>), 이 경로 없이는 "저장이 실패했다"와
-        /// "저장을 시도조차 하지 않았다"를 구분할 방법이 없다.
-        /// </summary>
-        string FilePath { get; }
-
-        /// <summary>
-        /// 마지막 디스크 쓰기가 실패했다면 그 사유. 성공했으면 <c>null</c>.
-        /// 실패는 삼켜지므로(접속을 막지 않기 위해) 사유를 볼 곳이 여기뿐이다.
-        /// </summary>
-        string? LastSaveError { get; }
-
         SqlCredential? TryGet(string serverName, string databaseName);
-        bool Save(string serverName, string databaseName, SqlAuthMode authMode, string? userName, string? plainPassword);
-        bool Remove(string serverName, string databaseName);
-        string? ResolvePassword(SqlCredential? credential);
 
         /// <summary>
-        /// 이 프로세스에서만 유효한 암호를 기록한다. 디스크에 쓰지 않는다.
-        /// SSMS 개체 탐색기에서 가져온 암호가 이 경로로 들어온다.
-        /// <c>null</c>이거나 빈 문자열이면 기존 세션 암호를 제거한다.
+        /// 이 대상의 인증 정보를 통째로 덮어쓴다. 이전 값과 병합하지 않는다.
         /// </summary>
-        void SetSessionPassword(string serverName, string databaseName, string? plainPassword);
+        void Set(string serverName, string databaseName, SqlAuthMode authMode, string? userName, string? password);
     }
 
     public interface IStateTracker

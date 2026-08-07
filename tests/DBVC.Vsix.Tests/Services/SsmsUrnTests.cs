@@ -58,5 +58,14 @@ namespace DBVC.Vsix.Tests.Services
         {
             Assert.That(SsmsUrn.TryGetDatabaseName("Server[@Name='S']/Database[@Name='']"), Is.Null);
         }
+
+        [Test]
+        public void TryGetDatabaseName_ReturnsWhitespace_WhenTheNameIsWhitespaceOnly()
+        {
+            // 공백 하나는 length > 0이라 이 메서드 자체는 "값을 얻었다"고 본다. 공백만 있는
+            // 이름을 대상으로 채택하면 안 된다는 판단은 이 메서드가 아니라 호출자(어댑터)의
+            // IsNullOrWhiteSpace 관문이 맡는다 — 여기서는 반환값이 그대로 공백임을 고정한다.
+            Assert.That(SsmsUrn.TryGetDatabaseName("Server[@Name='S']/Database[@Name=' ']"), Is.EqualTo(" "));
+        }
     }
 }

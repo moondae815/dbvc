@@ -29,17 +29,18 @@ namespace DBVC.Vsix
         }
 
         /// <summary>
-        /// 하나의 <see cref="ConfigManager"/>와 <see cref="SqlCredentialStore"/>를 모든 매니저가
+        /// 하나의 <see cref="ConfigManager"/>와 <see cref="SessionCredentialStore"/>를 모든 매니저가
         /// 공유하도록 구성한다.
         ///
-        /// 인증 저장소를 공유하지 않으면 각 인스턴스가 생성 시점의 credentials.json 사본을 들고 있게 된다.
-        /// ViewModel이 Connect에서 방금 저장한 암호를 StateTracker가 보지 못해, SQL 인증 첫 접속이
-        /// Windows 인증으로 흘러가 실패한다.
+        /// 인증 저장소를 공유하지 않으면 다른 인스턴스에는 인증 정보가 <b>아예 없다</b> —
+        /// 디스크 파일이 있던 시절에는 각자 같은 파일을 읽어 최악의 경우 값이 오래된 정도였지만,
+        /// 이제는 메모리뿐이다. ViewModel이 Connect에서 넣은 암호를 StateTracker가 보지 못하면
+        /// SQL 인증 접속이 Windows 인증으로 흘러가 실패한다.
         /// </summary>
         public DbvcServices(IConfigManager configManager, ISqlCredentialStore? credentialStore = null)
         {
             ConfigManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
-            CredentialStore = credentialStore ?? new SqlCredentialStore();
+            CredentialStore = credentialStore ?? new SessionCredentialStore();
 
             var git = new GitManager(ConfigManager);
             GitManager = git;
@@ -63,7 +64,7 @@ namespace DBVC.Vsix
             GitManager = gitManager ?? throw new ArgumentNullException(nameof(gitManager));
             SmoManager = smoManager ?? throw new ArgumentNullException(nameof(smoManager));
             StateTracker = stateTracker ?? throw new ArgumentNullException(nameof(stateTracker));
-            CredentialStore = credentialStore ?? new SqlCredentialStore();
+            CredentialStore = credentialStore ?? new SessionCredentialStore();
         }
 
         private ViewChangesViewModel? _sharedViewModel;

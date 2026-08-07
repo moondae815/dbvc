@@ -4,6 +4,7 @@ using NUnit.Framework;
 using DBVC.Core;
 using DBVC.Core.Models;
 using DBVC.Vsix;
+using DBVC.Vsix.Services;
 
 namespace DBVC.Vsix.Tests
 {
@@ -90,23 +91,20 @@ namespace DBVC.Vsix.Tests
         [Test]
         public void Services_ShareTheSameCredentialStoreInstance()
         {
-            // ConfigManager와 같은 이유다. 각자 인스턴스를 만들면 생성 시점의 credentials.json
-            // 사본을 들게 되어, ViewModel이 Connect에서 방금 저장한 암호를 StateTracker가 보지 못한다.
+            // ConfigManager와 같은 이유이고, 이제는 더 엄격하다. 각자 인스턴스를 만들면
+            // 다른 쪽에는 인증 정보가 아예 없다 — 디스크 파일이라는 공통 근거가 사라졌기 때문이다.
             var credentials = new Mock<ISqlCredentialStore>();
-            credentials.Setup(c => c.CanPersistPasswords).Returns(true);
-            credentials.Setup(c => c.Save(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SqlAuthMode>(),
-                It.IsAny<string>(), It.IsAny<string>())).Returns(true);
+            var ssms = new Mock<ISsmsConnectionSource>();
+            ssms.Setup(s => s.TryGetCurrent())
+                .Returns(new SsmsConnectionInfo("S", "DB", SqlAuthMode.Sql, "sa", "p@ss", null));
 
             var services = new DbvcServices(NewIsolatedConfig(), credentials.Object);
-            var vm = services.CreateViewChangesViewModel();
+            var vm = services.CreateViewChangesViewModel(null, ssms.Object);
 
-            vm.AuthMode = SqlAuthMode.Sql;
-            vm.UserName = "sa";
-            vm.Password = "p@ss";
-            vm.SetContext("S", "DB");
+            vm.ConnectCommand.Execute(null);
 
             Assert.That(services.CredentialStore, Is.SameAs(credentials.Object));
-            credentials.Verify(c => c.Save("S", "DB", SqlAuthMode.Sql, "sa", "p@ss"), Times.Once,
+            credentials.Verify(c => c.Set("S", "DB", SqlAuthMode.Sql, "sa", "p@ss"), Times.Once,
                 "ViewModel이 컨테이너의 인증 저장소를 그대로 써야 합니다");
         }
 

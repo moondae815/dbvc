@@ -19,7 +19,7 @@ namespace DBVC.Vsix.Tests.Services
         public void TryGetCurrent_ReturnsNull_WhenTheShellIsNotThere()
         {
             Assert.That(new ObjectExplorerConnectionSource().TryGetCurrent(), Is.Null,
-                "자동 채움이 안 되는 것과 도구 창이 죽는 것은 비교할 문제가 아닙니다");
+                "연결을 읽지 못하는 것과 도구 창이 죽는 것은 비교할 문제가 아닙니다");
         }
 
         [Test]

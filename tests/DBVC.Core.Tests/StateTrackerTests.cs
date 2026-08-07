@@ -19,17 +19,10 @@ namespace DBVC.Core.Tests
         }
 
         /// <summary>
-        /// 인증 정보 저장소도 격리한다. 기본 생성자는 %APPDATA%를 읽으므로,
-        /// 테스트가 개발자 기계의 실제 접속 설정에 좌우되면 안 된다.
+        /// 각 테스트가 독립된 인증 저장소를 쓰게 한다. 메모리 전용이라 격리를 위해 디스크 경로를
+        /// 나눌 필요는 없지만, 인스턴스를 공유하면 한 테스트가 넣은 인증 정보가 다른 테스트에서도 보인다.
         /// </summary>
-        private static SqlCredentialStore NewIsolatedCredentialStore()
-        {
-            var path = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(),
-                "dbvc_cred_" + System.Guid.NewGuid().ToString("N"),
-                "credentials.json");
-            return new SqlCredentialStore(path);
-        }
+        private static SessionCredentialStore NewIsolatedCredentialStore() => new SessionCredentialStore();
 
         private static StateTracker NewTracker()
             => new StateTracker(NewIsolatedConfig(), null, NewIsolatedCredentialStore());

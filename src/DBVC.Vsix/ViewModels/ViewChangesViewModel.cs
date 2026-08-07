@@ -61,8 +61,9 @@ namespace DBVC.Vsix.ViewModels
             ISsmsConnectionSource? ssmsConnectionSource = null)
         {
             _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
-            _credentialStore = credentialStore ?? new SqlCredentialStore();
-            // null이면 자동 채움이 꺼진 것과 같다. 단위 테스트와 비SSMS 환경이 이 경로다.
+            _credentialStore = credentialStore ?? new SessionCredentialStore();
+            // null이면 Connect 자체가 비활성화된다 — 개체 탐색기를 읽을 수단이 없으므로
+            // 접속할 방법이 아예 없다는 뜻이다. 단위 테스트와 비SSMS 환경이 이 경로다.
             _ssmsConnectionSource = ssmsConnectionSource;
             _gitManager = gitManager ?? new GitManager(_configManager);
             _stateTracker = stateTracker ?? new StateTracker(_configManager, _gitManager, _credentialStore);
@@ -77,9 +78,8 @@ namespace DBVC.Vsix.ViewModels
             RefreshCommand = new RelayCommand(Refresh);
             SetupCommand = new RelayCommand(Setup);
             CommitCommand = new RelayCommand(Commit, CanCommit);
-            ConnectCommand = new RelayCommand(() => SetContext(ServerName, DatabaseName), () => HasContext);
+            ConnectCommand = new RelayCommand(Connect, () => _ssmsConnectionSource != null);
             ConnectRepositoryCommand = new RelayCommand(ConnectRepository, CanConnectRepository);
-            RefreshFromSsmsCommand = new RelayCommand(() => TryFillFromSsms(), () => _ssmsConnectionSource != null);
             PullCommand = new RelayCommand(Pull, CanPull);
             GenerateDeploymentScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Deployment), CanGenerateScript);
             GenerateRollbackScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Rollback), CanGenerateScript);
@@ -87,50 +87,73 @@ namespace DBVC.Vsix.ViewModels
 
         // ---------- 연결 컨텍스트 ----------
 
-        private string? _serverName;
-        public string? ServerName
-        {
-            get => _serverName;
-            set
-            {
-                if (_serverName == value) return;
-                ForgetSsmsPassword();
-                InvalidateActiveContext();
-                _serverName = value;
-                OnPropertyChanged();
-                RaiseConnectCanExecuteChanged();
-                LoadSavedCredential();
-            }
-        }
+        /// <summary>Connect가 마지막으로 채택한 대상. 입력란이 없으므로 setter는 닫혀 있다.</summary>
+        public string? ServerName { get; private set; }
 
-        private string? _databaseName;
-        public string? DatabaseName
-        {
-            get => _databaseName;
-            set
-            {
-                if (_databaseName == value) return;
-                ForgetSsmsPassword();
-                InvalidateActiveContext();
-                _databaseName = value;
-                OnPropertyChanged();
-                RaiseConnectCanExecuteChanged();
-                LoadSavedCredential();
-            }
-        }
+        public string? DatabaseName { get; private set; }
+
+        /// <summary>표시용. 값은 개체 탐색기가 정한다.</summary>
+        public SqlAuthMode AuthMode { get; private set; } = SqlAuthMode.Windows;
+
+        /// <summary>표시용. <see cref="SqlAuthMode.Sql"/>일 때만 의미가 있다.</summary>
+        public string? UserName { get; private set; }
 
         private bool HasContext => !string.IsNullOrWhiteSpace(ServerName) && !string.IsNullOrWhiteSpace(DatabaseName);
 
         /// <summary>
-        /// 화면이 지금 무엇을 설명하는지를 지운다 — 대상(서버·데이터베이스)이 바뀔 때 부른다.
+        /// 화면 맨 위에 한 줄로 뜨는 대상 표시.
+        ///
+        /// "Connect가 마지막으로 채택한 대상"을 말할 뿐 접속 성공 여부는 말하지 않는다 —
+        /// 실패는 경고 배너가, 접속되었다는 사실은 변경 목록이 이미 말하고 있어서,
+        /// 여기서 같은 것을 반복하면 세 곳을 동시에 맞춰야 한다.
+        /// </summary>
+        public string TargetSummary
+        {
+            get
+            {
+                if (!HasContext)
+                {
+                    return "(접속되지 않음)";
+                }
+
+                var auth = AuthMode == SqlAuthMode.Sql
+                    ? $"SQL 인증 ({UserName ?? "계정 미상"})"
+                    : "Windows 인증";
+                return $"{ServerName}.{DatabaseName} — {auth}";
+            }
+        }
+
+        /// <summary>
+        /// 대상과 인증 정보를 통째로 갈아 끼운다. 네 값은 언제나 함께 온다 —
+        /// 개체 탐색기가 하나의 연결에서 읽어 오기 때문이다.
+        /// </summary>
+        private void SetTarget(string serverName, string databaseName, SqlAuthMode authMode, string? userName)
+        {
+            ServerName = serverName;
+            DatabaseName = databaseName;
+            AuthMode = authMode;
+            UserName = userName;
+
+            // 대상이 바뀌면 화면이 설명하던 것이 통째로 무효가 된다. 같은 대상으로 다시
+            // 누른 경우에도 무효화한다 — 그것은 "지금 상태를 다시 판정해 달라"는 뜻이다.
+            InvalidateActiveContext();
+
+            OnPropertyChanged(nameof(ServerName));
+            OnPropertyChanged(nameof(DatabaseName));
+            OnPropertyChanged(nameof(AuthMode));
+            OnPropertyChanged(nameof(UserName));
+            OnPropertyChanged(nameof(TargetSummary));
+            RaiseActionCanExecuteChanged();
+        }
+
+        /// <summary>
+        /// 화면이 지금 무엇을 설명하는지를 지운다 — 대상이 바뀔 때 부른다.
         ///
         /// <see cref="Changes"/>·<see cref="IsMapped"/>·<see cref="IsInitialized"/>는 모두 특정
-        /// (서버, 데이터베이스) 하나만을 설명하는 값이다. ServerName이나 DatabaseName이 바뀌는
-        /// 순간 이 값들은 더 이상 화면에 보이는 대상을 가리키지 않는데, 그 사실을 이 메서드가
-        /// 즉시 반영하지 않으면 <see cref="CanCommit"/>은 여전히 참을 반환한다 — 예를 들어
-        /// A/db1에 접속해 목록을 채운 뒤 SSMS 개체 탐색기 포커스가 B/db2로 옮겨가면(가시성
-        /// 트리거가 ServerName/DatabaseName만 조용히 재대입한다), 사용자가 Commit을 누를 때
-        /// A/db1의 변경 목록이 B/db2의 변경 로그에 처리 완료로 기록되어 버린다.
+        /// (서버, 데이터베이스) 하나만을 설명하는 값이다. 대상이 바뀌는 순간 이 값들은 더 이상
+        /// 화면에 보이는 대상을 가리키지 않는데, 그 사실을 즉시 반영하지 않으면
+        /// <see cref="CanCommit"/>은 여전히 참을 반환한다 — A/db1의 변경 목록이 B/db2의 변경
+        /// 로그에 처리 완료로 기록되어 버린다.
         /// </summary>
         private void InvalidateActiveContext()
         {
@@ -141,175 +164,19 @@ namespace DBVC.Vsix.ViewModels
             IsMapped = false;
             IsInitialized = false;
             WarningMessage = null;
-            // 대상이 바뀌면 "개체 탐색기 선택이 다릅니다"의 판정 근거가 사라진다. 남겨 두면
-            // 사용자가 직접 서버를 개체 탐색기와 같게 고쳐도 배너가 계속 다르다고 우긴다.
+            // 대상이 바뀌면 "개체 탐색기 선택이 다릅니다"의 판정 근거가 사라진다.
             // 여전히 다르다면 다음 CheckSsmsSelection()에서 다시 뜬다.
             SsmsHintMessage = null;
         }
 
-        // ---------- 인증 ----------
-
-        private SqlAuthMode _authMode = SqlAuthMode.Windows;
-
-        /// <summary>
-        /// 접속에 쓸 인증 방식. Connect 시점에 <see cref="ISqlCredentialStore"/>에 저장된다.
-        /// </summary>
-        public SqlAuthMode AuthMode
-        {
-            get => _authMode;
-            set
-            {
-                if (_authMode == value) return;
-                ForgetSsmsPassword();
-                _authMode = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(IsSqlAuth));
-            }
-        }
-
-        /// <summary>SQL 인증일 때만 사용자명·암호 입력란을 보인다.</summary>
-        public bool IsSqlAuth => AuthMode == SqlAuthMode.Sql;
-
-        /// <summary>인증 방식 콤보의 항목. 열거형을 그대로 노출하면 영문 이름이 보인다.</summary>
-        public IReadOnlyList<AuthModeOption> AuthModes { get; } = new[]
-        {
-            new AuthModeOption(SqlAuthMode.Windows, "Windows 인증"),
-            new AuthModeOption(SqlAuthMode.Sql, "SQL Server 인증")
-        };
-
-        public class AuthModeOption
-        {
-            public AuthModeOption(SqlAuthMode mode, string label)
-            {
-                Mode = mode;
-                Label = label;
-            }
-
-            public SqlAuthMode Mode { get; }
-            public string Label { get; }
-        }
-
-        private string? _userName;
-        public string? UserName
-        {
-            get => _userName;
-            set
-            {
-                if (_userName == value) return;
-                ForgetSsmsPassword();
-                _userName = value;
-                OnPropertyChanged();
-            }
-        }
-
-        private string? _password;
-
-        /// <summary>
-        /// 입력 중인 평문 암호. Connect가 끝나면 즉시 비운다 — 보관은 저장소가 하고,
-        /// ViewModel이 세션 내내 평문을 들고 있을 이유가 없다.
-        ///
-        /// <c>null</c>이거나 비어 있으면 "저장된 암호를 그대로 쓴다"는 뜻이다.
-        /// PasswordBox는 바인딩을 지원하지 않으므로 코드 비하인드가 이 속성에 밀어 넣는다.
-        ///
-        /// setter를 탄다는 것은 곧 사용자가 직접 입력했다는 뜻이므로 출처 표시를 내린다.
-        /// SSMS에서 가져온 암호는 이 setter를 거치지 않고 <see cref="TryFillFromSsms"/>가
-        /// 백킹 필드에 직접 넣는다 — 그래야 저장 경로가 갈린다.
-        /// </summary>
-        public string? Password
-        {
-            get => _password;
-            set
-            {
-                _password = value;
-                PasswordFromSsms = false;
-            }
-        }
-
-        private bool _passwordFromSsms;
-
-        /// <summary>
-        /// 현재 들고 있는 암호가 SSMS에서 온 것인지. 참이면 디스크에 저장하지 않는다.
-        ///
-        /// 필드가 아니라 속성인 이유는 UI가 이 상태를 봐야 하기 때문이다
-        /// (<see cref="HasSsmsPassword"/>). 대입 지점이 네 곳으로 흩어져 있어, 각 지점에서
-        /// 알림을 따로 올리게 두면 언젠가 하나가 빠진다.
-        /// </summary>
-        private bool PasswordFromSsms
-        {
-            get => _passwordFromSsms;
-            set
-            {
-                if (_passwordFromSsms == value) return;
-                _passwordFromSsms = value;
-                OnPropertyChanged(nameof(HasSsmsPassword));
-            }
-        }
-
-        /// <summary>
-        /// 암호 칸은 비어 있는데 SSMS에서 가져온 암호가 실려 있는 상태인지.
-        ///
-        /// UI는 이 값이 참일 때 암호 칸 위에 표시 전용 마스킹을 덮는다. 실제 문자를
-        /// PasswordBox에 넣지 않는 것은 <see cref="Password"/> setter를 타는 순간 출처 표시가
-        /// 풀려 그 암호가 디스크로 새어 나가기 때문이다 — 이번 기능의 핵심 계약과 정반대다.
-        /// </summary>
-        public bool HasSsmsPassword => _passwordFromSsms;
-
-        /// <summary>
-        /// SSMS에서 가져온 암호를 버린다.
-        ///
-        /// 그 암호는 가져올 당시의 (서버, 데이터베이스, 인증 방식, 계정)에만 속한다. 넷 중 하나라도
-        /// 바뀌면 더 이상 이 암호가 맞는 대상이 아니므로 들고 있어서는 안 된다 — 들고 있으면
-        /// Connect가 다른 서버로 그 암호를 보내는 접속을 시도한다.
-        ///
-        /// 사용자가 직접 입력한 암호는 건드리지 않는다. 대상을 고치는 도중에 입력값이 사라지면
-        /// 그쪽이 결함이다.
-        /// </summary>
-        private void ForgetSsmsPassword()
-        {
-            if (!PasswordFromSsms) return;
-
-            _password = null;
-            PasswordFromSsms = false;
-            ConnectionSourceMessage = null;
-        }
-
-        /// <summary>
-        /// 이 기계에서 암호를 저장할 수 없으면(비Windows 등) Connect마다 다시 입력해야 한다.
-        /// </summary>
-        public bool CanPersistPasswords => _credentialStore.CanPersistPasswords;
-
-        private string? _connectionSourceMessage;
-
-        /// <summary>
-        /// 자동 채움이 무슨 일을 했는지 알리는 한 줄. 채운 적이 없으면 <c>null</c>이고 UI에서 숨는다.
-        ///
-        /// 필요한 이유: SSMS에서 가져온 암호는 PasswordBox에 넣지 않으므로(넣으면 Password setter를
-        /// 타서 디스크 저장 경로로 새어 나간다) 암호 칸은 비어 있는데 암호는 실려 있는 상태가 된다.
-        /// 그 사실을 알리지 않으면 사용자가 다시 입력해야 하는 줄 안다.
-        /// </summary>
-        public string? ConnectionSourceMessage
-        {
-            get => _connectionSourceMessage;
-            private set
-            {
-                if (_connectionSourceMessage == value) return;
-                _connectionSourceMessage = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(HasConnectionSourceMessage));
-            }
-        }
-
-        public bool HasConnectionSourceMessage => !string.IsNullOrEmpty(ConnectionSourceMessage);
+        // ---------- 개체 탐색기 안내 ----------
 
         private string? _ssmsHintMessage;
 
         /// <summary>
         /// 개체 탐색기와 관련해 사용자가 지금 알아야 할 한 줄. 없으면 <c>null</c>이고 UI에서 숨는다.
         ///
-        /// <see cref="ConnectionSourceMessage"/>와 나눠 둔 이유가 있다. 그쪽은 "지금 입력란에 있는
-        /// 값이 어디서 왔는가"를 말하는 사후 보고이고, 이쪽은 "무언가 하려면 무엇을 눌러야
-        /// 하는가"를 말하는 행동 안내다. 두 문장은 동시에 참일 수 있다 — SSMS에서 가져온 값을
-        /// 들고 있는 채로 개체 탐색기 선택만 다른 곳으로 옮겨 간 상태가 그렇다.
+        /// 입력란이 사라진 뒤로 이 문장이 "무엇을 해야 하는가"를 말하는 유일한 곳이다.
         /// </summary>
         public string? SsmsHintMessage
         {
@@ -326,35 +193,28 @@ namespace DBVC.Vsix.ViewModels
         public bool HasSsmsHintMessage => !string.IsNullOrEmpty(SsmsHintMessage);
 
         /// <summary>
-        /// 이 세션에서 자동 채움이 한 번이라도 성공했는지.
+        /// 개체 탐색기의 현재 선택이 지금 대상과 다른지 확인하고, 다르면 안내를 띄운다.
+        /// <b>대상을 건드리지 않는다</b> — 전환은 사용자가 Connect를 눌러야 일어난다.
         ///
-        /// <see cref="CheckSsmsSelection"/>의 전제다. 개체 탐색기를 쓰지 않고 직접 입력만 하는
-        /// 사용자에게는 "선택이 다릅니다"가 참이면서도 아무 의미가 없다 — 패널을 볼 때마다
-        /// 뜨는 배너는 읽히지 않고 진짜 경고까지 같이 묻히게 만든다.
-        /// </summary>
-        private bool _ssmsFillEverSucceeded;
-
-        /// <summary>
-        /// 개체 탐색기의 현재 선택이 입력란과 다른지 확인하고, 다르면 안내를 띄운다.
-        /// <b>입력란을 건드리지 않는다</b> — 갱신은 사용자가 버튼을 눌러야 일어난다.
-        ///
-        /// 개체 탐색기의 선택 변경 이벤트를 구독하는 대신, 사용자가 이 패널로 시선을 옮기는
-        /// 순간(마우스 진입·포커스)에만 확인한다. 배경 비용이 없고, 안내가 필요한 바로 그
-        /// 시점에만 뜬다.
+        /// 선택 변경 이벤트를 구독하는 대신, 사용자가 이 패널로 시선을 옮기는 순간
+        /// (마우스 진입·포커스)에만 확인한다. 배경 비용이 없고 필요한 시점에만 뜬다.
         /// </summary>
         public void CheckSsmsSelection()
         {
-            if (!_ssmsFillEverSucceeded || _ssmsConnectionSource == null)
+            if (_ssmsConnectionSource == null)
             {
                 return;
             }
 
             var info = _ssmsConnectionSource.TryGetCurrent();
+
             if (info == null)
             {
-                // 고를 수 없는 선택(선택 없음·다중 선택·서버 노드)은 "달라졌다"고 말할 근거가
-                // 아니다. 개체 탐색기에서 잠깐 다른 것을 클릭했다고 배너가 뜨면 안 된다.
-                SsmsHintMessage = null;
+                // 대상을 이미 잡아 두었다면 침묵한다 — 개체 탐색기에서 잠깐 다른 노드를 클릭한
+                // 것과 구분할 근거가 없고, 그때마다 배너가 뜨면 진짜 경고까지 함께 묻힌다.
+                SsmsHintMessage = HasContext
+                    ? null
+                    : "개체 탐색기에서 데이터베이스(또는 그 하위 개체)를 하나 선택한 뒤 Connect를 누르세요.";
                 return;
             }
 
@@ -362,118 +222,62 @@ namespace DBVC.Vsix.ViewModels
                 string.Equals(info.ServerName, ServerName, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(info.DatabaseName, DatabaseName, StringComparison.OrdinalIgnoreCase);
 
-            SsmsHintMessage = sameTarget
-                ? null
-                : $"개체 탐색기 선택이 다릅니다 — {info.ServerName}.{info.DatabaseName}. " +
-                  "[개체 탐색기에서 가져오기]를 누르면 이 값으로 갱신됩니다.";
-        }
-
-        /// <summary>
-        /// 대상이 정해지면 저장된 인증 정보를 입력란에 되살린다.
-        ///
-        /// Server/Database setter에서 호출한다. 이게 없으면 SSMS를 재시작했을 때 콤보가
-        /// 기본값(Windows 인증)인 채로 Connect가 눌리고, <see cref="PersistCredential"/>이
-        /// 저장해 둔 SQL 인증을 Windows 인증으로 덮어써 버린다.
-        /// </summary>
-        public void LoadSavedCredential()
-        {
-            if (!HasContext) return;
-
-            var credential = _credentialStore.TryGet(ServerName!, DatabaseName!);
-            if (credential == null) return;
-
-            AuthMode = credential.AuthMode;
-            UserName = credential.UserName;
-        }
-
-        /// <summary>
-        /// SSMS 개체 탐색기의 현재 연결을 입력란에 채운다. 접속하지는 않는다 — 확정은 Connect가 한다.
-        /// </summary>
-        /// <returns>채웠으면 true. 가져올 연결이 없거나 채우지 않기로 했으면 false.</returns>
-        public bool TryFillFromSsms()
-        {
-            if (_ssmsConnectionSource == null)
+            if (sameTarget)
             {
-                SsmsDiagnostics.Trace("자동 채움 중단: 연결 소스가 주입되지 않았습니다.");
-                return false;
-            }
-
-            var info = _ssmsConnectionSource.TryGetCurrent();
-            if (info == null) return false;   // 사유는 소스가 이미 남겼다.
-
-            // 사용자가 입력 중인 암호를 지우지 않는다. 도구 창이 다시 보일 때마다 이 메서드가
-            // 불리므로(가시성 트리거), 가드가 없으면 타이핑 중이던 값이 사라진다.
-            if (!PasswordFromSsms && !string.IsNullOrEmpty(_password))
-            {
-                // 버튼을 눌러도 아무 일이 없는 것처럼 보이는 경우가 여기다. 사용자에게는
-                // 버튼이 고장 난 것과 구분되지 않으므로, 진단만 남기지 말고 화면에도 알린다.
-                SsmsDiagnostics.Trace("자동 채움 건너뜀: 사용자가 입력한 암호가 남아 있습니다.");
-                SsmsHintMessage =
-                    "암호 칸에 입력한 값이 있어 가져오지 않았습니다. 암호 칸을 비우고 다시 누르세요.";
-                return false;
-            }
-
-            // 순서가 계약이다. Server/Database setter가 LoadSavedCredential()을 호출해
-            // AuthMode·UserName을 저장소 값으로 되돌리므로, SSMS 값은 반드시 그 뒤에 얹는다.
-            ServerName = info.ServerName;
-            DatabaseName = info.DatabaseName;
-
-            // 입력란이 개체 탐색기와 같아졌으므로 "선택이 다릅니다"는 더 이상 참이 아니다.
-            // 여기서 내리지 않으면 방금 누른 버튼이 배너를 남긴 것처럼 보인다.
-            _ssmsFillEverSucceeded = true;
-            SsmsHintMessage = null;
-
-            if (info.UnsupportedReason != null)
-            {
-                // 서버·DB는 쓸 수 있지만 인증은 사용자가 직접 지정해야 한다.
-                // 이미 입력해 둔 인증 정보를 지우지 않는다.
-                //
-                // 대상이 바뀌었다면 위의 ServerName/DatabaseName setter가 ForgetSsmsPassword()로
-                // 암호까지 이미 정리했다. 대상이 그대로인데 지원 여부만 바뀐 경우(setter가
-                // 호출되지 않아 ForgetSsmsPassword가 돌지 않는 경우)에도 배너만은 여기서 내린다 —
-                // 이 경우는 인증 정보(AuthMode·UserName)도 그대로이므로 암호까지 버릴 필요는 없다.
-                ConnectionSourceMessage = null;
-                WarningMessage = info.UnsupportedReason;
-                return true;
-            }
-
-            AuthMode = info.AuthMode;
-            UserName = info.UserName;
-            _password = info.Password;
-            PasswordFromSsms = info.Password != null;
-
-            ConnectionSourceMessage = PasswordFromSsms
-                ? "SSMS 개체 탐색기 연결에서 가져왔습니다 (암호 포함). Connect를 누르세요."
-                : "SSMS 개체 탐색기 연결에서 가져왔습니다. Connect를 누르세요.";
-
-            // 채웠다는 기록은 채운 쪽이 남긴다. 어댑터는 읽기만 하고, 그 읽기는 대조 목적으로도
-            // 일어나므로 거기서 "채웠다"고 적으면 로그가 일어나지 않은 일을 보고하게 된다.
-            SsmsDiagnostics.Trace(
-                $"자동 채움: {ServerName}.{DatabaseName} {AuthMode} 인증, " +
-                $"계정={UserName ?? "(없음)"}, 암호 실림={PasswordFromSsms}");
-            return true;
-        }
-
-        /// <summary>
-        /// 활성 데이터베이스를 지정하고 인증 정보·매핑·초기화 상태를 다시 판정한다.
-        /// </summary>
-        public void SetContext(string? serverName, string? databaseName)
-        {
-            ServerName = serverName;
-            DatabaseName = databaseName;
-
-            // ServerName/DatabaseName setter는 값이 실제로 바뀔 때만 InvalidateActiveContext()를
-            // 호출한다(동일값 재대입은 early-return한다). ConnectCommand는 매번 SetContext(ServerName,
-            // DatabaseName)을 그대로 호출하므로 — 같은 대상으로 재접속하는 흔한 경로다 — 여기서
-            // 한 번 더 무효화해야 아래에서 판정하는 최신 상태로 다시 채워진다.
-            InvalidateActiveContext();
-
-            if (!HasContext)
-            {
+                SsmsHintMessage = null;
                 return;
             }
 
-            if (!PersistCredential())
+            SsmsHintMessage = HasContext
+                ? $"개체 탐색기 선택이 다릅니다 — {info.ServerName}.{info.DatabaseName}. " +
+                  "Connect를 누르면 이 대상으로 전환됩니다."
+                : $"개체 탐색기 선택: {info.ServerName}.{info.DatabaseName} — Connect를 누르세요.";
+        }
+
+        /// <summary>
+        /// 개체 탐색기의 현재 선택을 대상으로 채택하고 접속한다. 유일한 연결 경로다.
+        /// </summary>
+        private void Connect()
+        {
+            var info = _ssmsConnectionSource?.TryGetCurrent();
+
+            if (info == null)
+            {
+                // 대상을 모르는 채로 할 수 있는 일이 없다. 다만 지금 대상과 목록은 그대로 둔다 —
+                // 읽지 못했다는 사실이 그것들을 거짓으로 만들지는 않는다.
+                WarningMessage =
+                    "개체 탐색기에서 데이터베이스(또는 그 하위 개체)를 하나 선택한 뒤 다시 누르세요. " +
+                    "서버 노드나 여러 개를 한꺼번에 선택한 상태에서는 대상을 정할 수 없습니다.";
+                SsmsDiagnostics.Trace("Connect 중단: 개체 탐색기에서 연결을 읽지 못했습니다.");
+                return;
+            }
+
+            SetTarget(info.ServerName, info.DatabaseName, info.AuthMode, info.UserName);
+
+            if (info.UnsupportedReason != null)
+            {
+                // 인증 정보를 얻을 길이 없으므로 실패가 확정된 접속을 시도하지 않는다.
+                // 시도하면 사유 대신 TestConnection의 낮은 수준 오류가 배너에 뜬다.
+                WarningMessage = info.UnsupportedReason;
+                SsmsDiagnostics.Trace(
+                    $"Connect 중단: {info.ServerName}.{info.DatabaseName} — {info.UnsupportedReason}");
+                return;
+            }
+
+            _credentialStore.Set(info.ServerName, info.DatabaseName, info.AuthMode, info.UserName, info.Password);
+            SsmsDiagnostics.Trace(
+                $"접속 시도: {info.ServerName}.{info.DatabaseName} {info.AuthMode} 인증, " +
+                $"계정={info.UserName ?? "(없음)"}, 암호 실림={info.Password != null}");
+
+            ApplyContext();
+        }
+
+        /// <summary>
+        /// 지금 대상에 대해 접속·매핑·초기화 상태를 다시 판정하고 목록을 채운다.
+        /// </summary>
+        private void ApplyContext()
+        {
+            if (!HasContext)
             {
                 return;
             }
@@ -497,79 +301,6 @@ namespace DBVC.Vsix.ViewModels
             if (IsMapped && IsInitialized)
             {
                 Refresh();
-            }
-        }
-
-        /// <summary>
-        /// Connect가 무엇을 저장하려 했고 파일이 실제로 생겼는지 남긴다.
-        ///
-        /// 저장 실패는 이번 세션의 접속까지 막지 않도록 저장소가 삼킨다. 그 판단은 옳지만,
-        /// 흔적이 없으면 "Connect를 누르지 않았다"와 "저장이 조용히 실패했다"가 화면에서
-        /// 똑같아 보인다 — 둘은 완전히 다른 문제이고 고칠 곳도 다르다.
-        /// </summary>
-        private void TraceSave(string passwordSource, bool fullySaved)
-        {
-            bool fileExists;
-            try
-            {
-                fileExists = System.IO.File.Exists(_credentialStore.FilePath);
-            }
-            catch (Exception ex)
-            {
-                fileExists = false;
-                SsmsDiagnostics.Trace($"인증 파일 확인 실패: {ex.GetType().Name} — {ex.Message}");
-            }
-
-            SsmsDiagnostics.Trace(
-                $"Connect 저장: {ServerName}.{DatabaseName} {AuthMode} 인증, 계정={UserName ?? "(없음)"}, " +
-                $"암호 출처={passwordSource}, 저장 성공={fullySaved}, " +
-                $"파일 존재={fileExists} ({_credentialStore.FilePath})" +
-                $"{(_credentialStore.LastSaveError == null ? "" : $", 쓰기 실패={_credentialStore.LastSaveError}")}");
-        }
-
-        /// <summary>
-        /// 입력된 인증 정보를 저장소에 반영한다. 저장할 수 없으면 배너에 사유를 남기고 false.
-        /// </summary>
-        private bool PersistCredential()
-        {
-            try
-            {
-                // ServerName/DatabaseName/AuthMode/UserName의 setter가 이미 ForgetSsmsPassword()로
-                // 대상이 바뀌면 플래그를 내린다. AuthMode == Sql 조건은 그 위에 얹는 2차 방어선이다 —
-                // 앞으로 그 setter들 중 하나가 잘못 고쳐져 더 이상 플래그를 내리지 않게 되더라도,
-                // 이 조건이 없으면 Windows 인증으로 표시된 대상에 SQL 암호가 조용히 쓰여 버린다.
-                if (PasswordFromSsms && AuthMode == SqlAuthMode.Sql)
-                {
-                    // SSMS에서 가져온 암호는 디스크에 쓰지 않기로 했다.
-                    // plainPassword: null은 "저장된 암호를 건드리지 않는다"이므로 인증 방식과
-                    // 계정명만 파일에 남고, 암호는 세션 캐시가 이 프로세스 동안만 들고 있는다.
-                    _credentialStore.Save(ServerName!, DatabaseName!, AuthMode, UserName, null);
-                    _credentialStore.SetSessionPassword(ServerName!, DatabaseName!, _password);
-                    TraceSave("SSMS 암호(세션)", true);
-                    return true;
-                }
-
-                bool fullySaved = _credentialStore.Save(
-                    ServerName!, DatabaseName!, AuthMode, UserName, _password);
-                TraceSave(_password == null ? "암호 변경 없음" : "입력한 암호", fullySaved);
-
-                if (AuthMode == SqlAuthMode.Sql && !fullySaved)
-                {
-                    WarningMessage =
-                        "암호를 이 기계에 안전하게 저장하지 못했습니다(DPAPI를 사용할 수 없습니다). " +
-                        "인증 정보가 저장되지 않았으므로 접속할 수 없습니다.";
-                    return false;
-                }
-                return true;
-            }
-            finally
-            {
-                // 평문을 ViewModel에 남기지 않는다. 저장소가 보호된 형태로, 또는 세션 캐시가 들고 있다.
-                _password = null;
-                PasswordFromSsms = false;
-                // 접속을 확정했으므로 자동 채움 배너("...암호 포함...")는 더 이상 현재 상태를
-                // 설명하지 않는다. 남겨두면 Connect 이후에도 마치 아직 채워둔 게 있는 것처럼 보인다.
-                ConnectionSourceMessage = null;
             }
         }
 
@@ -655,17 +386,10 @@ namespace DBVC.Vsix.ViewModels
         public ICommand CommitCommand { get; }
 
         /// <summary>
-        /// 입력된 서버/데이터베이스를 활성 컨텍스트로 적용한다.
-        /// 입력란은 사용자가 직접 채우거나 <see cref="RefreshFromSsmsCommand"/>가 채운다.
+        /// 개체 탐색기의 현재 선택을 대상으로 채택하고 접속한다.
+        /// 입력란이 없으므로 이것이 유일한 연결 경로다.
         /// </summary>
         public ICommand ConnectCommand { get; }
-
-        /// <summary>
-        /// SSMS 개체 탐색기의 현재 연결을 입력란으로 가져온다.
-        /// 도구 창을 개체 탐색기와 나란히 띄워 두면 가시성 이벤트가 뜨지 않으므로,
-        /// 결정적인 수동 갱신 수단이 하나 필요하다.
-        /// </summary>
-        public ICommand RefreshFromSsmsCommand { get; }
 
         /// <summary>
         /// 활성 데이터베이스에 Git 저장소를 매핑한다.
@@ -777,8 +501,9 @@ namespace DBVC.Vsix.ViewModels
 
             _configManager.AddMapping(ServerName!, DatabaseName!, path!);
 
-            // 매핑·초기화 상태를 다시 판정하고 목록을 새로고침한다.
-            SetContext(ServerName, DatabaseName);
+            // 매핑이 생겼으므로 상태를 다시 판정한다. 인증 정보는 이미 저장소에 있다.
+            InvalidateActiveContext();
+            ApplyContext();
         }
 
         // ---------- Setup ----------
@@ -1047,12 +772,6 @@ namespace DBVC.Vsix.ViewModels
             (GenerateRollbackScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (ConnectRepositoryCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (PullCommand as RelayCommand)?.RaiseCanExecuteChanged();
-        }
-
-        private void RaiseConnectCanExecuteChanged()
-        {
-            (ConnectCommand as RelayCommand)?.RaiseCanExecuteChanged();
-            RaiseActionCanExecuteChanged();
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
