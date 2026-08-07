@@ -55,7 +55,7 @@ Git 클라이언트에서 'git remote set-url origin <SSH URL>'을 실행하면 
 `SshMissingGuidance`:
 ```
 SSH 원격이지만 ssh 실행 파일을 찾을 수 없습니다.
-Windows 설정 > 앱 > 선택적 기능에서 'OpenSSH 클라이언트'를 설치한 뒤 다시 시도하세요.
+Windows 설정 > 시스템 > 선택적 기능에서 'OpenSSH 클라이언트'를 설치한 뒤 다시 시도하세요.
 ```
 
 `SshFailureGuidance`:
@@ -336,7 +336,8 @@ Expected: 컴파일 실패. `Explain`이 없다.
         private static readonly string SshMissingGuidance = string.Join(Environment.NewLine, new[]
         {
             "SSH 원격이지만 ssh 실행 파일을 찾을 수 없습니다.",
-            "Windows 설정 > 앱 > 선택적 기능에서 'OpenSSH 클라이언트'를 설치한 뒤 다시 시도하세요."
+            // 경로는 Windows 11 기준이다 (Windows 10에서는 '앱 > 선택적 기능'이었다).
+            "Windows 설정 > 시스템 > 선택적 기능에서 'OpenSSH 클라이언트'를 설치한 뒤 다시 시도하세요."
         });
 
         private static readonly string SshFailureGuidance = string.Join(Environment.NewLine, new[]
@@ -782,7 +783,7 @@ git commit -m "feat(core): Pull 실패에 원격 종류별 한국어 안내를 �
 
 ```markdown
    **인증은 SSH만 지원합니다.** DBVC는 자격 증명을 묻지도 저장하지도 않고, Git이 쓰는 시스템 `ssh`에 그대로 위임합니다. 처음 쓰기 전에 다음을 준비하세요.
-   1. Windows에 OpenSSH 클라이언트가 설치되어 있어야 합니다 (설정 > 앱 > 선택적 기능).
+   1. Windows에 OpenSSH 클라이언트가 설치되어 있어야 합니다 (Windows 11은 기본 포함. 없다면 설정 > 시스템 > 선택적 기능).
    2. `ssh-keygen`으로 키를 만들고 공개키를 GitHub·GitLab 계정에 등록합니다.
    3. 원격 URL을 SSH 형식으로 바꿉니다: `git remote set-url origin git@github.com:org/repo.git`
    4. **Git 클라이언트에서 한 번 접속해 호스트 키를 `known_hosts`에 등록해 두세요.** DBVC는 도구 창 안에서 "이 호스트를 신뢰하시겠습니까?"에 답할 수 없어, 등록되지 않은 호스트로는 Pull이 실패합니다.

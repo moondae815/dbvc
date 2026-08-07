@@ -2,19 +2,28 @@
 
 제로 상태에서 DBVC를 실제로 쓰기까지의 순서다. 위에서부터 차례로 진행하고 완료한 항목에 체크한다.
 
-**대상 환경 두 가지**
+**대상 환경 두 가지** — 두 기계 모두 **Windows 11** 기준이다.
 
 | | 개발 노트북 | 운영 PC |
 | --- | --- | --- |
+| OS | Windows 11 | Windows 11 |
 | 망 | 온라인 | 폐쇄망 |
 | 원격 | github.com | 사내 GitLab 16.3 |
 | 계정 | GitHub 계정 | LDAP(Windows AD) |
+
+**명령을 실행하는 곳.** 이 문서의 명령은 Windows 11의 기본 터미널인 **Windows Terminal의
+PowerShell** 에서 실행하는 것을 기준으로 적었다. 예외는 1단계의 `msbuild` 하나뿐이고
+(개발자용 셸이 필요하다), 그 자리에 따로 적어 두었다. 일부 명령은 **관리자 권한** 창이
+필요한데, 역시 해당 항목에 표시해 두었다.
+
+> Windows 10에서 쓰던 `type %APPDATA%\...` 같은 명령 프롬프트 문법은 PowerShell에서 동작하지 않는다
+> (`%VAR%`가 그대로 문자열로 남는다). 아래 명령은 모두 PowerShell 문법으로 바꿔 두었다.
 
 **단계 순서가 중요한 이유.** SSH가 되기 전에는 저장소를 못 받고, 저장소에 추적 브랜치가 없으면
 Pull이 거부되고, 폴더가 Git 저장소가 아니면 DBVC가 매핑을 거부한다. 순서를 지키면 이 세 가지를
 각각 따로 해결할 필요가 없다.
 
-**소요 시간 감각.** 1~4단계(노트북)는 처음 한 번에 1~2시간. 5단계(폐쇄망)는 방화벽 승인 대기가
+**소요 시간 감각.** 1~5단계(노트북)는 처음 한 번에 1~2시간. 6단계(폐쇄망)는 방화벽 승인 대기가
 변수라 며칠 걸릴 수 있다 — **0단계의 방화벽 요청을 가장 먼저 넣어두는 것을 권한다.**
 
 ---
@@ -22,14 +31,27 @@ Pull이 거부되고, 폴더가 Git 저장소가 아니면 DBVC가 매핑을 거
 ## 0단계 — 시작 전에 (지금 바로)
 
 - [ ] **폐쇄망 방화벽 개방 요청을 넣는다.** 운영 PC → 사내 GitLab 호스트, **TCP 22번(SSH) 아웃바운드**.
-      이것이 이 문서 전체에서 리드타임이 가장 긴 항목이고, 승인이 안 나면 5단계 전체가 막힌다.
+      이것이 이 문서 전체에서 리드타임이 가장 긴 항목이고, 승인이 안 나면 6단계 전체가 막힌다.
       요청 사유: "Git over SSH로 DB 스키마 형상 관리 도구를 사용".
 - [ ] 사내 GitLab에서 **새 프로젝트를 만들 권한**이 있는지 확인한다. 없으면 관리자에게 요청한다.
 - [ ] 개발 노트북에 **Visual Studio 2022**가 설치되어 있고 **Visual Studio 확장 개발** 워크로드가
       포함되어 있는지 확인한다. `.vsix`를 만들려면 이 워크로드가 필요하다.
 - [ ] 두 기계에 **SSMS 21**이 설치되어 있는지 확인한다.
+- [ ] 두 기계가 **Windows 11**인지 확인한다. Windows 10에서도 동작하지만 이 문서의 설정 앱 경로는
+      Windows 11 기준이다.
+  ```powershell
+  Get-ComputerInfo -Property OsName,OsVersion | Format-List
+  ```
+  `OsName`에 `Windows 11`이 나오면 된다 (`OsVersion`은 Windows 11도 `10.0.x`로 시작한다 — 정상이다).
 - [ ] 두 기계에서 **로컬 관리자 권한**이 있는지 확인한다. `.vsix` 설치가 전체 사용자 설치라
       UAC 승인이 필요하다 (4단계). 없으면 그 단계에서 막힌다.
+      Windows 11 Home / Pro 어느 쪽이든 상관없다.
+  ```powershell
+  whoami /groups | Select-String 'S-1-5-32-544'
+  ```
+  `BUILTIN\Administrators` 줄이 보이면 통과다. 관리자 권한 없이 연 창에서는 그 줄에
+  `Group used for deny only`(권한 거부용) 가 함께 붙는데, **정상이다** — UAC가 승인 전까지
+  권한을 낮춰 둔 것뿐이고 4단계에서 "예"를 누르면 올라간다. 줄 자체가 안 나오면 관리자가 아니다.
 - [ ] 각 기계에서 **어떤 인증으로 SQL Server에 붙을지** 정한다. DBVC는 **Windows 통합 인증과
       SQL Server 인증을 모두** 지원하며, (서버, 데이터베이스)마다 따로 기억한다.
       개발 노트북은 Windows 인증, 폐쇄망 운영 PC는 SQL 인증처럼 섞어 써도 된다.
@@ -60,32 +82,45 @@ CI는 `.vsix`를 만들지 않는다(`.github/workflows/ci.yml` 주석 참고). 
 | Visual Studio 확장 빌드 도구 | `.vsix`가 생성되지 않음 |
 | .NET 데스크톱 빌드 도구 | `MSB4236: 'Microsoft.NET.Sdk' SDK를 찾을 수 없습니다` |
 
-```
-vs_BuildTools.exe --add Microsoft.VisualStudio.Workload.VisualStudioExtensionBuildTools ^
-                  --add Microsoft.VisualStudio.Workload.ManagedDesktopBuildTools ^
-                  --includeRecommended --passive --norestart
+PowerShell에서는 줄바꿈 기호가 `^`가 아니라 백틱(`` ` ``)이다. 아래를 그대로 쓴다.
+
+```powershell
+.\vs_BuildTools.exe --add Microsoft.VisualStudio.Workload.VisualStudioExtensionBuildTools `
+                    --add Microsoft.VisualStudio.Workload.ManagedDesktopBuildTools `
+                    --includeRecommended --passive --norestart
 ```
 
+> Windows 11에는 `winget`이 기본 포함되어 있으므로, Build Tools 자체가 아직 없다면 내려받기부터
+> 한 번에 할 수 있다.
+> ```powershell
+> winget install --id Microsoft.VisualStudio.2022.BuildTools --override "--add Microsoft.VisualStudio.Workload.VisualStudioExtensionBuildTools --add Microsoft.VisualStudio.Workload.ManagedDesktopBuildTools --includeRecommended --passive --norestart"
+> ```
+> 폐쇄망 PC에서는 `winget`이 원격 저장소에 닿지 못하므로 이 방법을 쓸 수 없다. 다만 폐쇄망 PC는
+> `.vsix`를 받아 설치만 하므로 빌드 도구 자체가 필요 없다 (6단계).
+
 - [ ] 소스를 받는다.
-  ```
+  ```powershell
   git clone https://github.com/moondae815/dbvc.git
   cd dbvc
   ```
-- [ ] **개발자 명령 프롬프트(Developer Command Prompt for VS 2022)** 를 열고 빌드한다.
-      일반 명령 프롬프트에서는 `msbuild`를 찾지 못한다.
-  ```
+- [ ] **개발자용 셸**을 열고 빌드한다. 일반 PowerShell 창에서는 `msbuild`를 찾지 못한다.
+      시작 메뉴에서 `Developer PowerShell for VS 2022`(또는 `Developer Command Prompt for VS 2022`)
+      를 연다. Windows 11의 Windows Terminal을 쓴다면 탭 새로 만들기 옆 **∨** 를 눌러 같은 이름의
+      프로필을 고르면 된다.
+  ```powershell
   msbuild src\DBVC.Vsix\DBVC.Vsix.csproj -restore -p:Configuration=Release
   ```
 - [ ] 산출물이 실제로 생겼는지 확인한다. **경로에 `net48`이 들어간다.**
-  ```
-  dir src\DBVC.Vsix\bin\Release\net48\*.vsix
+  ```powershell
+  Get-ChildItem src\DBVC.Vsix\bin\Release\net48\*.vsix |
+    Select-Object Name, @{ n = 'MB'; e = { [math]::Round($_.Length / 1MB, 1) } }
   ```
   크기가 8MB 안팎이면 정상이다.
 
 > **`.vsix`가 없으면 여기서 멈춘다.** 뒷단계가 전부 이것에 의존한다.
 > msbuild가 성공했는데 파일이 없으면 위 표의 "확장 빌드 도구" 워크로드를 확인한다.
 
-- [ ] 만들어진 `.vsix` 파일을 **따로 보관한다.** 5단계에서 폐쇄망 PC로 옮겨야 한다.
+- [ ] 만들어진 `.vsix` 파일을 **따로 보관한다.** 6단계에서 폐쇄망 PC로 옮겨야 한다.
 
 ---
 
@@ -94,31 +129,48 @@ vs_BuildTools.exe --add Microsoft.VisualStudio.Workload.VisualStudioExtensionBui
 DBVC는 자격 증명을 묻지도 저장하지도 않는다. libgit2가 시스템 `ssh`에 그대로 넘기므로,
 평소 쓰는 Git과 똑같은 SSH 설정을 그대로 물려받는다.
 
-- [ ] **OpenSSH 클라이언트가 있는지 확인한다.**
-  ```
+- [ ] **OpenSSH 클라이언트가 있는지 확인한다.** Windows 11에는 기본으로 들어 있어
+      대개 그냥 통과한다.
+  ```powershell
   ssh -V
   ```
-  실패하면: 설정 > 앱 > 선택적 기능 > 기능 추가 > **OpenSSH 클라이언트** 설치.
+  `OpenSSH_for_Windows_...` 가 나오면 통과다. 실패하면 (사내 이미지에서 빼 놓은 경우가 있다)
+  **관리자 권한 PowerShell** 에서 설치한다.
+  ```powershell
+  Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+  ```
+  설정 앱으로 하려면 **설정 > 시스템 > 선택적 기능 > 기능 보기 > OpenSSH 클라이언트** 다.
+  Windows 10의 "설정 > 앱 > 선택적 기능"에서 **시스템 아래로 옮겨졌다.** 바로 열려면:
+  ```powershell
+  start ms-settings:optionalfeatures
+  ```
 
 - [ ] **키를 만든다.** 이미 `~\.ssh\id_ed25519`가 있으면 건너뛴다.
-  ```
+  ```powershell
   ssh-keygen -t ed25519 -C "본인메일@example.com"
   ```
-  passphrase를 걸면 `ssh-agent`에 등록해 두는 편이 편하다:
-  ```
+  passphrase를 걸면 `ssh-agent`에 등록해 두는 편이 편하다. Windows 11에서 `ssh-agent` 서비스는
+  **기본이 "사용 안 함"** 이라 서비스부터 켜야 한다.
+  ```powershell
+  # 앞의 두 줄은 관리자 권한 PowerShell에서
   Get-Service ssh-agent | Set-Service -StartupType Automatic
   Start-Service ssh-agent
+  # 이 줄은 평소 쓰는 일반 창에서 (사용자 계정별로 등록된다)
   ssh-add $env:USERPROFILE\.ssh\id_ed25519
   ```
 
 - [ ] **공개키를 GitHub에 등록한다.** `~\.ssh\id_ed25519.pub` 내용을 통째로 복사해
       GitHub > Settings > SSH and GPG keys > New SSH key.
+  ```powershell
+  # 화면으로 확인
+  Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub
+  # 클립보드로 바로 복사
+  Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub | Set-Clipboard
   ```
-  type %USERPROFILE%\.ssh\id_ed25519.pub
-  ```
+  > `.pub` 이 붙은 **공개키** 파일이다. 확장자 없는 `id_ed25519`(개인키)는 절대 올리지 않는다.
 
 - [ ] **접속을 확인한다.** 이 단계가 `known_hosts` 등록을 겸한다.
-  ```
+  ```powershell
   ssh -T git@github.com
   ```
   처음이면 `Are you sure you want to continue connecting (yes/no)?`가 뜬다 — **`yes`를 입력한다.**
@@ -140,20 +192,26 @@ clone은 그 문제를 애초에 만들지 않는다.
       사내 스키마이므로 **Private**로 만든다.
 
 - [ ] **SSH URL로 clone한다.** HTTPS URL이 아니라 SSH URL이어야 한다.
-  ```
+  ```powershell
+  New-Item -ItemType Directory -Force C:\dbvc-repos | Out-Null
   cd C:\dbvc-repos
   git clone git@github.com:<계정>/db-schema-<데이터베이스명>.git
   ```
   > SSH URL은 `git@github.com:...` 형태다. `https://github.com/...`을 쓰면 DBVC가 Pull에서
   > 거부하면서 SSH로 바꾸는 방법을 안내한다.
 
+  > **폴더 위치.** `C:\` 바로 아래에 폴더를 만들려면 관리자 권한이 필요할 수 있다. 필요하면
+  > `$env:USERPROFILE\dbvc-repos` 처럼 사용자 폴더 아래로 잡아도 된다 — DBVC는 경로를 가리지 않는다.
+  > 다만 **OneDrive가 동기화하는 폴더(바탕 화면·문서)** 는 피한다. Windows 11에서는 이 폴더들이
+  > 기본으로 OneDrive 백업 대상이라 `.git` 내부 파일이 동기화와 충돌할 수 있다.
+
 - [ ] **추적 브랜치가 설정됐는지 확인한다.** clone했다면 자동으로 되어 있다.
-  ```
+  ```powershell
   git -C db-schema-<데이터베이스명> status -sb
   ```
   첫 줄이 `## main...origin/main` 처럼 `...` 뒤에 원격 브랜치가 보이면 통과.
   `## main` 만 보이면 추적이 없는 것이다:
-  ```
+  ```powershell
   git -C db-schema-<데이터베이스명> push -u origin main
   ```
 
@@ -167,6 +225,14 @@ clone은 그 문제를 애초에 만들지 않는다.
 - [ ] 1단계에서 만든 `.vsix`를 더블클릭해 설치한다. **UAC 창이 뜨면 "예"를 누른다.**
       DBVC는 전체 사용자 설치(매니페스트의 `AllUsers="true"`)라 관리자 권한이 필요하다.
       설치 위치는 `...\SSMS 21\Release\Common7\IDE\Extensions\` 아래다.
+  > 다른 기계에서 복사해 온 파일이면 Windows가 차단 표시를 붙여 설치가 막힐 수 있다
+  > (파일 속성 아래쪽의 "차단 해제"). 미리 풀어 두려면:
+  > ```powershell
+  > Unblock-File .\DBVC.Vsix.vsix
+  > ```
+  > Windows 11 파일 탐색기는 우클릭 메뉴가 접혀 있다 — "속성"이나 원하는 항목이 안 보이면
+  > **추가 옵션 표시**(`Shift+F10`)를 누른다.
+
   > 개발 노트북에 **Visual Studio도 설치되어 있다면** 설치 대상이 SSMS 21인지 확인한다.
   > DBVC는 `Microsoft.VisualStudio.Ssms`만 대상으로 하므로 VS에는 설치되지 않는 것이 정상이다.
 - [ ] SSMS 21을 실행하고 **View(보기) 메뉴 > DBVC**를 연다. 메뉴 아래쪽에 있다.
@@ -193,12 +259,16 @@ clone은 그 문제를 애초에 만들지 않는다.
   > 최상위 폴더를 골라야 한다.
 
 - [ ] 매핑이 저장됐는지 확인한다.
-  ```
-  type %APPDATA%\DBVC\mappings.json
+  ```powershell
+  Get-Content $env:APPDATA\DBVC\mappings.json
   ```
 
 - [ ] `%APPDATA%\DBVC` 에 `credentials.json` 이 **없는지** 확인한다. 이전 버전이 남긴 파일이
       있었다면 확장이 처음 로드될 때 지워진다.
+  ```powershell
+  # 아무것도 출력되지 않으면 통과
+  Get-ChildItem $env:APPDATA\DBVC -Filter credentials.json
+  ```
 
 ---
 
@@ -223,7 +293,7 @@ clone은 그 문제를 애초에 만들지 않는다.
       예: `chore: 초기 스키마 스냅샷`
 
 - [ ] 원격에 올린다. DBVC에는 Push 기능이 없으므로 Git 클라이언트에서 한다.
-  ```
+  ```powershell
   git -C C:\dbvc-repos\db-schema-<데이터베이스명> push
   ```
 
@@ -237,16 +307,24 @@ clone은 그 문제를 애초에 만들지 않는다.
 0단계의 방화벽 승인이 난 뒤에 진행한다.
 
 - [ ] **방화벽이 실제로 열렸는지 확인한다.** 운영 PC에서:
-  ```
+  ```powershell
+  # 포트만 먼저 본다 (Windows 11 기본 포함 cmdlet, 키 없이도 결과가 나온다)
+  Test-NetConnection -ComputerName <gitlab-호스트> -Port 22
   ssh -T git@<gitlab-호스트>
   ```
-  `Connection timed out`이면 아직 안 열린 것이다. `Permission denied (publickey)` 는
-  **포트가 열렸다는 뜻이므로 성공**이다(키를 아직 안 올렸을 뿐).
+  `TcpTestSucceeded : True` 면 열린 것이다. `ssh` 쪽에서 `Connection timed out`이면 아직 안 열린 것이고,
+  `Permission denied (publickey)` 는 **포트가 열렸다는 뜻이므로 성공**이다(키를 아직 안 올렸을 뿐).
+  > `Test-NetConnection`은 응답이 없으면 20초 남짓 기다린 뒤 실패로 끝난다 — 멈춘 것이 아니다.
 
-- [ ] `.vsix` 파일을 사내 반입 절차에 따라 운영 PC로 옮긴다.
+- [ ] `.vsix` 파일을 사내 반입 절차에 따라 운영 PC로 옮긴다. 옮긴 뒤 차단 표시를 푼다.
+  ```powershell
+  Unblock-File .\DBVC.Vsix.vsix
+  ```
 
 - [ ] **2단계를 운영 PC에서 반복한다.** 키는 기계마다 따로 만드는 것을 권한다.
-  - [ ] `ssh -V` 로 OpenSSH 클라이언트 확인
+  - [ ] `ssh -V` 로 OpenSSH 클라이언트 확인 (Windows 11 기본 포함. 사내 이미지에서 빠져 있으면
+        폐쇄망에서는 `Add-WindowsCapability`가 Windows Update에 닿지 못할 수 있다 — 이때는
+        Git for Windows가 함께 설치하는 `ssh.exe`를 쓰거나 사내 배포 서버(WSUS/SCCM)에 요청한다)
   - [ ] `ssh-keygen -t ed25519` 로 키 생성
   - [ ] 공개키를 **GitLab** 에 등록: 우측 상단 아바타 > Preferences > SSH Keys
   - [ ] `ssh -T git@<gitlab-호스트>` 로 접속 확인 및 `known_hosts` 등록 (`yes` 입력)
@@ -254,7 +332,7 @@ clone은 그 문제를 애초에 만들지 않는다.
 - [ ] **GitLab에 프로젝트를 만든다.** README 포함(빈 저장소가 되지 않도록), Private.
 
 - [ ] **SSH URL로 clone한다.**
-  ```
+  ```powershell
   git clone git@<gitlab-호스트>:<그룹>/db-schema-<데이터베이스명>.git
   ```
   > GitLab이 비표준 SSH 포트를 쓴다면 URL이 `ssh://git@<호스트>:2222/<그룹>/<프로젝트>.git`
@@ -322,8 +400,17 @@ clone은 그 문제를 애초에 만들지 않는다.
       안내가 뜨고 **로컬 수정 내용이 그대로 남아 있는지**. (사라지면 심각한 결함이다)
 - [ ] **SSH 포트 문구.** 안내 목록의 포트 항목이 `원격 호스트의 SSH 포트(기본 22)가 열려 있는지`
       로 표시되는지. 비표준 포트를 쓰는 GitLab에서 특히 확인한다.
-- [ ] **OpenSSH가 없는 상태** (선택). 선택적 기능에서 OpenSSH 클라이언트를 끄고 Pull →
-      `OpenSSH 클라이언트를 설치한 뒤 다시 시도하세요` 안내가 뜨는지. 확인 후 다시 켠다.
+- [ ] **OpenSSH가 없는 상태** (선택). 관리자 권한 PowerShell에서 클라이언트를 떼고 Pull →
+      `OpenSSH 클라이언트를 설치한 뒤 다시 시도하세요` 안내가 뜨는지. 확인 후 다시 붙인다.
+  ```powershell
+  Remove-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0   # 끄기
+  Add-WindowsCapability    -Online -Name OpenSSH.Client~~~~0.0.1.0   # 되돌리기
+  ```
+  > 재현이 안 되면 `PATH`에 다른 `ssh.exe`가 남아 있는 것이다 — Git for Windows도 `ssh.exe`를 함께
+  > 깐다. `Get-Command ssh -All` 로 확인한다. `core.sshCommand` 가 설정돼 있어도 DBVC는 SSH가
+  > 가능하다고 판단하므로 이 안내가 뜨지 않는다 (`git config --get core.sshCommand` 로 확인).
+  >
+  > 안내 문구가 가리키는 경로가 **설정 > 시스템 > 선택적 기능**(Windows 11 경로)인지도 함께 본다.
 
 ### 컨텍스트 메뉴
 
@@ -371,3 +458,8 @@ clone은 그 문제를 애초에 만들지 않는다.
 | Pull이 영문 메시지를 낸다 | 안내가 붙지 않은 경우다. 원격 URL이 SSH도 HTTPS도 아닌 형태인지 확인 |
 | Pull이 `known_hosts` 를 말한다 | Git 클라이언트에서 `ssh -T git@<호스트>` 를 한 번 실행해 `yes` 입력 |
 | 커밋했는데 원격에 없다 | DBVC에 Push가 없다. `git push` 를 직접 실행 |
+| `type %APPDATA%\...` 가 "경로를 찾을 수 없습니다"를 낸다 | PowerShell에서는 `%VAR%` 가 확장되지 않는다. `Get-Content $env:APPDATA\...` 를 쓴다 |
+| `--add ... ^` 붙여넣기가 깨진다 | `^` 는 명령 프롬프트 전용 줄바꿈이다. PowerShell에서는 백틱(`` ` ``)을 쓰거나 한 줄로 붙여 쓴다 |
+| `ssh-add` 가 "에이전트에 연결할 수 없습니다"를 낸다 | Windows 11에서 `ssh-agent` 서비스가 사용 안 함이다. 2단계의 `Set-Service ssh-agent -StartupType Automatic` + `Start-Service` (관리자 권한) |
+| 설정 앱에서 "선택적 기능"을 못 찾는다 | Windows 11은 **설정 > 시스템** 아래다 (Windows 10은 앱 아래였다). `start ms-settings:optionalfeatures` 로 바로 연다 |
+| `.vsix` 를 열면 "이 파일을 열 수 없습니다"가 뜬다 | 다른 기계에서 복사해 온 파일의 차단 표시다. `Unblock-File .\DBVC.Vsix.vsix` 후 다시 시도 |

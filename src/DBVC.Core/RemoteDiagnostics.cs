@@ -30,7 +30,8 @@ namespace DBVC.Core
         private static readonly string SshMissingGuidance = string.Join(Environment.NewLine, new[]
         {
             "SSH 원격이지만 ssh 실행 파일을 찾을 수 없습니다.",
-            "Windows 설정 > 앱 > 선택적 기능에서 'OpenSSH 클라이언트'를 설치한 뒤 다시 시도하세요."
+            // 경로는 Windows 11 기준이다 (Windows 10에서는 '앱 > 선택적 기능'이었다).
+            "Windows 설정 > 시스템 > 선택적 기능에서 'OpenSSH 클라이언트'를 설치한 뒤 다시 시도하세요."
         });
 
         private static readonly string SshFailureGuidance = string.Join(Environment.NewLine, new[]
