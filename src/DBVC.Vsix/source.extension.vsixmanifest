@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Id="DBVC.Vsix.1c4e8f90" Version="1.0.5" Language="en-US" Publisher="DBVC" />
+    <Identity Id="DBVC.Vsix.1c4e8f90" Version="1.1.0" Language="en-US" Publisher="DBVC" />
     <DisplayName>DBVC SSMS Extension</DisplayName>
     <Description xml:space="preserve">Database Version Control (DBVC) plugin for SQL Server Management Studio 21.</Description>
     <MoreInfo>https://github.com/dbvc/dbvc</MoreInfo>
