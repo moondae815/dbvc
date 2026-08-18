@@ -81,6 +81,7 @@ namespace DBVC.Vsix.ViewModels
             ConnectCommand = new RelayCommand(Connect, () => _ssmsConnectionSource != null);
             ConnectRepositoryCommand = new RelayCommand(ConnectRepository, CanConnectRepository);
             PullCommand = new RelayCommand(Pull, CanPull);
+            PushCommand = new RelayCommand(Push, CanPush);
             GenerateDeploymentScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Deployment), CanGenerateScript);
             GenerateRollbackScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Rollback), CanGenerateScript);
         }
@@ -400,6 +401,9 @@ namespace DBVC.Vsix.ViewModels
         /// <summary>원격 저장소의 변경을 로컬 저장소로 가져온다. (Feature 6)</summary>
         public ICommand PullCommand { get; }
 
+        /// <summary>로컬 저장소의 커밋을 원격 저장소에 올린다.</summary>
+        public ICommand PushCommand { get; }
+
         /// <summary>선택된 객체들의 현재 DDL을 단일 스크립트로 내보낸다. (Feature 8)</summary>
         public ICommand GenerateDeploymentScriptCommand { get; }
 
@@ -476,6 +480,47 @@ namespace DBVC.Vsix.ViewModels
             // 이루려면 방금 받은 커밋 로그와 Diff를 화면에 즉시 보여줘야 한다.
             History.Load(ServerName, DatabaseName, SelectedChange?.RelativePath);
             SelectionChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        // ---------- Push ----------
+
+        private bool CanPush() => HasContext && IsMapped;
+
+        /// <summary>
+        /// Pull과 달리 사전 확인이 없다 - Push는 로컬 저장소도 작업 트리도 변경하지 않으므로
+        /// 사용자가 잃을 것이 없다. 성공 후 Refresh나 History 재적재도 하지 않는다.
+        /// 로컬에 바뀐 것이 없기 때문이다.
+        /// </summary>
+        private void Push()
+        {
+            if (!CanPush()) return;
+
+            PushResult result;
+            try
+            {
+                result = _gitManager.PushChanges(ServerName!, DatabaseName!);
+            }
+            catch (Exception ex)
+            {
+                // GitPushRejectedException은 여기서 잡힌다 - Core가 이미 완전한 한국어 안내를
+                // 메시지에 담아 던지므로, 전용 catch를 두면 이 분기와 완전히 같은 코드를
+                // 중복할 뿐이다. Pull이 GitAuthenticationException에서 겪은 결함이다. 되살리지 말 것.
+                _notifier.ShowError("DBVC Push 실패", ex.Message);
+                return;
+            }
+
+            switch (result)
+            {
+                case PushResult.NoMapping:
+                    _notifier.ShowError("DBVC Push 실패", "매핑된 Git 저장소를 찾을 수 없습니다.");
+                    break;
+                case PushResult.NothingToPush:
+                    _notifier.ShowInfo("DBVC Push", "올릴 커밋이 없습니다. 원격이 이미 최신입니다.");
+                    break;
+                case PushResult.Pushed:
+                    _notifier.ShowInfo("DBVC Push", "커밋을 원격 저장소에 올렸습니다.");
+                    break;
+            }
         }
 
         // ---------- 저장소 매핑 ----------
@@ -772,6 +817,7 @@ namespace DBVC.Vsix.ViewModels
             (GenerateRollbackScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (ConnectRepositoryCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (PullCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (PushCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
