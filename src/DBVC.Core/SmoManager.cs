@@ -115,6 +115,15 @@ namespace DBVC.Core
         /// <summary>
         /// 대상 객체들을 하나씩 스크립팅한다.
         /// 설계 3.1에 따라 개별 객체의 실패는 격리되어 전체 프로세스를 중단시키지 않는다.
+        ///
+        /// 스크립트는 작업 트리 밖의 임시 파일에 먼저 쓰고, 기존 파일과 바이트가 다를 때만
+        /// 옮긴다. 내용이 같은데도 덮어쓰면 파일의 mtime이 바뀌고, 그러면 libgit2의 status가
+        /// 인덱스에 캐시된 stat 정보를 믿지 못해 추적 파일 전부를 다시 읽어 해시한다 —
+        /// 객체 3000개 기준으로 status 한 번이 18ms에서 6.6초가 된다. DBVC는 새로고침마다
+        /// 전 객체를 추출하므로 이 비용이 매번 붙는다.
+        ///
+        /// 임시 파일을 작업 트리 안에 두지 않는 이유는 두 가지다 — git이 미추적 파일로 잡아
+        /// 변경 목록을 오염시키고, 스크립팅이 중간에 실패하면 반쯤 쓰인 파일이 남는다.
         /// </summary>
         internal static ScriptResult ScriptAll(
             IEnumerable<ScriptTargetInfo> targets,
@@ -123,27 +132,91 @@ namespace DBVC.Core
         {
             var result = new ScriptResult();
 
-            foreach (var target in targets)
-            {
-                try
-                {
-                    var outputPath = Path.Combine(
-                        localGitPath,
-                        target.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+            var stagingDir = Path.Combine(Path.GetTempPath(), "dbvc_smo_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(stagingDir);
 
-                    Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-                    scriptOne(target, outputPath);
-                    result.SucceededCount++;
-                }
-                catch (Exception ex)
+            try
+            {
+                var index = 0;
+                foreach (var target in targets)
                 {
-                    // 객체 하나의 실패가 나머지 객체 추출을 막아서는 안 된다.
-                    Debug.WriteLine($"Failed to script '{target.QualifiedName}': {ex.Message}");
-                    result.FailedObjects.Add(target.QualifiedName);
+                    var stagingPath = Path.Combine(stagingDir, (index++).ToString() + ".sql");
+
+                    try
+                    {
+                        var outputPath = Path.Combine(
+                            localGitPath,
+                            target.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+
+                        scriptOne(target, stagingPath);
+                        PublishIfChanged(stagingPath, outputPath);
+                        result.SucceededCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        // 객체 하나의 실패가 나머지 객체 추출을 막아서는 안 된다.
+                        Debug.WriteLine($"Failed to script '{target.QualifiedName}': {ex.Message}");
+                        result.FailedObjects.Add(target.QualifiedName);
+                    }
+                    finally
+                    {
+                        TryDelete(stagingPath);
+                    }
                 }
+            }
+            finally
+            {
+                try { Directory.Delete(stagingDir, recursive: true); }
+                catch (Exception ex) { Debug.WriteLine($"Failed to remove staging dir '{stagingDir}': {ex.Message}"); }
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// 갓 추출한 파일을 최종 경로에 반영한다. 바이트가 같으면 아무것도 하지 않는다.
+        /// </summary>
+        private static void PublishIfChanged(string stagingPath, string outputPath)
+        {
+            if (HasSameBytes(stagingPath, outputPath)) return;
+
+            Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+
+            // File.Move의 덮어쓰기 오버로드는 netstandard2.0에 없다.
+            // 임시 디렉터리와 저장소가 다른 볼륨에 있으면 Move도 어차피 복사가 된다.
+            File.Copy(stagingPath, outputPath, overwrite: true);
+        }
+
+        private static bool HasSameBytes(string stagingPath, string outputPath)
+        {
+            if (!File.Exists(outputPath)) return false;
+
+            var stagingInfo = new FileInfo(stagingPath);
+            var outputInfo = new FileInfo(outputPath);
+            if (stagingInfo.Length != outputInfo.Length) return false;
+
+            // 추출물은 객체 하나의 DDL이라 통째로 읽어도 부담이 없다.
+            var staging = File.ReadAllBytes(stagingPath);
+            var output = File.ReadAllBytes(outputPath);
+
+            for (var i = 0; i < staging.Length; i++)
+            {
+                if (staging[i] != output[i]) return false;
+            }
+
+            return true;
+        }
+
+        private static void TryDelete(string path)
+        {
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to remove staging file '{path}': {ex.Message}");
+            }
         }
 
         internal static HashSet<string>? BuildFilter(List<string>? objectNames)
