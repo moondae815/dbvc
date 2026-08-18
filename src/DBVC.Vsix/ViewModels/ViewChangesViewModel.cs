@@ -34,6 +34,7 @@ namespace DBVC.Vsix.ViewModels
         private readonly IFolderBrowseDialog _folderDialog;
         private readonly IWorkingTreeCleaner _cleaner;
         private readonly ScriptExporter _scriptExporter;
+        private readonly IBackgroundScheduler _scheduler;
 
         /// <summary>새로고침 시점의 변경 레코드. 커밋 후 처리 완료 표시에 사용한다.</summary>
         private IReadOnlyList<ChangeRecord> _lastChangeRecords = new List<ChangeRecord>();
@@ -60,8 +61,12 @@ namespace DBVC.Vsix.ViewModels
             IWorkingTreeCleaner? cleaner = null,
             IFolderBrowseDialog? folderDialog = null,
             ISqlCredentialStore? credentialStore = null,
-            ISsmsConnectionSource? ssmsConnectionSource = null)
+            ISsmsConnectionSource? ssmsConnectionSource = null,
+            IBackgroundScheduler? scheduler = null)
         {
+            // 기본값이 인라인인 이유: 단위 테스트와 셸 밖 실행이 이 경로다.
+            // 실제 도구 창에는 DbvcServices가 UI 스레드를 비우는 구현을 넣어 준다.
+            _scheduler = scheduler ?? new InlineBackgroundScheduler();
             _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
             _credentialStore = credentialStore ?? new SessionCredentialStore();
             // null이면 Connect 자체가 비활성화된다 — 개체 탐색기를 읽을 수단이 없으므로
@@ -77,10 +82,12 @@ namespace DBVC.Vsix.ViewModels
             _scriptExporter = new ScriptExporter(_configManager, _gitManager);
             History = new ObjectHistoryViewModel(_gitManager);
 
-            RefreshCommand = new RelayCommand(Refresh);
-            SetupCommand = new RelayCommand(Setup);
+            // 진행 중에는 모두 잠긴다. 같은 추출이 겹쳐 돌면 작업 트리를 동시에 건드리고
+            // 나중에 끝난 쪽이 먼저 끝난 쪽의 목록을 덮어쓴다.
+            RefreshCommand = new RelayCommand(Refresh, () => !IsBusy);
+            SetupCommand = new RelayCommand(Setup, () => !IsBusy);
             CommitCommand = new RelayCommand(Commit, CanCommit);
-            ConnectCommand = new RelayCommand(Connect, () => _ssmsConnectionSource != null);
+            ConnectCommand = new RelayCommand(Connect, () => _ssmsConnectionSource != null && !IsBusy);
             ConnectRepositoryCommand = new RelayCommand(ConnectRepository, CanConnectRepository);
             PullCommand = new RelayCommand(Pull, CanPull);
             PushCommand = new RelayCommand(Push, CanPush);
@@ -277,6 +284,7 @@ namespace DBVC.Vsix.ViewModels
 
         /// <summary>
         /// 지금 대상에 대해 접속·매핑·초기화 상태를 다시 판정하고 목록을 채운다.
+        /// 접속 시도는 응답 없는 서버에서 수십 초까지 걸리므로 UI 스레드에서 하지 않는다.
         /// </summary>
         private void ApplyContext()
         {
@@ -285,26 +293,69 @@ namespace DBVC.Vsix.ViewModels
                 return;
             }
 
-            // 접속부터 확인한다. 실패를 "초기화되지 않음"으로 뭉개면
-            // 사용자는 DBVC 초기화 버튼만 보고 원인을 알 수 없다.
-            var connectionError = _stateTracker.TestConnection(ServerName!, DatabaseName!);
-            if (connectionError != null)
+            var server = ServerName!;
+            var database = DatabaseName!;
+
+            IsBusy = true;
+            _scheduler.Run(
+                () => ProbeContext(server, database),
+                ApplyContextProbe,
+                ex =>
+                {
+                    IsBusy = false;
+                    _notifier.ShowError("DBVC 연결 실패", ex.Message);
+                });
+        }
+
+        /// <summary>접속·매핑·초기화 판정. UI에 닿는 것을 건드리지 않는다.</summary>
+        private ContextProbe ProbeContext(string server, string database)
+        {
+            var probe = new ContextProbe
             {
-                IsMapped = _configManager.TryGetMapping(ServerName!, DatabaseName!) != null;
+                // 접속부터 확인한다. 실패를 "초기화되지 않음"으로 뭉개면
+                // 사용자는 DBVC 초기화 버튼만 보고 원인을 알 수 없다.
+                ConnectionError = _stateTracker.TestConnection(server, database),
+                IsMapped = _configManager.TryGetMapping(server, database) != null
+            };
+
+            // 접속하지 못했으면 초기화 여부는 물어볼 수 없다.
+            if (probe.ConnectionError == null)
+            {
+                probe.IsInitialized = _stateTracker.IsInitialized(server, database);
+            }
+
+            return probe;
+        }
+
+        private void ApplyContextProbe(ContextProbe probe)
+        {
+            IsMapped = probe.IsMapped;
+
+            if (probe.ConnectionError != null)
+            {
                 IsInitialized = false;
-                WarningMessage = connectionError;
+                WarningMessage = probe.ConnectionError;
+                IsBusy = false;
                 return;
             }
 
-            IsMapped = _configManager.TryGetMapping(ServerName!, DatabaseName!) != null;
             WarningMessage = IsMapped ? null : NotMappedWarning;
+            IsInitialized = probe.IsInitialized;
 
-            IsInitialized = _stateTracker.IsInitialized(ServerName!, DatabaseName!);
+            // Refresh가 스스로 다시 IsBusy를 세우므로 먼저 내려놓는다.
+            IsBusy = false;
 
             if (IsMapped && IsInitialized)
             {
                 Refresh();
             }
+        }
+
+        private sealed class ContextProbe
+        {
+            public string? ConnectionError { get; set; }
+            public bool IsMapped { get; set; }
+            public bool IsInitialized { get; set; }
         }
 
         // ---------- 바인딩 속성 ----------
@@ -329,6 +380,24 @@ namespace DBVC.Vsix.ViewModels
             {
                 if (_isMapped == value) return;
                 _isMapped = value;
+                OnPropertyChanged();
+                RaiseActionCanExecuteChanged();
+            }
+        }
+
+        private bool _isBusy;
+
+        /// <summary>
+        /// 백그라운드 작업이 진행 중인지. 진행 중에는 모든 동작 버튼이 잠긴다 —
+        /// 같은 추출이 겹쳐 돌면 서로의 결과를 덮어쓰고 작업 트리를 동시에 건드린다.
+        /// </summary>
+        public bool IsBusy
+        {
+            get => _isBusy;
+            private set
+            {
+                if (_isBusy == value) return;
+                _isBusy = value;
                 OnPropertyChanged();
                 RaiseActionCanExecuteChanged();
             }
@@ -596,65 +665,97 @@ namespace DBVC.Vsix.ViewModels
                 return;
             }
 
-            var warnings = new List<string>();
+            var server = ServerName!;
+            var database = DatabaseName!;
 
-            try
+            IsBusy = true;
+            _scheduler.Run(
+                () => GatherRefresh(server, database),
+                ApplyRefreshOutcome,
+                ex =>
+                {
+                    IsBusy = false;
+                    WarningMessage = null;
+                    _notifier.ShowError("DBVC 새로고침 실패", ex.Message);
+                    RaiseActionCanExecuteChanged();
+                });
+        }
+
+        /// <summary>
+        /// 새로고침의 무거운 부분. SMO 추출·변경 로그 조회·Git 상태 읽기·작업 트리 정리를 한다.
+        /// UI 스레드 밖에서 돌므로 <see cref="Changes"/>를 비롯한 바인딩 대상을 건드리지 않는다.
+        /// </summary>
+        private RefreshOutcome GatherRefresh(string server, string database)
+        {
+            var outcome = new RefreshOutcome();
+
+            // 현재 DB 상태를 파일로 추출해야 Git 상태·Diff가 최신 코드를 반영한다.
+            var scriptResult = _smoManager.ScriptObjectsDetailed(server, database, null);
+            if (scriptResult == null)
             {
-                // 현재 DB 상태를 파일로 추출해야 Git 상태·Diff가 최신 코드를 반영한다.
-                var scriptResult = _smoManager.ScriptObjectsDetailed(ServerName!, DatabaseName!, null);
-                if (scriptResult == null)
-                {
-                    warnings.Add("데이터베이스에서 객체를 추출하지 못했습니다.");
-                }
-                else if (scriptResult.HasFailures)
-                {
-                    warnings.Add($"일부 객체를 추출하지 못했습니다: {string.Join(", ", scriptResult.FailedObjects)}");
-                }
-
-                if (!_stateTracker.RefreshState(ServerName!, DatabaseName!))
-                {
-                    warnings.Add("변경 로그를 읽지 못했습니다.");
-                }
-
-                _lastChangeRecords = _stateTracker.GetPendingChanges(ServerName!, DatabaseName!);
-
-                // DROP된 객체의 파일을 지워야 Git이 삭제를 감지하고 커밋에 포함할 수 있다.
-                // RefreshState가 Git 상태를 읽은 뒤이므로 이 정리가 목록 판정을 바꾸지 않는다.
-                var mapping = _configManager.TryGetMapping(ServerName!, DatabaseName!);
-                if (mapping != null)
-                {
-                    var cleanup = _cleaner.RemoveDeletedObjectFiles(mapping.GitPath, _lastChangeRecords);
-                    if (cleanup.HasFailures)
-                    {
-                        warnings.Add($"삭제된 객체의 파일을 지우지 못했습니다: {string.Join(", ", cleanup.FailedPaths)}");
-                        foreach (var failedPath in cleanup.FailedPaths)
-                        {
-                            _failedCleanupPaths.Add(failedPath);
-                        }
-                    }
-                }
-
-                foreach (var record in _lastChangeRecords)
-                {
-                    // 정리에 실패한 항목은 체크를 풀어 사용자에게 제외되었음을 보여준다.
-                    // 파일이 여전히 작업 트리에 남아 있는데 체크된 채면 삭제가 조용히 커밋에서 빠진 것처럼 보인다.
-                    var cleanupFailed = _failedCleanupPaths.Contains(record.RelativePath);
-                    Changes.Add(new ChangeItemViewModel
-                    {
-                        ObjectName = record.QualifiedName,
-                        State = record.State,
-                        RelativePath = record.RelativePath,
-                        IsSelected = !cleanupFailed
-                    });
-                }
+                outcome.Warnings.Add("데이터베이스에서 객체를 추출하지 못했습니다.");
             }
-            catch (Exception ex)
+            else if (scriptResult.HasFailures)
             {
-                _notifier.ShowError("DBVC 새로고침 실패", ex.Message);
+                outcome.Warnings.Add($"일부 객체를 추출하지 못했습니다: {string.Join(", ", scriptResult.FailedObjects)}");
             }
 
-            WarningMessage = warnings.Count > 0 ? string.Join(" / ", warnings) : null;
+            if (!_stateTracker.RefreshState(server, database))
+            {
+                outcome.Warnings.Add("변경 로그를 읽지 못했습니다.");
+            }
+
+            outcome.Records = _stateTracker.GetPendingChanges(server, database);
+
+            // DROP된 객체의 파일을 지워야 Git이 삭제를 감지하고 커밋에 포함할 수 있다.
+            // RefreshState가 Git 상태를 읽은 뒤이므로 이 정리가 목록 판정을 바꾸지 않는다.
+            var mapping = _configManager.TryGetMapping(server, database);
+            if (mapping != null)
+            {
+                var cleanup = _cleaner.RemoveDeletedObjectFiles(mapping.GitPath, outcome.Records);
+                if (cleanup.HasFailures)
+                {
+                    outcome.Warnings.Add($"삭제된 객체의 파일을 지우지 못했습니다: {string.Join(", ", cleanup.FailedPaths)}");
+                    outcome.FailedCleanupPaths.AddRange(cleanup.FailedPaths);
+                }
+            }
+
+            return outcome;
+        }
+
+        private void ApplyRefreshOutcome(RefreshOutcome outcome)
+        {
+            _lastChangeRecords = outcome.Records;
+
+            foreach (var failedPath in outcome.FailedCleanupPaths)
+            {
+                _failedCleanupPaths.Add(failedPath);
+            }
+
+            foreach (var record in _lastChangeRecords)
+            {
+                // 정리에 실패한 항목은 체크를 풀어 사용자에게 제외되었음을 보여준다.
+                // 파일이 여전히 작업 트리에 남아 있는데 체크된 채면 삭제가 조용히 커밋에서 빠진 것처럼 보인다.
+                var cleanupFailed = _failedCleanupPaths.Contains(record.RelativePath);
+                Changes.Add(new ChangeItemViewModel
+                {
+                    ObjectName = record.QualifiedName,
+                    State = record.State,
+                    RelativePath = record.RelativePath,
+                    IsSelected = !cleanupFailed
+                });
+            }
+
+            WarningMessage = outcome.Warnings.Count > 0 ? string.Join(" / ", outcome.Warnings) : null;
+            IsBusy = false;
             RaiseActionCanExecuteChanged();
+        }
+
+        private sealed class RefreshOutcome
+        {
+            public List<string> Warnings { get; } = new List<string>();
+            public IReadOnlyList<ChangeRecord> Records { get; set; } = new List<ChangeRecord>();
+            public List<string> FailedCleanupPaths { get; } = new List<string>();
         }
 
         // ---------- Commit ----------
@@ -664,10 +765,15 @@ namespace DBVC.Vsix.ViewModels
             return HasContext
                 && IsMapped
                 && IsInitialized
+                && !IsBusy
                 && !string.IsNullOrWhiteSpace(CommitMessage)
                 && Changes.Any(c => c.IsSelected);
         }
 
+        /// <summary>
+        /// 스테이징은 객체 3000개 기준 15초가 걸린다(libgit2 고유 비용이라 API를 바꿔도 줄지 않는다).
+        /// 그래서 커밋도 UI 스레드에서 하지 않는다.
+        /// </summary>
         private void Commit()
         {
             if (!CanCommit()) return;
@@ -683,27 +789,41 @@ namespace DBVC.Vsix.ViewModels
                 .Select(p => p!)
                 .ToList();
 
-            try
-            {
-                if (!_gitManager.CommitChanges(ServerName!, DatabaseName!, CommitMessage!, selectedPaths))
+            // 화면 객체를 읽는 일은 전부 여기서 끝낸다. 백그라운드로 넘어가는 것은 값뿐이다.
+            var committedNames = new HashSet<string>(
+                selected.Select(c => c.ObjectName ?? string.Empty), StringComparer.OrdinalIgnoreCase);
+            var committedRecords = _lastChangeRecords.Where(r => committedNames.Contains(r.QualifiedName)).ToList();
+
+            var server = ServerName!;
+            var database = DatabaseName!;
+            var message = CommitMessage!;
+
+            IsBusy = true;
+            _scheduler.Run(
+                () =>
                 {
-                    WarningMessage = "커밋할 변경사항이 없습니다.";
-                    return;
-                }
+                    if (!_gitManager.CommitChanges(server, database, message, selectedPaths)) return false;
+                    _stateTracker.MarkProcessed(server, database, committedRecords);
+                    return true;
+                },
+                committed =>
+                {
+                    IsBusy = false;
 
-                var committedNames = new HashSet<string>(selected.Select(c => c.ObjectName ?? string.Empty), StringComparer.OrdinalIgnoreCase);
-                _stateTracker.MarkProcessed(
-                    ServerName!,
-                    DatabaseName!,
-                    _lastChangeRecords.Where(r => committedNames.Contains(r.QualifiedName)));
+                    if (!committed)
+                    {
+                        WarningMessage = "커밋할 변경사항이 없습니다.";
+                        return;
+                    }
 
-                CommitMessage = string.Empty;
-                Refresh();
-            }
-            catch (Exception ex)
-            {
-                _notifier.ShowError("DBVC 커밋 실패", ex.Message);
-            }
+                    CommitMessage = string.Empty;
+                    Refresh();
+                },
+                ex =>
+                {
+                    IsBusy = false;
+                    _notifier.ShowError("DBVC 커밋 실패", ex.Message);
+                });
         }
 
         // ---------- 외부에서 객체 선택 (SQL 에디터 컨텍스트 메뉴) ----------
@@ -817,6 +937,9 @@ namespace DBVC.Vsix.ViewModels
 
         private void RaiseActionCanExecuteChanged()
         {
+            (RefreshCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (SetupCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (ConnectCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CommitCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GenerateDeploymentScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GenerateRollbackScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();

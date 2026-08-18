@@ -1464,6 +1464,176 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(_notifier.Errors, Has.Count.EqualTo(1));
         }
 
+        // ---------- UI 스레드 차단 방지 ----------
+        //
+        // Refresh는 SMO로 DB 전 객체를 추출하고 libgit2로 작업 트리 상태를 읽는다. Commit은
+        // 객체 3000개 기준 스테이징에만 15초가 걸린다. 이것들을 명령이 실행되는 스레드에서
+        // 그대로 하면 그 시간 동안 SSMS 전체(메뉴·쿼리 편집기·개체 탐색기)가 멈춘다.
+        // 아래 테스트들은 무거운 호출이 호출자 스레드가 아니라 스케줄러로 넘어가는지 본다.
+
+        /// <summary>
+        /// 넘겨받은 작업을 붙잡아 두었다가 테스트가 <see cref="RunPending"/>을 부를 때 실행한다.
+        /// 인라인으로 실행해 버리면 "호출자 스레드에서 하지 않는다"를 증명할 수 없다.
+        /// </summary>
+        private sealed class DeferredScheduler : IBackgroundScheduler
+        {
+            private readonly List<Action> _pending = new List<Action>();
+
+            public void Run<T>(Func<T> work, Action<T> onSucceeded, Action<Exception> onFailed)
+            {
+                _pending.Add(() =>
+                {
+                    T value;
+                    try { value = work(); }
+                    catch (Exception ex) { onFailed(ex); return; }
+                    onSucceeded(value);
+                });
+            }
+
+            /// <summary>대기 중인 작업을 모두 실행한다. 실행 중 새로 등록된 작업도 이어서 처리한다.</summary>
+            public void RunPending()
+            {
+                while (_pending.Count > 0)
+                {
+                    var next = _pending[0];
+                    _pending.RemoveAt(0);
+                    next();
+                }
+            }
+        }
+
+        private ViewChangesViewModel NewViewModel(IBackgroundScheduler scheduler)
+        {
+            return new ViewChangesViewModel(
+                _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
+                _cleaner.Object, _folderDialog, _credentials.Object, _ssms.Object, scheduler);
+        }
+
+        /// <summary>Connect까지 끝낸 ViewModel. Connect 자체도 스케줄러를 타므로 여기서 비워 준다.</summary>
+        private ViewChangesViewModel NewConnectedViewModel(DeferredScheduler scheduler)
+        {
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info());
+            var vm = NewViewModel(scheduler);
+            vm.ConnectCommand.Execute(null);
+            scheduler.RunPending();
+            return vm;
+        }
+
+        [Test]
+        public void Connect_HandsTheConnectionProbeToTheScheduler()
+        {
+            var scheduler = new DeferredScheduler();
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info());
+            var vm = NewViewModel(scheduler);
+
+            vm.ConnectCommand.Execute(null);
+
+            _stateTracker.Verify(s => s.TestConnection(It.IsAny<string>(), It.IsAny<string>()), Times.Never,
+                "접속 시도는 호출자(UI) 스레드가 아니라 스케줄러에 넘겨야 한다");
+
+            scheduler.RunPending();
+
+            _stateTracker.Verify(s => s.TestConnection(Server, Database), Times.Once);
+        }
+
+        [Test]
+        public void Refresh_HandsScriptingToTheScheduler()
+        {
+            var scheduler = new DeferredScheduler();
+            var vm = NewConnectedViewModel(scheduler);
+            _smo.Invocations.Clear();
+
+            vm.RefreshCommand.Execute(null);
+
+            _smo.Verify(s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>()),
+                Times.Never, "SMO 추출은 호출자(UI) 스레드가 아니라 스케줄러에 넘겨야 한다");
+
+            scheduler.RunPending();
+
+            _smo.Verify(s => s.ScriptObjectsDetailed(Server, Database, null), Times.Once);
+        }
+
+        [Test]
+        public void Refresh_PopulatesChanges_WhenBackgroundWorkCompletes()
+        {
+            var scheduler = new DeferredScheduler();
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database))
+                .Returns(new List<ChangeRecord> { Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql") });
+            var vm = NewConnectedViewModel(scheduler);
+
+            vm.RefreshCommand.Execute(null);
+            scheduler.RunPending();
+
+            Assert.That(vm.Changes.Select(c => c.ObjectName), Is.EqualTo(new[] { "dbo.Users" }));
+        }
+
+        [Test]
+        public void IsBusy_IsTrueWhileRefreshWorkIsOutstanding()
+        {
+            var scheduler = new DeferredScheduler();
+            var vm = NewConnectedViewModel(scheduler);
+
+            vm.RefreshCommand.Execute(null);
+            Assert.That(vm.IsBusy, Is.True, "작업이 끝나기 전에는 진행 중임을 화면이 알 수 있어야 한다");
+
+            scheduler.RunPending();
+            Assert.That(vm.IsBusy, Is.False);
+        }
+
+        [Test]
+        public void RefreshCommand_CannotExecute_WhileWorkIsOutstanding()
+        {
+            var scheduler = new DeferredScheduler();
+            var vm = NewConnectedViewModel(scheduler);
+
+            vm.RefreshCommand.Execute(null);
+
+            Assert.That(vm.RefreshCommand.CanExecute(null), Is.False,
+                "진행 중에 다시 누르면 같은 추출이 겹쳐 돈다");
+
+            scheduler.RunPending();
+            Assert.That(vm.RefreshCommand.CanExecute(null), Is.True);
+        }
+
+        [Test]
+        public void Refresh_ReleasesBusyAndReportsError_WhenBackgroundWorkThrows()
+        {
+            var scheduler = new DeferredScheduler();
+            var vm = NewConnectedViewModel(scheduler);
+            _smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null))
+                .Throws(new InvalidOperationException("추출 중 폭발"));
+
+            vm.RefreshCommand.Execute(null);
+            scheduler.RunPending();
+
+            Assert.That(_notifier.Errors, Has.Some.Contains("추출 중 폭발"));
+            Assert.That(vm.IsBusy, Is.False, "실패해도 잠금이 풀려야 다시 시도할 수 있다");
+        }
+
+        [Test]
+        public void Commit_HandsGitWorkToTheScheduler()
+        {
+            var scheduler = new DeferredScheduler();
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database))
+                .Returns(new List<ChangeRecord> { Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql") });
+            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+                .Returns(true);
+
+            var vm = NewConnectedViewModel(scheduler);
+            vm.RefreshCommand.Execute(null);
+            scheduler.RunPending();
+            vm.CommitMessage = "첫 커밋";
+
+            vm.CommitCommand.Execute(null);
+
+            _git.Verify(g => g.CommitChanges(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>()),
+                Times.Never, "스테이징·커밋은 호출자(UI) 스레드가 아니라 스케줄러에 넘겨야 한다");
+
+            scheduler.RunPending();
+
+            _git.Verify(g => g.CommitChanges(Server, Database, "첫 커밋", It.IsAny<IEnumerable<string>>()), Times.Once);
+        }
+
         private sealed class RecordingSaveDialog : IFileSaveDialog
         {
             public string? PathToReturn { get; set; }

@@ -98,7 +98,10 @@ namespace DBVC.Vsix.Tests
             ssms.Setup(s => s.TryGetCurrent())
                 .Returns(new SsmsConnectionInfo("S", "DB", SqlAuthMode.Sql, "sa", "p@ss", null));
 
-            var services = new DbvcServices(NewIsolatedConfig(), credentials.Object);
+            // 인라인 스케줄러를 명시한다. 기본값은 VS 셸의 JoinableTaskFactory를 쓰는 구현이라
+            // 셸 밖에서는 동작하지 않는다 — 이 테스트가 보려는 것은 인증 저장소 배선이지 스레딩이 아니다.
+            var services = new DbvcServices(
+                NewIsolatedConfig(), credentials.Object, new InlineBackgroundScheduler());
             var vm = services.CreateViewChangesViewModel(null, ssms.Object);
 
             vm.ConnectCommand.Execute(null);

@@ -27,6 +27,19 @@
             </WrapPanel>
 
             <!--
+                진행 표시. 무거운 작업이 백그라운드로 나가면서 창이 멈추지 않게 되었는데,
+                그 대가로 "누르긴 눌렀나?"가 화면에 드러나지 않는다. 여기가 그것을 말하는 곳이다.
+                IsInitialized와 무관하게 보여야 한다 — 접속 판정 중에는 아직 false다.
+            -->
+            <StackPanel Orientation="Horizontal" Margin="5,0,5,4"
+                        Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}">
+                <ProgressBar IsIndeterminate="True" Width="120" Height="12"
+                             VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock Text="작업 중입니다. 그동안 SSMS는 그대로 사용할 수 있습니다."
+                           VerticalAlignment="Center" Foreground="#555555"/>
+            </StackPanel>
+
+            <!--
                 행동 안내. 개체 탐색기 선택이 지금 대상과 다르거나, 아직 아무것도 고르지
                 않았을 때 뜬다. 입력란이 사라진 뒤로 "무엇을 눌러야 하는가"를 말하는 유일한 곳이다.
             -->
