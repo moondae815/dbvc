@@ -1398,7 +1398,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.GenerateDeploymentScriptCommand.Execute(null);
 
             Assert.That(_notifier.InfoCalls, Has.Count.EqualTo(1));
-            Assert.That(_notifier.InfoCalls[0].Title, Is.EqualTo("DBVC Deployment Script"));
+            Assert.That(_notifier.InfoCalls[0].Title, Is.EqualTo("DBVC 배포 스크립트"));
             Assert.That(_notifier.InfoCalls[0].Message, Does.Contain("1개 객체를 내보냈습니다"));
             Assert.That(_notifier.InfoCalls[0].Message, Does.Contain("dbo.Gone"));
             Assert.That(_notifier.InfoCalls[0].Message, Does.Contain("추출된 파일이 없어"),

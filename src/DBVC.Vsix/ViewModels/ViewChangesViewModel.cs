@@ -737,8 +737,11 @@ namespace DBVC.Vsix.ViewModels
         {
             if (!CanGenerateScript()) return;
 
-            var kindLabel = kind == ScriptKind.Rollback ? "Rollback" : "Deployment";
-            var title = $"DBVC {kindLabel} Script";
+            // 표시용과 파일명용을 가른다. 기본 파일명을 한글로 만들면 폐쇄망 반입이나
+            // 다른 도구의 처리에서 인코딩 문제를 살 뿐이고, 얻는 것이 없다.
+            var kindText = kind == ScriptKind.Rollback ? "롤백" : "배포";
+            var kindSlug = kind == ScriptKind.Rollback ? "Rollback" : "Deployment";
+            var title = $"DBVC {kindText} 스크립트";
 
             var result = _scriptExporter.Export(
                 ServerName!, DatabaseName!, GetSelectedRecords(), kind, DateTimeOffset.Now);
@@ -752,7 +755,7 @@ namespace DBVC.Vsix.ViewModels
 
             var targetPath = _saveDialog.PromptForSavePath(
                 $"{title} 저장",
-                $"DBVC_{kindLabel}_{DatabaseName}.sql");
+                $"DBVC_{kindSlug}_{DatabaseName}.sql");
 
             // 사용자가 취소한 경우다. 오류가 아니다.
             if (string.IsNullOrWhiteSpace(targetPath)) return;

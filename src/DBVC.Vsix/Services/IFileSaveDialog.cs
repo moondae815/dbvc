@@ -18,7 +18,7 @@ namespace DBVC.Vsix.Services
                 Title = title,
                 FileName = defaultFileName,
                 DefaultExt = ".sql",
-                Filter = "SQL Script (*.sql)|*.sql|All files (*.*)|*.*",
+                Filter = "SQL 스크립트 (*.sql)|*.sql|모든 파일 (*.*)|*.*",
                 OverwritePrompt = true
             };
 
