@@ -129,20 +129,31 @@
 
                 <TabItem Header="이력">
                     <Grid>
-                        <ListView ItemsSource="{Binding History.Entries}">
-                            <ListView.View>
-                                <GridView>
-                                    <GridViewColumn Header="날짜" Width="130" DisplayMemberBinding="{Binding Date}"/>
-                                    <GridViewColumn Header="작성자" Width="110" DisplayMemberBinding="{Binding Author}"/>
-                                    <GridViewColumn Header="메시지" Width="320" DisplayMemberBinding="{Binding Message}"/>
-                                    <GridViewColumn Header="SHA" Width="80" DisplayMemberBinding="{Binding ShortSha}"/>
-                                </GridView>
-                            </ListView.View>
-                        </ListView>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
 
-                        <TextBlock Text="이력이 없습니다." Foreground="#808080"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                                   Visibility="{Binding History.IsEmpty, Converter={StaticResource BoolToVis}}"/>
+                        <!-- 목록만으로는 저장소 전체인지 특정 객체의 이력인지 구분할 수 없다. -->
+                        <TextBlock Grid.Row="0" Margin="4,4,4,2" Foreground="#606060"
+                                   Text="{Binding History.ScopeLabel}" />
+
+                        <Grid Grid.Row="1">
+                            <ListView ItemsSource="{Binding History.Entries}">
+                                <ListView.View>
+                                    <GridView>
+                                        <GridViewColumn Header="날짜" Width="130" DisplayMemberBinding="{Binding Date}"/>
+                                        <GridViewColumn Header="작성자" Width="110" DisplayMemberBinding="{Binding Author}"/>
+                                        <GridViewColumn Header="메시지" Width="320" DisplayMemberBinding="{Binding Message}"/>
+                                        <GridViewColumn Header="SHA" Width="80" DisplayMemberBinding="{Binding ShortSha}"/>
+                                    </GridView>
+                                </ListView.View>
+                            </ListView>
+
+                            <TextBlock Text="이력이 없습니다." Foreground="#808080"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       Visibility="{Binding History.IsEmpty, Converter={StaticResource BoolToVis}}"/>
+                        </Grid>
                     </Grid>
                 </TabItem>
             </TabControl>

@@ -42,6 +42,13 @@ namespace DBVC.Vsix.Tests.ViewModels
             _git.Setup(g => g.GetHistory(Server, Database, RelativePath)).Returns(commits.ToList());
         }
 
+        /// <summary>선택된 객체가 없을 때 GitManager가 돌려줄 저장소 전체 이력.</summary>
+        private void GivenRepositoryHistory(params CommitInfo[] commits)
+        {
+            _git.Setup(g => g.GetHistory(Server, Database, It.Is<string?>(p => string.IsNullOrWhiteSpace(p))))
+                .Returns(commits.ToList());
+        }
+
         // ---------- 변환 ----------
 
         [Test]
@@ -177,9 +184,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
         [TestCase(null, Database, RelativePath)]
         [TestCase(Server, null, RelativePath)]
-        [TestCase(Server, Database, null)]
-        [TestCase(Server, Database, "   ")]
-        public void Load_DoesNotQueryGit_WhenAnArgumentIsMissing(string? server, string? database, string? path)
+        public void Load_DoesNotQueryGit_WhenTheTargetIsMissing(string? server, string? database, string? path)
         {
             var vm = NewViewModel();
 
@@ -189,17 +194,67 @@ namespace DBVC.Vsix.Tests.ViewModels
             _git.Verify(g => g.GetHistory(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         }
 
+        // ---------- 저장소 전체 이력 ----------
+
+        /// <summary>
+        /// 커밋 직후에는 변경 목록이 비어 선택할 객체가 없다. 그때도 방금 만든 커밋이 보여야 한다.
+        /// </summary>
+        [TestCase(null)]
+        [TestCase("   ")]
+        public void Load_ShowsTheWholeRepositoryHistory_WhenNoObjectIsGiven(string? path)
+        {
+            GivenRepositoryHistory(Commit("aaa1111222", "초기 스키마 스냅샷"), Commit("bbb3333444", "Initial commit"));
+            var vm = NewViewModel();
+
+            vm.Load(Server, Database, path);
+
+            Assert.That(vm.Entries.Select(e => e.ShortSha), Is.EqualTo(new[] { "aaa1111", "bbb3333" }));
+        }
+
         [Test]
-        public void Load_ClearsTheList_WhenTheSelectionGoesAway()
+        public void Load_FallsBackToTheRepositoryHistory_WhenTheSelectionGoesAway()
         {
             GivenHistory(Commit("abc1234567", "변경"));
+            GivenRepositoryHistory(Commit("def7654321", "저장소 커밋"));
             var vm = NewViewModel();
             vm.Load(Server, Database, RelativePath);
 
             vm.Load(Server, Database, null);
 
-            Assert.That(vm.Entries, Is.Empty);
-            Assert.That(vm.IsEmpty, Is.True);
+            Assert.That(vm.Entries.Single().ShortSha, Is.EqualTo("def7654"));
+        }
+
+        // ---------- 범위 표시 ----------
+
+        [Test]
+        public void ScopeLabel_SaysWholeRepository_WhenNoObjectIsGiven()
+        {
+            var vm = NewViewModel();
+
+            vm.Load(Server, Database, null);
+
+            Assert.That(vm.ScopeLabel, Is.EqualTo("저장소 전체"));
+        }
+
+        [Test]
+        public void ScopeLabel_NamesTheObject_WhenAnObjectIsGiven()
+        {
+            var vm = NewViewModel();
+
+            vm.Load(Server, Database, RelativePath);
+
+            Assert.That(vm.ScopeLabel, Is.EqualTo("dbo.Users"),
+                "경로가 아니라 사용자가 아는 객체 이름으로 보여야 합니다");
+        }
+
+        [Test]
+        public void ScopeLabel_IsEmpty_WhenThereIsNoTarget()
+        {
+            var vm = NewViewModel();
+
+            vm.Load(null, null, null);
+
+            Assert.That(vm.ScopeLabel, Is.Empty);
         }
     }
 }

@@ -768,19 +768,26 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
-        public void SelectedChange_ClearsTheHistory_WhenTheSelectionIsCleared()
+        public void SelectedChange_FallsBackToTheRepositoryHistory_WhenTheSelectionIsCleared()
         {
             _git.Setup(g => g.GetHistory(Server, Database, "dbo/Tables/Users.sql"))
                 .Returns(new List<CommitInfo>
                 {
                     new CommitInfo { Sha = "a3f9c2b1d4", Message = "인덱스 추가", Author = "Tester", Date = DateTimeOffset.Now }
                 });
+            _git.Setup(g => g.GetHistory(Server, Database, It.Is<string?>(p => string.IsNullOrWhiteSpace(p))))
+                .Returns(new List<CommitInfo>
+                {
+                    new CommitInfo { Sha = "bbb2222333", Message = "저장소 커밋", Author = "Tester", Date = DateTimeOffset.Now }
+                });
             var vm = NewConnectedViewModel();
             vm.SelectedChange = new ChangeItemViewModel { ObjectName = "dbo.Users", RelativePath = "dbo/Tables/Users.sql" };
 
             vm.SelectedChange = null;
 
-            Assert.That(vm.History.Entries, Is.Empty);
+            Assert.That(vm.History.Entries.Select(e => e.ShortSha), Is.EqualTo(new[] { "bbb2222" }),
+                "선택이 풀리면 이력이 사라지는 것이 아니라 저장소 전체로 넓어져야 합니다");
+            Assert.That(vm.History.ScopeLabel, Is.EqualTo("저장소 전체"));
         }
 
         [Test]
@@ -1170,6 +1177,37 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             _stateTracker.Verify(s => s.MarkProcessed(Server, Database, It.IsAny<IEnumerable<ChangeRecord>>()), Times.Once);
             Assert.That(vm.CommitMessage, Is.Empty, "커밋 성공 후 메시지 입력창은 비워져야 합니다");
+        }
+
+        /// <summary>
+        /// 커밋하면 변경 목록이 비고, 목록이 비면 선택할 객체가 없다. 그래도 방금 만든 커밋은
+        /// 이력 탭에 보여야 한다 — 첫 커밋 후 "아무 표시도 없다"고 보고된 결함이다.
+        /// </summary>
+        [Test]
+        public void CommitCommand_ShowsTheNewCommitInTheHistory_EvenWithNoObjectSelected()
+        {
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql")
+            });
+            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(true);
+            _git.SetupSequence(g => g.GetHistory(Server, Database, It.Is<string?>(p => string.IsNullOrWhiteSpace(p))))
+                .Returns(new List<CommitInfo>())
+                .Returns(new List<CommitInfo>())
+                .Returns(new List<CommitInfo>
+                {
+                    new CommitInfo { Sha = "a3f9c2b1d4", Message = "초기 스키마 스냅샷", Author = "Tester", Date = DateTimeOffset.Now }
+                });
+            var vm = NewConnectedViewModel();
+            vm.RefreshCommand.Execute(null);
+            vm.Changes[0].IsSelected = true;
+            vm.CommitMessage = "초기 스키마 스냅샷";
+
+            // 사용자가 목록에서 객체를 선택한 적이 없다 — SelectedChange는 계속 null이다.
+            vm.CommitCommand.Execute(null);
+
+            Assert.That(vm.History.Entries.Select(e => e.ShortSha), Is.EqualTo(new[] { "a3f9c2b" }));
+            Assert.That(vm.History.ScopeLabel, Is.EqualTo("저장소 전체"));
         }
 
         [Test]

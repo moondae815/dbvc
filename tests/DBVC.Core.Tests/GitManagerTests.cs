@@ -394,6 +394,29 @@ namespace DBVC.Core.Tests
             Assert.That(git.GetHistory("localhost", "testdb", "dbo/Tables/Nope.sql"), Is.Empty);
         }
 
+        /// <summary>
+        /// 선택된 객체가 없을 때 화면이 저장소 전체 이력을 보여줄 수 있어야 한다.
+        /// 커밋 직후에는 변경 목록이 비어 선택할 객체 자체가 없다.
+        /// </summary>
+        [Test]
+        public void GetHistory_ReturnsEveryCommitInTheRepository_WhenNoFileIsGiven()
+        {
+            var repoPath = NewRepoWithCommit();
+            WriteRepoFile(repoPath, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);");
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "*");
+                repo.Commit("second", TestSignature, TestSignature);
+            }
+            var git = NewGitManager("localhost", "testdb", repoPath);
+
+            var history = git.GetHistory("localhost", "testdb", null);
+
+            Assert.That(history.Count, Is.EqualTo(2));
+            Assert.That(history[0].Message.TrimEnd(), Is.EqualTo("second"));
+            Assert.That(history[1].Message.TrimEnd(), Is.EqualTo("initial"));
+        }
+
         // ---------- GetFileContentAtHead ----------
 
         [Test]

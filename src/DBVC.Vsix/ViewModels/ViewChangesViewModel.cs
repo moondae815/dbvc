@@ -657,6 +657,12 @@ namespace DBVC.Vsix.ViewModels
             _failedCleanupPaths.Clear();
             RaiseActionCanExecuteChanged();
 
+            // 이력을 여기서 직접 읽는다. 위의 대입에 기대면 안 된다 - SelectedChange가 이미 null이면
+            // setter가 ReferenceEquals로 조기 반환해 이력이 갱신되지 않는다. 커밋 직후가 정확히
+            // 그 경우다(목록에서 객체를 고른 적이 없으면 계속 null이다). 그래서 첫 커밋을 하고도
+            // 이력 탭이 비어 있었다. Git만 읽으므로 아래 SMO 추출을 기다리지 않고 바로 뜬다.
+            History.Load(ServerName, DatabaseName, null);
+
             if (!HasContext) return;
 
             if (!IsMapped)
