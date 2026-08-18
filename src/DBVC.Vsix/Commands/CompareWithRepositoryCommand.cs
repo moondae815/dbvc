@@ -13,7 +13,7 @@ using Task = System.Threading.Tasks.Task;
 namespace DBVC.Vsix.Commands
 {
     /// <summary>
-    /// SQL 에디터 컨텍스트 메뉴의 "Compare with Repository" 명령. (Feature 11, 12)
+    /// SQL 에디터 컨텍스트 메뉴의 "DBVC: 저장소 버전과 비교" 명령. (Feature 11, 12)
     /// 커서에서 선택된 객체 이름을 해석해 View Changes 창에서 해당 객체의 Diff를 연다.
     /// </summary>
     internal sealed class CompareWithRepositoryCommand
