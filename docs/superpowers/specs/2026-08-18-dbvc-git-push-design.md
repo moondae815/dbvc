@@ -22,6 +22,9 @@ DBVC 안으로 들이는 설계를 다룬다.
   `OnPushStatusError`, `OnNegotiationCompletedBeforePush` 등을 갖는다.
   `FetchOptions` 와 인증 관련 표면이 같다.
 * `PushStatusError` 는 `Reference` 와 `Message` 두 속성뿐이다. 오류 코드는 없다.
+* `NonFastForwardException` 이 존재하며 요약은 "The exception that is thrown when push
+  cannot be performed against the remote without losing commits"다. `LibGit2SharpException`
+  파생이므로 catch 순서가 정확성 문제가 된다(4.3).
 * **SSH 인증은 Pull과 완전히 동일하다.** libgit2가 SSH를 시스템 `ssh` 실행 파일에
   위임한다는 사실은 [2026-08-03-dbvc-ssh-first-git-auth-design.md](2026-08-03-dbvc-ssh-first-git-auth-design.md)
   2절에서 이미 측정됐고, 이는 전송 계층의 성질이므로 fetch/push를 가리지 않는다.
@@ -79,7 +82,8 @@ PushResult PushChanges(string serverName, string databaseName);
 4. `RemoteDiagnostics.Explain(remoteUrl, sshAvailable)` 로 안내를 미리 계산.
 5. `repo.Head.TrackingDetails.AheadBy == 0` → `PushResult.NothingToPush`.
 6. `repo.Network.Push(repo.Head, options)`.
-7. `OnPushStatusError` 가 수집한 것이 있으면 `GitPushRejectedException`(4.3).
+7. `NonFastForwardException` 이 나오거나 `OnPushStatusError` 가 수집한 것이 있으면
+   `GitPushRejectedException`(4.3).
 8. 아니면 `PushResult.Pushed`.
 
 **3단계에서 추적을 대신 설정하지 않는다.** `PullChanges` 가 같은 자리에서
@@ -98,9 +102,12 @@ private 헬퍼(열린 `Repository` 를 받아 `guidance` 를 돌려주고, 2·3�
 뽑아 둘이 공유한다. Push를 위해 새 추상화를 만드는 것이 아니라, 그대로 두면 복제될
 코드를 한 번만 두는 것이다.
 
-**7단계의 catch 구조는 `PullChanges` 와 동일하다.**
+**7단계의 catch 구조는 `PullChanges` 와 동일하다.** 맨 앞의 `NonFastForwardException`
+만 다르며, 그 자리는 `PullChanges` 에서 `CheckoutConflictException` 이 차지한 자리다.
 
 ```
+catch (NonFastForwardException ex)                                 // 반드시 첫 번째
+    → GitPushRejectedException(4.3의 문구, ex)
 catch (LibGit2SharpException ex) when (requiresUserCredentials)
     → GitAuthenticationException(guidance ?? CredentialFallbackMessage, ex)
 catch (LibGit2SharpException ex) when (guidance != null)
@@ -113,17 +120,31 @@ Push 경로는 로컬 저장소와 작업 트리를 전혀 변경하지 않는�
 
 ### 4.3. 거부 처리와 `GitPushRejectedException` (신규)
 
-**`Network.Push` 는 서버가 ref 갱신을 거부해도 예외를 던지지 않는다.**
-`OnPushStatusError` 콜백만 호출되고 정상 반환한다. 콜백을 붙이지 않으면 실패가
-성공으로 보고된다 — 이 설계에서 반드시 처리해야 하는 지점이다.
+**거부는 두 경로로 온다. 둘 다 잡아야 한다.**
+
+| 경로 | 언제 | 신호 |
+| --- | --- | --- |
+| `NonFastForwardException` | libgit2가 스스로 판정할 때 (로컬/파일 전송) | 예외 |
+| `OnPushStatusError` | 서버가 ref 갱신을 거부했을 때 (smart 전송 — SSH·HTTPS) | 콜백 |
+
+`LibGit2Sharp 0.32.0`의 `NonFastForwardException` 요약은 "push cannot be performed
+against the remote without losing commits"다. **`OnPushStatusError` 만 붙이면 로컬 전송
+경로를, 예외만 잡으면 SSH 경로를 놓친다.** 특히 콜백을 붙이지 않은 채 두면
+`Network.Push` 가 정상 반환하므로 **실패가 성공으로 보고된다.**
 
 ```csharp
 var errors = new List<PushStatusError>();
 options.OnPushStatusError = e => errors.Add(e);
 ```
 
-`errors.Count > 0` 이면 `GitPushRejectedException` 을 던진다.
-`MergeConflictException`·`GitRemoteException` 과 같은 형태의 `Exception` 파생 타입이다.
+`NonFastForwardException` 을 잡거나 `errors.Count > 0` 이면 `GitPushRejectedException`
+을 던진다. `MergeConflictException`·`GitRemoteException` 과 같은 형태의 `Exception`
+파생 타입이다.
+
+**`catch (NonFastForwardException)` 은 반드시 `catch (LibGit2SharpException ...)` 보다
+앞에 둔다.** 파생 타입이므로 순서가 곧 정확성이다 — 뒤로 밀면 SSH 원격에서 발생한
+거부가 `GitRemoteException` 으로 둔갑한다. `PullChanges` 가 `CheckoutConflictException`
+에서 같은 이유로 순서를 고정하고 주석으로 못 박아 둔 것과 같은 함정이다.
 
 메시지는 서버 원문을 먼저 싣고, 그 아래 원인 후보를 붙인다.
 
@@ -202,6 +223,7 @@ Push로 옮기고, Pull은 그룹 내부 간격(`0,0,10,4`)으로 바꾼다. Pul
 | HTTPS 원격 | `GitAuthenticationException` + SSH 전환 안내 (`RemoteDiagnostics` 재사용) |
 | SSH 원격, `ssh` 실행 파일 없음 | `GitRemoteException` + OpenSSH 설치 안내 |
 | SSH 원격, 그 밖의 통신 실패 | `GitRemoteException` + 원문 + SSH 확인 목록 |
+| libgit2가 non-fast-forward로 판정 | `GitPushRejectedException` (`NonFastForwardException` 경로) |
 | 서버가 ref 갱신 거부 | `GitPushRejectedException` + 서버 원문 + 원인 후보 2항목 |
 | 로컬 경로 원격 등 | 안내를 덧붙이지 않는다. 원본 예외 전파 |
 
@@ -222,8 +244,7 @@ Push는 실패해도 **로컬 저장소를 변경하지 않는다.** Pull의 `Ab
 * 앞선 커밋 없음 → `NothingToPush`
 * 로컬 bare 원격에 커밋 push → `Pushed`, **원격 저장소의 tip이 실제로 갱신됐는지 확인**
   (반환값만 보면 push가 아무것도 하지 않아도 통과한다)
-* 원격을 먼저 앞서게 만든 뒤 push → `GitPushRejectedException`,
-  메시지에 서버 원문과 원인 후보 2항목 포함
+* 원격을 먼저 앞서게 만든 뒤 push → `GitPushRejectedException`, 메시지에 원인 후보 2항목 포함
 * 실패한 push 이후 로컬 HEAD가 그대로인지
 * HTTPS 원격 → `GitAuthenticationException`, 메시지에 SSH 전환 안내 포함
 * 로컬 경로 원격의 실패에는 안내가 붙지 않는지
@@ -239,6 +260,13 @@ Push는 실패해도 **로컬 저장소를 변경하지 않는다.** Pull의 `Ab
 **`PullChanges` 가 `[Explicit]` 로 밀려난 net48 무한 대기는 여기서 발생하지 않는다.**
 그 문제는 HTTPS 원격에 실제로 접속을 시도할 때 생겼고, 위 테스트는 파일 경로 원격만
 쓴다. HTTPS 원격 케이스는 접속 전에 판정되는 안내 문구만 확인한다.
+
+**남는 공백(명시).** 파일 경로 원격은 거부를 `NonFastForwardException` 으로 낸다.
+서버가 상태로 거부를 보고하는 `OnPushStatusError` 경로(SSH·HTTPS)는 **단위 테스트가
+닿지 못한다.** 그 배선은 `BuildPushOptions` 가 콜백을 실제로 연결하는지를 검사하는
+테스트(`BuildPullOptions` 테스트와 같은 형태)와 수동 검증으로만 지켜진다.
+두 경로가 같은 `GitPushRejectedException` 으로 수렴하므로 사용자에게 보이는 결과는
+같지만, 공백이 사라진 것은 아니다.
 
 **수동 검증 (Windows/SSMS 21)**
 
