@@ -116,7 +116,9 @@ catch (LibGit2SharpException ex) when (guidance != null)
 
 `CheckoutConflictException` 에 해당하는 catch는 **없다.** Push는 작업 트리를
 체크아웃하지 않는다. 같은 이유로 `MergeConflictException`·`AbortMerge` 도 없다.
-Push 경로는 로컬 저장소와 작업 트리를 전혀 변경하지 않는다.
+Push 경로는 작업 트리·인덱스·로컬 브랜치 이력을 전혀 변경하지 않는다. 성공하면
+원격 추적 ref(`refs/remotes/...`)만 갱신되고(`git_remote_update_tips`), 실패하면
+그마저도 바뀌지 않는다 - 잃을 것이 없으므로 되돌릴 경로도 필요 없다.
 
 ### 4.3. 거부 처리와 `GitPushRejectedException` (신규)
 
@@ -185,7 +187,8 @@ the reference"` / `"The new target for the reference"`)만으로는 확정되지
 본문은 `Pull` 보다 짧다.
 
 * **사전 확인 대화상자가 없다.** `Pull` 의 확인은 병합이 미커밋 변경을 지울 수 있기
-  때문인데, Push는 로컬 저장소도 작업 트리도 건드리지 않는다.
+  때문인데, Push는 작업 트리·인덱스·로컬 브랜치 이력을 건드리지 않는다(4.2).
+  사용자가 잃을 것이 없으므로 물을 것도 없다.
 * **성공 후 `History.Load`·`SelectionChanged` 를 부르지 않는다.** 로컬에 바뀐 것이 없다.
   (`Pull` 은 새로 받은 커밋을 화면에 반영해야 해서 부른다.)
 * `NoMapping` → `ShowError("DBVC Push 실패", "매핑된 Git 저장소를 찾을 수 없습니다.")`
@@ -254,7 +257,7 @@ Push는 실패해도 **로컬 저장소를 변경하지 않는다.** Pull의 `Ab
 * `NothingToPush` → `ShowInfo` 가 호출되고 `ShowError` 는 호출되지 않는지
 * `NoMapping` → `ShowError`
 * 예외 → `ShowError`, 메시지가 `ex.Message` 그대로인지
-* 성공 시 `RefreshState`·`ScriptObjects` 가 **호출되지 않는지** (Push는 로컬을 건드리지 않는다)
+* 성공 시 `RefreshState`·`ScriptObjects` 가 **호출되지 않는지** (Push는 작업 트리를 건드리지 않으므로 다시 추출할 것이 없다)
 * `CanPush` 가 `HasContext`·`IsMapped` 를 따르는지
 
 **`PullChanges` 가 `[Explicit]` 로 밀려난 net48 무한 대기는 여기서 발생하지 않는다.**

@@ -1013,6 +1013,122 @@ namespace DBVC.Vsix.Tests.ViewModels
                 "Pull 직후 Refresh하면 방금 받은 원격 변경이 SMO 추출로 즉시 덮어써집니다");
         }
 
+        // ---------- Push ----------
+
+        [Test]
+        public void PushCommand_IsEnabled_WhenTheDatabaseIsMapped()
+        {
+            Assert.That(NewConnectedViewModel().PushCommand.CanExecute(null), Is.True);
+        }
+
+        [Test]
+        public void PushCommand_IsDisabled_WhenTheDatabaseIsNotMapped()
+        {
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+
+            Assert.That(NewConnectedViewModel().PushCommand.CanExecute(null), Is.False);
+        }
+
+        [Test]
+        public void PushCommand_PushesWithoutAsking()
+        {
+            // Push는 로컬 저장소도 작업 트리도 건드리지 않는다. Pull의 사전 확인은
+            // 병합이 미커밋 변경을 지울 수 있어서인데, 여기엔 그 위험이 없다.
+            _git.Setup(g => g.PushChanges(Server, Database)).Returns(PushResult.Pushed);
+            var vm = NewConnectedViewModel();
+
+            vm.PushCommand.Execute(null);
+
+            Assert.That(_notifier.ConfirmCallCount, Is.Zero);
+            _git.Verify(g => g.PushChanges(Server, Database), Times.Once);
+        }
+
+        [Test]
+        public void PushCommand_NotifiesOnSuccess()
+        {
+            _git.Setup(g => g.PushChanges(Server, Database)).Returns(PushResult.Pushed);
+            var vm = NewConnectedViewModel();
+
+            vm.PushCommand.Execute(null);
+
+            Assert.That(_notifier.Infos, Has.Count.EqualTo(1));
+            Assert.That(_notifier.Errors, Is.Empty);
+        }
+
+        [Test]
+        public void PushCommand_ReportsNothingToPushAsInformation_NotAnError()
+        {
+            // 원격이 이미 최신인 것은 정상 상태다. 오류 대화상자를 띄우면 사용자가
+            // 무언가 잘못됐다고 읽는다.
+            _git.Setup(g => g.PushChanges(Server, Database)).Returns(PushResult.NothingToPush);
+            var vm = NewConnectedViewModel();
+
+            vm.PushCommand.Execute(null);
+
+            Assert.That(_notifier.Errors, Is.Empty);
+            Assert.That(_notifier.InfoCalls, Has.Count.EqualTo(1));
+            Assert.That(_notifier.InfoCalls[0].Message, Does.Contain("올릴 커밋이 없습니다"));
+        }
+
+        [Test]
+        public void PushCommand_ReportsAMissingMapping()
+        {
+            _git.Setup(g => g.PushChanges(Server, Database)).Returns(PushResult.NoMapping);
+            var vm = NewConnectedViewModel();
+
+            vm.PushCommand.Execute(null);
+
+            Assert.That(_notifier.ErrorCalls, Has.Count.EqualTo(1));
+            Assert.That(_notifier.ErrorCalls[0].Title, Is.EqualTo("DBVC Push 실패"));
+        }
+
+        [Test]
+        public void PushCommand_ReportsARejection_WithTheExceptionsOwnMessageIntact()
+        {
+            // Core가 완전한 한국어 안내를 메시지에 담아 던진다. 전용 catch를 두면
+            // catch-all과 글자 그대로 같은 코드가 된다 - Pull이 GitAuthenticationException에서
+            // 실제로 겪고 제거한 결함이다. 이 테스트는 그 문구가 그대로 나오는지만 지킨다.
+            _git.Setup(g => g.PushChanges(Server, Database))
+                .Throws(new GitPushRejectedException("원격이 Push를 거부했습니다. Pull을 먼저 하세요."));
+            var vm = NewConnectedViewModel();
+
+            vm.PushCommand.Execute(null);
+
+            Assert.That(_notifier.ErrorCalls, Has.Count.EqualTo(1));
+            Assert.That(_notifier.ErrorCalls[0].Title, Is.EqualTo("DBVC Push 실패"));
+            Assert.That(_notifier.ErrorCalls[0].Message, Is.EqualTo("원격이 Push를 거부했습니다. Pull을 먼저 하세요."));
+        }
+
+        [Test]
+        public void PushCommand_ReportsAnUnexpectedFailure()
+        {
+            _git.Setup(g => g.PushChanges(Server, Database))
+                .Throws(new InvalidOperationException("추적 중인 원격 브랜치가 없어 Push할 수 없습니다."));
+            var vm = NewConnectedViewModel();
+
+            vm.PushCommand.Execute(null);
+
+            Assert.That(_notifier.ErrorCalls, Has.Count.EqualTo(1));
+            Assert.That(_notifier.ErrorCalls[0].Message, Does.Contain("추적"));
+        }
+
+        [Test]
+        public void PushCommand_DoesNotRefresh_AfterASuccessfulPush()
+        {
+            // Push는 로컬에 아무것도 바꾸지 않는다. Refresh는 SMO 추출을 부르는 비싼 연산이며
+            // 여기서 부를 이유가 없다.
+            _git.Setup(g => g.PushChanges(Server, Database)).Returns(PushResult.Pushed);
+            var vm = NewConnectedViewModel();
+            _smo.Invocations.Clear();
+
+            vm.PushCommand.Execute(null);
+
+            _git.Verify(g => g.PushChanges(Server, Database), Times.Once, "Push가 실제로 성공했다는 전제 자체를 확인해야 합니다");
+            _smo.Verify(
+                s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>?>()),
+                Times.Never);
+        }
+
         // ---------- Commit ----------
 
         [Test]

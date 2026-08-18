@@ -30,6 +30,8 @@ Kerberos를 붙이려면 `gitlab-kerberos`를 따로 구성해야 하며 LDAP만
 * 자격 증명을 요구하는 실제 HTTPS 원격에서는 핸들러가 `types=UsernamePassword`로 호출되고,
   이어서 `Commands.Pull`이 `LibGit2SharpException("could not find appropriate mechanism for credentials")`를 던진다.
 * **DBVC가 네트워크를 쓰는 지점은 Pull 하나뿐이다.** Push·Clone·Fetch API가 없다.
+  (2026-08-18 갱신: Push가 추가되었다. [2026-08-18-dbvc-git-push-design.md](2026-08-18-dbvc-git-push-design.md) 참조.
+  인증 경로는 이 문서가 정한 그대로이며, `RemoteDiagnostics`·`SshExecutableLocator`를 그대로 재사용한다.)
 
 **환경 확인 결과:** 개발 노트북은 github.com으로 SSH가 닿는다. 폐쇄망 PC는 GitLab으로
 `Connection timed out`이며, 방화벽 개방으로 해결 가능할 것으로 보이나 **확정되지 않았다.**
