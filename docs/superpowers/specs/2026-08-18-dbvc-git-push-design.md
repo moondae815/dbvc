@@ -116,7 +116,9 @@ catch (LibGit2SharpException ex) when (guidance != null)
 
 `CheckoutConflictException` 에 해당하는 catch는 **없다.** Push는 작업 트리를
 체크아웃하지 않는다. 같은 이유로 `MergeConflictException`·`AbortMerge` 도 없다.
-Push 경로는 로컬 저장소와 작업 트리를 전혀 변경하지 않는다.
+Push 경로는 작업 트리·인덱스·로컬 브랜치 이력을 전혀 변경하지 않는다. 성공하면
+원격 추적 ref(`refs/remotes/...`)만 갱신되고(`git_remote_update_tips`), 실패하면
+그마저도 바뀌지 않는다 - 잃을 것이 없으므로 되돌릴 경로도 필요 없다.
 
 ### 4.3. 거부 처리와 `GitPushRejectedException` (신규)
 

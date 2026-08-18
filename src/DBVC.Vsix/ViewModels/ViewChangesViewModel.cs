@@ -487,9 +487,9 @@ namespace DBVC.Vsix.ViewModels
         private bool CanPush() => HasContext && IsMapped;
 
         /// <summary>
-        /// Pull과 달리 사전 확인이 없다 - Push는 로컬 저장소도 작업 트리도 변경하지 않으므로
-        /// 사용자가 잃을 것이 없다. 성공 후 Refresh나 History 재적재도 하지 않는다.
-        /// 로컬에 바뀐 것이 없기 때문이다.
+        /// Pull과 달리 사전 확인이 없다 - Push는 작업 트리도 커밋 이력도 바꾸지 않으므로
+        /// (성공해도 갱신되는 것은 원격 추적 ref뿐이다) 사용자가 잃을 것이 없다.
+        /// 성공 후 Refresh나 History 재적재도 하지 않는다. 로컬에 사용자가 보는 것이 바뀐 게 없기 때문이다.
         /// </summary>
         private void Push()
         {

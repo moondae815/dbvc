@@ -8,7 +8,7 @@ using LibGit2Sharp;
 using NUnit.Framework;
 using DBVC.Core;
 using DBVC.Core.Models;
-// LibGit2Sharp도 최상위 PushResult 열거형을 갖고 있어 두 using만으로는 모호하다(CS0104).
+// LibGit2Sharp도 최상위 PushResult 클래스를 갖고 있어 두 using만으로는 모호하다(CS0104).
 // 이 파일이 검증하는 것은 DBVC의 PushResult이므로 별칭으로 고정한다.
 using PushResult = DBVC.Core.Models.PushResult;
 
@@ -843,8 +843,14 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
-        public void PushChanges_TellsTheUserToSwitchToSsh_WhenTheRemoteIsHttps()
+        public void PushChanges_ThrowsGitRemoteException_WhenTheHttpsRemoteRefusesTheConnection()
         {
+            // 이름 주의: 도달 불가능한 HTTPS 원격이라 connect() 단계에서 거부되고 끝난다 -
+            // 자격 증명 콜백이 아예 불리지 않으므로 guidance != null 분기(GitRemoteException)만
+            // 지킨다. requiresUserCredentials 분기(GitAuthenticationException)는
+            // PushChanges_ThrowsGitAuthenticationException_WhenTheRemoteChallengesWithBasicAuth가
+            // 별도로 지킨다 - 이 테스트의 이전 이름(TellsTheUserToSwitchToSsh)은 그 구분을
+            // 가리고 있었다.
             var localPath = NewRepoWithCommit();
             string branchName;
             using (var local = new Repository(localPath))
@@ -862,8 +868,8 @@ namespace DBVC.Core.Tests
 
             var ex = Assert.Throws<GitRemoteException>(() => git.PushChanges("localhost", "testdb"));
 
-            Assert.That(ex!.Message, Does.Contain("SSH"),
-                "HTTPS 원격에서는 SSH로 바꾸는 방법을 안내해야 합니다");
+            Assert.That(ex!.Message, Does.Contain("SSH 원격으로 바꾸세요"));
+            Assert.That(ex.InnerException, Is.Not.Null, "원인을 보존해야 진단할 수 있습니다");
         }
 
         [Test]
@@ -879,6 +885,42 @@ namespace DBVC.Core.Tests
             var ex = Assert.Throws<LibGit2SharpException>(() => git.PushChanges("localhost", "testdb"),
                 "안내할 것이 없으면 libgit2의 원본 예외가 그대로 전파돼야 합니다");
             Assert.That(ex!.Message, Does.Not.Contain("SSH"));
+        }
+
+        [Test]
+        // 자동 실행에서 제외한다. PullChanges의 동일한 테스트(아래)가 Windows net48에서 겪은 것과
+        // 같은 문제다 - HTTP.sys를 통한 인증 왕복이 걸리면서 CI 잡 전체를 무기한 멈추게 한 전례가
+        // 있다. 그래서 그 테스트도 수동 실행 전용으로 남아 있고, 여기도 같은 이유로 맞춘다.
+        [Explicit("Windows net48에서 무한 대기한다. 수동 실행 전용.")]
+        public void PushChanges_ThrowsGitAuthenticationException_WhenTheRemoteChallengesWithBasicAuth()
+        {
+            // catch (LibGit2SharpException ex) when (requiresUserCredentials) 분기는 지금까지
+            // 어떤 테스트도 지나지 않았다 - PushChanges_ThrowsGitRemoteException_WhenTheHttpsRemoteRefusesTheConnection은
+            // 자격 증명 콜백 이전(connect 단계)에서 실패해서 이 분기를 건드리지 못한다.
+            // 단위 테스트로 격리된 BuildPushOptions/ResolveCredentials가 옳아도, PushChanges가
+            // 그 옵션을 실제로 Network.Push에 넘기지 않으면 이 경로는 절대 실행되지 않는다.
+            // PullChanges_ThrowsGitAuthenticationException_WhenTheRemoteChallengesWithBasicAuth와
+            // 같은 방식으로, Basic 인증을 요구하는 실제 HTTP 서버를 띄워 PushChanges 전체 경로
+            // (빌드된 PushOptions -> Network.Push -> 자격 증명 콜백 호출 ->
+            // requiresUserCredentials 전파 -> GitAuthenticationException 변환)를
+            // end-to-end로 검증한다.
+            using var server = new BasicAuthChallengeServer();
+            var localPath = NewRepoWithCommit();
+            using (var repo = new Repository(localPath))
+            {
+                repo.Network.Remotes.Add("origin", server.Url);
+                // Network.Push는 현재 브랜치에 추적 정보(remote/merge)가 있어야 동작한다.
+                // 실제 원격에서 통신할 수 없으므로(서버가 401만 준다) 수동으로 설정한다.
+                var branchName = repo.Head.FriendlyName;
+                repo.Config.Set($"branch.{branchName}.remote", "origin");
+                repo.Config.Set($"branch.{branchName}.merge", $"refs/heads/{branchName}");
+            }
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var ex = Assert.Throws<GitAuthenticationException>(() => git.PushChanges("localhost", "testdb"));
+
+            Assert.That(ex!.Message, Does.Contain("자격 증명"),
+                "GitManager.ResolveCredentials가 실제로 Network.Push의 CredentialsProvider로 호출됐어야 이 경로에 도달합니다");
         }
 
         // ---------- BuildPushOptions (콜백 배선) ----------
@@ -915,12 +957,67 @@ namespace DBVC.Core.Tests
         {
             // 이 배선이 없으면 서버가 ref 갱신을 거부해도 Network.Push가 정상 반환한다.
             // 즉 실패가 성공으로 보고된다. 단위 테스트가 닿는 유일한 지점이므로 여기서 지킨다.
-            var collected = 0;
-            var options = GitManager.BuildPushOptions(() => { }, _ => collected++);
+            //
+            // 호출 횟수만 세면 `OnPushStatusError = error => onPushStatusError(null)`처럼
+            // 인스턴스를 떨어뜨려도 통과한다 - 정확히 이 테스트가 막으려는 결함이다.
+            // 전달된 인스턴스가 그대로 넘어오는지까지 확인한다.
+            PushStatusError? received = null;
+            var options = GitManager.BuildPushOptions(() => { }, error => received = error);
 
             Assert.That(options.OnPushStatusError, Is.Not.Null);
-            options.OnPushStatusError!(default(PushStatusError));
-            Assert.That(collected, Is.EqualTo(1));
+            var error = new FakePushStatusError("refs/heads/main", "rejected");
+            options.OnPushStatusError!(error);
+            Assert.That(received, Is.SameAs(error),
+                "콜백이 다른 인스턴스를(또는 null을) 넘기면 서버의 실제 거부 사유가 조용히 사라집니다");
+        }
+
+        // ---------- BuildPushRejectionMessage (거부 안내 문구) ----------
+
+        [Test]
+        public void BuildPushRejectionMessage_UsesAGenericHeader_WhenNoStatusErrorIsGiven()
+        {
+            // NonFastForwardException 경로(로컬/파일 전송)다 - 서버 원문이 없으므로 일반 문구만 싣는다.
+            var message = GitManager.BuildPushRejectionMessage(null);
+
+            Assert.That(message, Does.Contain("원격이 Push를 거부했습니다."));
+            Assert.That(message, Does.Contain("Pull을 먼저 하세요"));
+            Assert.That(message, Does.Contain("권한"));
+        }
+
+        [Test]
+        public void BuildPushRejectionMessage_IncludesTheServersReferenceAndMessage_WhenAStatusErrorIsGiven()
+        {
+            // OnPushStatusError 경로(smart 전송 - SSH·HTTPS)다. 파일 기반 전송으로는 이 콜백이
+            // 호출되는 상황 자체를 재현할 수 없으므로(non-bare 대상은 상태 오류 없이
+            // BareRepositoryException을 던진다), 이 문구 조립은 테스트 이중체로만 검증할 수 있다.
+            // 실제 smart 전송을 통한 end-to-end 검증은 여전히 커버되지 않는다 - 알려진 한계다.
+            var error = new FakePushStatusError("refs/heads/main", "protected branch hook declined");
+
+            var message = GitManager.BuildPushRejectionMessage(error);
+
+            Assert.That(message, Does.Contain("원격이 'refs/heads/main' 갱신을 거부했습니다."));
+            Assert.That(message, Does.Contain("서버 응답: protected branch hook declined"));
+            Assert.That(message, Does.Contain("Pull을 먼저 하세요"));
+            Assert.That(message, Does.Contain("권한"));
+        }
+
+        /// <summary>
+        /// <see cref="PushStatusError"/>의 기본 생성자는 protected이고 <c>Reference</c>·<c>Message</c>는
+        /// virtual get-only 프로퍼티다(리플렉션으로 확인함 - 두 프로퍼티 모두 setter가 없다).
+        /// 실제 SSH/HTTPS 전송 없이 <see cref="GitManager.BuildPushRejectionMessage"/>가 만드는
+        /// 사용자 문구를 검증하기 위한 최소 이중체다.
+        /// </summary>
+        private sealed class FakePushStatusError : PushStatusError
+        {
+            public FakePushStatusError(string reference, string message)
+            {
+                Reference = reference;
+                Message = message;
+            }
+
+            public override string Reference { get; }
+
+            public override string Message { get; }
         }
 
         [Test]

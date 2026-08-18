@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using DBVC.Core.Models;
 using LibGit2Sharp;
-// LibGit2Sharp도 최상위 PushResult 열거형을 갖고 있어 두 using만으로는 모호하다(CS0104).
+// LibGit2Sharp도 최상위 PushResult 클래스를 갖고 있어 두 using만으로는 모호하다(CS0104).
 // 이 파일의 PushChanges가 반환하는 것은 DBVC의 PushResult이므로 별칭으로 고정한다.
 using PushResult = DBVC.Core.Models.PushResult;
 
@@ -260,8 +260,10 @@ namespace DBVC.Core
         /// 그 외에 원격과 통신하지 못했고 안내할 원인이 있으면 <see cref="GitRemoteException"/>을 던진다.
         /// 원격이 없거나 현재 브랜치에 추적 중인 원격 브랜치가 없으면 <see cref="InvalidOperationException"/>을 던진다.
         ///
-        /// 이 메서드는 성공하든 실패하든 로컬 저장소와 작업 트리를 변경하지 않는다.
-        /// Pull의 AbortMerge에 해당하는 복구 경로가 없는 이유다.
+        /// 이 메서드는 작업 트리·인덱스·로컬 브랜치 이력을 바꾸지 않는다. 성공하면 원격 추적
+        /// ref(<c>refs/remotes/...</c>)만 갱신되고(libgit2의 git_remote_update_tips) - 두 번째
+        /// Push가 "올릴 커밋이 없습니다"를 정확히 판정하는 이유이기도 하다 - 실패하면 그마저도
+        /// 바뀌지 않는다. 잃을 것이 없으므로 Pull의 AbortMerge에 해당하는 복구 경로가 없다.
         /// </summary>
         public PushResult PushChanges(string serverName, string databaseName)
         {
@@ -293,7 +295,10 @@ namespace DBVC.Core
             // GitRemoteException으로 둔갑한다. PullChanges가 CheckoutConflictException에서 겪은 함정과 같다.
             catch (NonFastForwardException ex)
             {
-                throw new GitPushRejectedException(BuildPushRejectionMessage(null), ex);
+                // 드물지만 전송이 상태 오류를 먼저 보고한 뒤 non-fast-forward로 판정할 수도 있다.
+                // 그런 경우 서버의 원문을 놓치지 않고 싣는다.
+                throw new GitPushRejectedException(
+                    BuildPushRejectionMessage(pushErrors.Count > 0 ? pushErrors[0] : null), ex);
             }
             catch (LibGit2SharpException ex) when (requiresUserCredentials)
             {
@@ -326,8 +331,13 @@ namespace DBVC.Core
         /// 서버·libgit2의 메시지를 문자열로 매칭해 원인을 판정하지 않는다 - 버전과 전송 방식에
         /// 따라 달라진다. 대신 후보를 둘로 한정한다. force push를 제공하지 않는 이상
         /// ref 갱신이 거부되는 원인은 실제로 이 둘뿐이다.
+        ///
+        /// <c>internal</c>로 노출하는 이유는 <see cref="BuildPushOptions"/>와 같다 - 파일 기반
+        /// 전송으로는 <c>OnPushStatusError</c>가 호출되는 상황 자체를 재현할 수 없어(non-bare
+        /// 대상은 상태 오류 없이 BareRepositoryException을 던진다), 이 문구 조립을 검증할
+        /// 유일한 방법이 <see cref="PushStatusError"/>의 테스트 이중체로 직접 호출하는 것이다.
         /// </summary>
-        private static string BuildPushRejectionMessage(PushStatusError? error)
+        internal static string BuildPushRejectionMessage(PushStatusError? error)
         {
             var header = error == null
                 ? "원격이 Push를 거부했습니다."
@@ -370,7 +380,12 @@ namespace DBVC.Core
             // (branch.<name>.remote = "." - `git branch --track`, autoSetupMerge = always 등으로 만들어진다)
             // RemoteName은 ""이고 Remotes[""]는 ArgumentNullException을 던진다. remoteUrl을 null로 두면
             // Explain이 Unknown으로 처리해 guidance가 null이 되고, 호출자의 catch가 가로채지 않아
-            // libgit2의 원본 예외가 그대로 전파된다.
+            // 원본 예외가 그대로 전파된다. 그 원본 예외의 정체는 연산마다 다르다 - Pull은
+            // Commands.Pull 내부에서 막혀 libgit2의 LibGit2SharpException(영문 원문)이지만,
+            // Push는 Network.Push가 이 지점을 아예 통과하지 못하고 System.ArgumentNullException
+            // ("Value cannot be null. (Parameter 'name')")을 직접 던진다 - 이 메서드의 어떤
+            // catch에도 걸리지 않는다는 점은 둘 다 같다. DBVC 온보딩은 이 설정을 만들지 않는
+            // 예외적 상태이므로 동작은 그대로 두고 사실만 정확히 적는다.
             var remoteName = repo.Head.RemoteName;
             var remoteUrl = string.IsNullOrEmpty(remoteName) ? null : repo.Network.Remotes[remoteName]?.Url;
 
