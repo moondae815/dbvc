@@ -19,7 +19,9 @@ namespace DBVC.Vsix.ViewModels
     /// </summary>
     public class ViewChangesViewModel : INotifyPropertyChanged
     {
-        private const string NotMappedWarning = "Active Database is not mapped to a Git repository.";
+        // "매핑"은 ConfigManager의 내부 용어다. 바로 옆에 붙는 버튼이 "저장소 연결..."이므로
+        // 배너도 같은 말을 써야 무엇을 눌러야 하는지 문장 하나로 전해진다.
+        private const string NotMappedWarning = "현재 데이터베이스에 연결된 Git 저장소가 없습니다.";
 
         private readonly IConfigManager _configManager;
         private readonly ISqlCredentialStore _credentialStore;
