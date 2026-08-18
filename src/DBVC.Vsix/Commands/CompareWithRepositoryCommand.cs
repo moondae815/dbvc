@@ -63,8 +63,8 @@ namespace DBVC.Vsix.Commands
             {
                 _notifier.ShowError(
                     "DBVC",
-                    $"'{name}'은(는) 현재 변경 목록에 없습니다. 이번 세션에서 아직 Connect를 누르지 " +
-                    "않았다면 먼저 DBVC 창에서 Connect를 누르세요. 이미 접속했다면 Refresh를 실행하세요.");
+                    $"'{name}'은(는) 현재 변경 목록에 없습니다. 이번 세션에서 아직 연결을 누르지 " +
+                    "않았다면 먼저 DBVC 창에서 연결을 누르세요. 이미 접속했다면 새로고침을 실행하세요.");
                 return;
             }
 

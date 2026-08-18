@@ -379,7 +379,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.CheckSsmsSelection();
 
             Assert.That(vm.SsmsHintMessage, Does.Contain(Server));
-            Assert.That(vm.SsmsHintMessage, Does.Contain("Connect"));
+            Assert.That(vm.SsmsHintMessage, Does.Contain("— 연결을 누르세요"));
         }
 
         [Test]

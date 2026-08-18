@@ -38,11 +38,11 @@ namespace DBVC.Vsix.Services
 
         private const string EntraReason =
             "SSMS가 Microsoft Entra ID로 접속해 있습니다. DBVC는 토큰 기반 연결을 재사용할 수 없습니다. " +
-            "개체 탐색기에서 SQL 인증이나 Windows 인증으로 만든 연결을 선택한 뒤 Connect를 다시 누르세요.";
+            "개체 탐색기에서 SQL 인증이나 Windows 인증으로 만든 연결을 선택한 뒤 연결을 다시 누르세요.";
 
         private const string NoUserNameReason =
             "SSMS 연결에서 계정 정보를 읽지 못했습니다. 개체 탐색기에서 해당 서버에 다시 접속한 뒤 " +
-            "Connect를 다시 누르세요.";
+            "연결을 다시 누르세요.";
 
         public SsmsConnectionInfo? TryGetCurrent()
         {
