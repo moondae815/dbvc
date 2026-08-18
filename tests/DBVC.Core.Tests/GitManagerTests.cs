@@ -8,6 +8,9 @@ using LibGit2Sharp;
 using NUnit.Framework;
 using DBVC.Core;
 using DBVC.Core.Models;
+// LibGit2Sharp도 최상위 PushResult 열거형을 갖고 있어 두 using만으로는 모호하다(CS0104).
+// 이 파일이 검증하는 것은 DBVC의 PushResult이므로 별칭으로 고정한다.
+using PushResult = DBVC.Core.Models.PushResult;
 
 namespace DBVC.Core.Tests
 {
@@ -75,6 +78,31 @@ namespace DBVC.Core.Tests
             var config = new ConfigManager(configPath);
             config.AddMapping(serverName, databaseName, repoPath);
             return new GitManager(config);
+        }
+
+        /// <summary>
+        /// bare 원격과 그것을 clone한 로컬 저장소를 만든다.
+        /// 원격이 bare가 아니면 "체크아웃된 브랜치는 갱신할 수 없다"로 push가 거부되어,
+        /// 우리가 검증하려는 거부 경로와 구분되지 않는다.
+        /// </summary>
+        private (string LocalPath, string OriginPath) NewClonedRepoWithBareOrigin()
+        {
+            var seedPath = NewRepoWithCommit();
+            var originPath = NewTempDir();
+            Repository.Clone(seedPath, originPath, new CloneOptions { IsBare = true });
+
+            var localPath = NewTempDir();
+            Repository.Clone(originPath, localPath);
+            return (localPath, originPath);
+        }
+
+        /// <summary>해당 작업 트리에 파일 하나를 더하고 커밋한다. 커밋 SHA를 준다.</summary>
+        private static string CommitOneFile(string repoPath, string relativePath, string content, string message)
+        {
+            WriteRepoFile(repoPath, relativePath, content);
+            using var repo = new Repository(repoPath);
+            Commands.Stage(repo, "*");
+            return repo.Commit(message, TestSignature, TestSignature).Sha;
         }
 
         // ---------- GetStatus ----------
@@ -707,6 +735,150 @@ namespace DBVC.Core.Tests
                 "핸들러는 Credentials를 반드시 돌려줘야 합니다. 여기서 하는 일은 실패를 막는 것이 아니라 원인을 기록하는 것입니다");
             Assert.That(requiresUserCredentials, Is.True,
                 "Default를 지원하지 않으면 GitAuthenticationException으로 감쌀 근거가 됩니다");
+        }
+
+        // ---------- PushChanges ----------
+
+        [Test]
+        public void PushChanges_ReturnsNoMapping_WhenDatabaseIsNotMapped()
+        {
+            var configPath = Path.Combine(NewTempDir(), "mappings.json");
+            var git = new GitManager(new ConfigManager(configPath));
+
+            Assert.That(git.PushChanges("localhost", "testdb"), Is.EqualTo(PushResult.NoMapping));
+        }
+
+        [Test]
+        public void PushChanges_ExplainsInKorean_WhenTheRepositoryHasNoRemote()
+        {
+            var localPath = NewRepoWithCommit();
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var ex = Assert.Throws<InvalidOperationException>(() => git.PushChanges("localhost", "testdb"));
+
+            Assert.That(ex!.Message, Does.Contain("원격"));
+            Assert.That(ex.Message, Does.Contain("Push할 수 없습니다"),
+                "어떤 연산이 막혔는지 이름으로 말해야 합니다");
+        }
+
+        [Test]
+        public void PushChanges_ExplainsInKorean_WhenTheCurrentBranchHasNoUpstream()
+        {
+            // git init한 폴더를 매핑하면 실제로 나오는 상태다. 추적을 대신 설정하지 않고 안내만 한다.
+            var originPath = NewRepoWithCommit();
+            var localPath = NewRepoWithCommit();
+
+            // 기본 브랜치 이름을 하드코딩하면 안 된다. init.defaultBranch가 설정되지 않은 환경
+            // (GitHub Actions 러너 등)에서는 master가 되어 개발 기계에서만 통과하는 테스트가 된다.
+            string branchName;
+            using (var local = new Repository(localPath))
+            {
+                local.Network.Remotes.Add("origin", originPath);
+                branchName = local.Head.FriendlyName;
+            }
+
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var ex = Assert.Throws<InvalidOperationException>(() => git.PushChanges("localhost", "testdb"));
+
+            Assert.That(ex!.Message, Does.Contain("추적"));
+            Assert.That(ex.Message, Does.Contain($"git push -u origin {branchName}"),
+                "사용자가 그대로 실행할 수 있는 명령을 줘야 합니다");
+        }
+
+        [Test]
+        public void PushChanges_ReturnsNothingToPush_WhenTheRemoteIsAlreadyUpToDate()
+        {
+            var (localPath, _) = NewClonedRepoWithBareOrigin();
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            Assert.That(git.PushChanges("localhost", "testdb"), Is.EqualTo(PushResult.NothingToPush));
+        }
+
+        [Test]
+        public void PushChanges_UpdatesTheRemoteTip_WhenTheLocalBranchIsAhead()
+        {
+            var (localPath, originPath) = NewClonedRepoWithBareOrigin();
+            var localSha = CommitOneFile(localPath, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);", "local change");
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var result = git.PushChanges("localhost", "testdb");
+
+            Assert.That(result, Is.EqualTo(PushResult.Pushed));
+            using var origin = new Repository(originPath);
+            // 반환값만 보면 push가 아무것도 하지 않아도 통과한다. 원격의 tip을 직접 확인한다.
+            Assert.That(origin.Head.Tip.Sha, Is.EqualTo(localSha),
+                "Push 후 원격의 tip이 로컬 커밋이어야 합니다");
+        }
+
+        [Test]
+        public void PushChanges_ThrowsGitPushRejectedException_WhenTheRemoteHasMovedAhead()
+        {
+            var (localPath, originPath) = NewClonedRepoWithBareOrigin();
+
+            // 다른 사람이 원격에 먼저 올린다.
+            var otherPath = NewTempDir();
+            Repository.Clone(originPath, otherPath);
+            CommitOneFile(otherPath, "dbo/Tables/Other.sql", "CREATE TABLE Other (Id INT);", "other change");
+            using (var other = new Repository(otherPath))
+            {
+                other.Network.Push(other.Head);
+            }
+
+            // 우리는 fetch하지 않은 채 우리 커밋을 만든다.
+            var localSha = CommitOneFile(localPath, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);", "local change");
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var ex = Assert.Throws<GitPushRejectedException>(() => git.PushChanges("localhost", "testdb"));
+
+            Assert.That(ex!.Message, Does.Contain("거부"));
+            Assert.That(ex.Message, Does.Contain("Pull"),
+                "무엇을 해야 하는지 알려줘야 합니다");
+            Assert.That(ex.Message, Does.Contain("권한"),
+                "브랜치 보호·권한도 같은 증상을 내므로 후보로 남겨야 합니다");
+
+            using var local = new Repository(localPath);
+            Assert.That(local.Head.Tip.Sha, Is.EqualTo(localSha),
+                "Push는 실패해도 로컬 저장소를 변경하지 않아야 합니다");
+        }
+
+        [Test]
+        public void PushChanges_TellsTheUserToSwitchToSsh_WhenTheRemoteIsHttps()
+        {
+            var localPath = NewRepoWithCommit();
+            string branchName;
+            using (var local = new Repository(localPath))
+            {
+                // 닿지 않는 HTTPS 원격. 접속을 시도하기 전에 판정되는 안내만 확인한다.
+                local.Network.Remotes.Add("origin", "https://127.0.0.1:1/nope.git");
+                branchName = local.Head.FriendlyName;
+                var branch = local.Branches[branchName];
+                local.Branches.Update(branch,
+                    b => b.Remote = "origin",
+                    b => b.UpstreamBranch = $"refs/heads/{branchName}");
+            }
+
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var ex = Assert.Throws<GitRemoteException>(() => git.PushChanges("localhost", "testdb"));
+
+            Assert.That(ex!.Message, Does.Contain("SSH"),
+                "HTTPS 원격에서는 SSH로 바꾸는 방법을 안내해야 합니다");
+        }
+
+        [Test]
+        public void PushChanges_AddsNoGuidance_WhenTheRemoteIsALocalPath()
+        {
+            // RemoteDiagnostics가 Other/Unknown에 null을 주므로 무관한 실패에 힌트가 붙지 않아야 한다.
+            var (localPath, originPath) = NewClonedRepoWithBareOrigin();
+            CommitOneFile(localPath, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);", "local change");
+            TryDeleteDirectory(originPath);
+
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var ex = Assert.Throws<LibGit2SharpException>(() => git.PushChanges("localhost", "testdb"),
+                "안내할 것이 없으면 libgit2의 원본 예외가 그대로 전파돼야 합니다");
+            Assert.That(ex!.Message, Does.Not.Contain("SSH"));
         }
 
         // ---------- BuildPushOptions (콜백 배선) ----------
