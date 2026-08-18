@@ -196,37 +196,7 @@ namespace DBVC.Core
 
             using var repo = new Repository(repoPath);
 
-            if (!repo.Network.Remotes.Any())
-            {
-                throw new InvalidOperationException($"'{repoPath}' 저장소에 원격(remote)이 설정되어 있지 않아 Pull할 수 없습니다.");
-            }
-
-            // 원격만 있고 추적 브랜치가 없으면 libgit2가 영문 원문으로 거부한다. DBVC 온보딩이 실제로
-            // 만들어내는 상태다 - 사용자가 clone하지 않고 직접 git init한 폴더를 매핑하면 여기 걸린다.
-            // 추적을 대신 설정해 주지는 않는다. Pull 버튼 하나가 사용자의 git config를 조용히 바꾸면 안 된다.
-            if (!repo.Head.IsTracking)
-            {
-                var branchName = repo.Head.FriendlyName;
-                throw new InvalidOperationException(
-                    $"'{repoPath}' 저장소의 현재 브랜치 '{branchName}'에 추적 중인 원격 브랜치가 없어 Pull할 수 없습니다. " +
-                    $"Git 클라이언트에서 'git push -u origin {branchName}'을 한 번 실행해 추적을 설정한 뒤 다시 시도하세요.");
-            }
-
-            // Explain은 예외가 아니라 원격 URL과 ssh 실행 파일 유무만 보므로 try 이전에 한 번 계산한다.
-            // IsTracking이 true라도 RemoteName은 비어 있을 수 있다 - 브랜치가 로컬 브랜치를 추적하는 경우
-            // (branch.<name>.remote = "." - `git branch --track`, autoSetupMerge = always 등으로 만들어진다)
-            // RemoteName은 ""이고 Remotes[""]는 ArgumentNullException을 던진다. remoteUrl을 null로 두면
-            // Explain이 Unknown으로 처리해 guidance가 null이 되고, 아래 catch가 가로채지 않아
-            // libgit2의 원본 예외가 그대로 전파된다.
-            var remoteName = repo.Head.RemoteName;
-            var remoteUrl = string.IsNullOrEmpty(remoteName) ? null : repo.Network.Remotes[remoteName]?.Url;
-
-            // SshExecutableLocator만으로는 부족하다 - libgit2의 ssh_exec 전송은 GIT_SSH(_COMMAND) 외에
-            // core.sshCommand 설정값도 읽는다. OpenSSH 선택적 기능이 꺼져 있어도 Git for Windows의
-            // ssh.exe를 core.sshCommand로 가리키는 구성(사내 PC에서 흔함)은 실제로 SSH가 되므로 여기서 함께 본다.
-            var sshAvailable = SshExecutableLocator.IsAvailable()
-                || !string.IsNullOrWhiteSpace(repo.Config.Get<string>("core.sshCommand")?.Value);
-            var guidance = RemoteDiagnostics.Explain(remoteUrl, sshAvailable);
+            var guidance = ValidateRemoteAndBuildGuidance(repo, repoPath, "Pull");
 
             var headBefore = repo.Head.Tip;
             var signature = BuildSignature(repo);
@@ -278,6 +248,49 @@ namespace DBVC.Core
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// 원격 연산의 공통 선행 조건을 검사하고, 실패했을 때 덧붙일 안내를 미리 계산한다.
+        /// Pull과 Push가 글자 그대로 같은 검사를 하므로 한 곳에 둔다 — 복제해 두면
+        /// 한쪽 문구만 고쳐지는 일이 실제로 일어난다.
+        /// </summary>
+        /// <param name="operationName">메시지에 박히는 연산 이름. "Pull" 또는 "Push".</param>
+        /// <returns>안내할 것이 없으면 <c>null</c>. 호출자는 <c>null</c>이면 원본 예외를 그대로 둔다.</returns>
+        private static string? ValidateRemoteAndBuildGuidance(Repository repo, string repoPath, string operationName)
+        {
+            if (!repo.Network.Remotes.Any())
+            {
+                throw new InvalidOperationException($"'{repoPath}' 저장소에 원격(remote)이 설정되어 있지 않아 {operationName}할 수 없습니다.");
+            }
+
+            // 원격만 있고 추적 브랜치가 없으면 libgit2가 영문 원문으로 거부한다. DBVC 온보딩이 실제로
+            // 만들어내는 상태다 - 사용자가 clone하지 않고 직접 git init한 폴더를 매핑하면 여기 걸린다.
+            // 추적을 대신 설정해 주지는 않는다. 버튼 하나가 사용자의 git config를 조용히 바꾸면 안 된다.
+            if (!repo.Head.IsTracking)
+            {
+                var branchName = repo.Head.FriendlyName;
+                throw new InvalidOperationException(
+                    $"'{repoPath}' 저장소의 현재 브랜치 '{branchName}'에 추적 중인 원격 브랜치가 없어 {operationName}할 수 없습니다. " +
+                    $"Git 클라이언트에서 'git push -u origin {branchName}'을 한 번 실행해 추적을 설정한 뒤 다시 시도하세요.");
+            }
+
+            // Explain은 예외가 아니라 원격 URL과 ssh 실행 파일 유무만 보므로 통신 이전에 한 번 계산한다.
+            // IsTracking이 true라도 RemoteName은 비어 있을 수 있다 - 브랜치가 로컬 브랜치를 추적하는 경우
+            // (branch.<name>.remote = "." - `git branch --track`, autoSetupMerge = always 등으로 만들어진다)
+            // RemoteName은 ""이고 Remotes[""]는 ArgumentNullException을 던진다. remoteUrl을 null로 두면
+            // Explain이 Unknown으로 처리해 guidance가 null이 되고, 호출자의 catch가 가로채지 않아
+            // libgit2의 원본 예외가 그대로 전파된다.
+            var remoteName = repo.Head.RemoteName;
+            var remoteUrl = string.IsNullOrEmpty(remoteName) ? null : repo.Network.Remotes[remoteName]?.Url;
+
+            // SshExecutableLocator만으로는 부족하다 - libgit2의 ssh_exec 전송은 GIT_SSH(_COMMAND) 외에
+            // core.sshCommand 설정값도 읽는다. OpenSSH 선택적 기능이 꺼져 있어도 Git for Windows의
+            // ssh.exe를 core.sshCommand로 가리키는 구성(사내 PC에서 흔함)은 실제로 SSH가 되므로 여기서 함께 본다.
+            var sshAvailable = SshExecutableLocator.IsAvailable()
+                || !string.IsNullOrWhiteSpace(repo.Config.Get<string>("core.sshCommand")?.Value);
+
+            return RemoteDiagnostics.Explain(remoteUrl, sshAvailable);
         }
 
         /// <summary>
