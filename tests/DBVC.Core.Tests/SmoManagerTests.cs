@@ -1,7 +1,8 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using NUnit.Framework;
 using DBVC.Core;
 using DBVC.Core.Models;
@@ -284,6 +285,119 @@ namespace DBVC.Core.Tests
                     "추출에 실패했다고 직전에 성공한 파일을 잃어서는 안 된다");
             }
             finally { TryDelete(root); }
+        }
+
+        // ---------- 진행률과 취소 ----------
+        //
+        // 최초 온보딩은 객체 수에 비례해 길어진다(실측: 사용자 객체 200개 DB의 전체 추출 186초).
+        // 그동안 화면이 아무 말도 하지 않으면 사용자는 멈춘 것과 구분할 수 없고,
+        // 잘못 시작했을 때 되돌릴 방법도 없다.
+
+        [Test]
+        public void ScriptAll_ReportsProgressAfterEachObject()
+        {
+            var root = NewTempDir();
+            try
+            {
+                var reported = new List<ExtractionProgress>();
+                var progress = new ImmediateProgress(reported.Add);
+
+                SmoManager.ScriptAll(
+                    new[] { Target("dbo", "Table", "A"), Target("dbo", "View", "B") },
+                    root,
+                    (t, outputPath) => File.WriteAllText(outputPath, "-- x"),
+                    progress);
+
+                Assert.That(reported.Select(p => p.Completed), Is.EqualTo(new[] { 1, 2 }));
+                Assert.That(reported.Select(p => p.Total), Is.EqualTo(new[] { 2, 2 }));
+                Assert.That(reported[1].CurrentObject, Is.EqualTo("dbo.B"));
+            }
+            finally { TryDelete(root); }
+        }
+
+        [Test]
+        public void ScriptAll_ReportsProgressForFailedObjectsToo()
+        {
+            // 실패한 객체에서 진행이 멈춘 것처럼 보이면 사용자는 멈춘 줄 안다.
+            var root = NewTempDir();
+            try
+            {
+                var reported = new List<ExtractionProgress>();
+
+                SmoManager.ScriptAll(
+                    new[] { Target("dbo", "Table", "Bad"), Target("dbo", "Table", "Good") },
+                    root,
+                    (t, outputPath) =>
+                    {
+                        if (t.Name == "Bad") throw new InvalidOperationException("nope");
+                        File.WriteAllText(outputPath, "-- x");
+                    },
+                    new ImmediateProgress(reported.Add));
+
+                Assert.That(reported.Select(p => p.Completed), Is.EqualTo(new[] { 1, 2 }));
+            }
+            finally { TryDelete(root); }
+        }
+
+        [Test]
+        public void ScriptAll_StopsImmediately_WhenCancelled()
+        {
+            var root = NewTempDir();
+            try
+            {
+                using var cts = new CancellationTokenSource();
+                var scripted = new List<string>();
+
+                var targets = Enumerable.Range(0, 10)
+                    .Select(i => Target("dbo", "Table", "T" + i))
+                    .ToArray();
+
+                Assert.Throws<OperationCanceledException>(() =>
+                    SmoManager.ScriptAll(targets, root, (t, outputPath) =>
+                    {
+                        scripted.Add(t.Name!);
+                        if (scripted.Count == 3) cts.Cancel();
+                        File.WriteAllText(outputPath, "-- x");
+                    }, null, cts.Token));
+
+                Assert.That(scripted.Count, Is.EqualTo(3), "취소 이후로는 객체를 더 추출하지 않아야 한다");
+            }
+            finally { TryDelete(root); }
+        }
+
+        [Test]
+        public void ScriptAll_KeepsAlreadyPublishedFiles_WhenCancelled()
+        {
+            // 취소는 되돌리기가 아니다. 이미 추출한 것을 지우면 다음 새로고침이 그만큼 다시 해야 한다.
+            var root = NewTempDir();
+            try
+            {
+                using var cts = new CancellationTokenSource();
+                var count = 0;
+
+                Assert.Throws<OperationCanceledException>(() =>
+                    SmoManager.ScriptAll(
+                        new[] { Target("dbo", "Table", "A"), Target("dbo", "Table", "B"), Target("dbo", "Table", "C") },
+                        root,
+                        (t, outputPath) =>
+                        {
+                            File.WriteAllText(outputPath, "-- x");
+                            if (++count == 2) cts.Cancel();
+                        }, null, cts.Token));
+
+                Assert.That(File.Exists(Path.Combine(root, "dbo", "Tables", "A.sql")), Is.True);
+                Assert.That(File.Exists(Path.Combine(root, "dbo", "Tables", "B.sql")), Is.True);
+                Assert.That(File.Exists(Path.Combine(root, "dbo", "Tables", "C.sql")), Is.False);
+            }
+            finally { TryDelete(root); }
+        }
+
+        /// <summary>보고를 그 자리에서 그대로 전달한다. Progress&lt;T&gt;는 스레드 풀로 넘겨 순서와 시점이 흔들린다.</summary>
+        private sealed class ImmediateProgress : IProgress<ExtractionProgress>
+        {
+            private readonly Action<ExtractionProgress> _onReport;
+            public ImmediateProgress(Action<ExtractionProgress> onReport) { _onReport = onReport; }
+            public void Report(ExtractionProgress value) => _onReport(value);
         }
 
         // ---------- 객체 필터 ----------

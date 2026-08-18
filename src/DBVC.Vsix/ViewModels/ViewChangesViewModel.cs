@@ -1,10 +1,11 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Windows.Input;
 using DBVC.Core;
 using DBVC.Core.Models;
@@ -35,6 +36,9 @@ namespace DBVC.Vsix.ViewModels
         private readonly IWorkingTreeCleaner _cleaner;
         private readonly ScriptExporter _scriptExporter;
         private readonly IBackgroundScheduler _scheduler;
+
+        /// <summary>진행 중인 추출을 멈추기 위한 것. 작업이 없으면 null이다.</summary>
+        private CancellationTokenSource? _extractionCancellation;
 
         /// <summary>새로고침 시점의 변경 레코드. 커밋 후 처리 완료 표시에 사용한다.</summary>
         private IReadOnlyList<ChangeRecord> _lastChangeRecords = new List<ChangeRecord>();
@@ -85,6 +89,8 @@ namespace DBVC.Vsix.ViewModels
             // 진행 중에는 모두 잠긴다. 같은 추출이 겹쳐 돌면 작업 트리를 동시에 건드리고
             // 나중에 끝난 쪽이 먼저 끝난 쪽의 목록을 덮어쓴다.
             RefreshCommand = new RelayCommand(Refresh, () => !IsBusy);
+            RefreshAllCommand = new RelayCommand(RefreshAll, () => !IsBusy);
+            CancelCommand = new RelayCommand(Cancel, () => IsBusy);
             SetupCommand = new RelayCommand(Setup, () => !IsBusy);
             CommitCommand = new RelayCommand(Commit, CanCommit);
             ConnectCommand = new RelayCommand(Connect, () => _ssmsConnectionSource != null && !IsBusy);
@@ -403,6 +409,28 @@ namespace DBVC.Vsix.ViewModels
             }
         }
 
+        private string? _progressText;
+
+        /// <summary>진행 표시 옆에 붙는 한 줄. 작업이 없으면 null이다.</summary>
+        public string? ProgressText
+        {
+            get => _progressText;
+            private set
+            {
+                if (_progressText == value) return;
+                _progressText = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private void Cancel()
+        {
+            // Cancel을 눌러도 IsBusy는 작업이 실제로 멈출 때까지 유지된다.
+            // 여기서 내리면 사용자가 다른 버튼을 눌러 두 작업이 겹친다.
+            _extractionCancellation?.Cancel();
+            ProgressText = "취소하는 중...";
+        }
+
         private string? _warningMessage;
         public string? WarningMessage
         {
@@ -454,6 +482,12 @@ namespace DBVC.Vsix.ViewModels
         public ObjectHistoryViewModel History { get; }
 
         public ICommand RefreshCommand { get; }
+
+        /// <summary>DB의 모든 객체를 다시 추출한다.</summary>
+        public ICommand RefreshAllCommand { get; }
+
+        /// <summary>진행 중인 추출을 멈춘다. 이미 추출된 파일은 그대로 남는다.</summary>
+        public ICommand CancelCommand { get; }
         public ICommand SetupCommand { get; }
         public ICommand CommitCommand { get; }
 
@@ -644,12 +678,33 @@ namespace DBVC.Vsix.ViewModels
             }
 
             IsInitialized = true;
-            Refresh();
+
+            // 방금 트리거를 설치했다. 그 이전의 변경은 DDL 로그에 없으므로 전체를 추출해야
+            // 저장소가 DB의 현재 상태를 담는다.
+            RefreshAll();
         }
 
         // ---------- Refresh ----------
 
+        /// <summary>
+        /// DB의 모든 객체를 다시 추출한다.
+        ///
+        /// DDL 트리거가 없던 동안의 변경, 로그가 잘려 나간 경우, Pull로 받은 파일이 DB와
+        /// 어긋난 경우처럼 <c>DBVC_ChangeLog</c>가 모르는 차이를 되찾을 수 있는 유일한 경로다.
+        /// 느리므로 기본 새로고침은 이것을 하지 않는다.
+        /// </summary>
+        public void RefreshAll()
+        {
+            Refresh(fullExtraction: true);
+        }
+
+        /// <summary>DDL 로그가 가리키는 객체만 다시 추출한다.</summary>
         public void Refresh()
+        {
+            Refresh(fullExtraction: false);
+        }
+
+        private void Refresh(bool fullExtraction)
         {
             Changes.Clear();
             SelectedChange = null;
@@ -674,16 +729,32 @@ namespace DBVC.Vsix.ViewModels
             var server = ServerName!;
             var database = DatabaseName!;
 
+            _extractionCancellation?.Dispose();
+            _extractionCancellation = new CancellationTokenSource();
+            var token = _extractionCancellation.Token;
+
             IsBusy = true;
+            ProgressText = "시작하는 중...";
+
             _scheduler.Run(
-                () => GatherRefresh(server, database),
+                () => GatherRefresh(server, database, fullExtraction, token),
                 ApplyRefreshOutcome,
                 ex =>
                 {
                     IsBusy = false;
+                    ProgressText = null;
+                    RaiseActionCanExecuteChanged();
+
+                    // 취소는 실패가 아니다. 오류 상자로 알리면 사용자가 자기가 누른 것을
+                    // 오류로 되읽는다. 이미 추출된 파일은 남아 있으므로 목록도 지우지 않는다.
+                    if (ex is OperationCanceledException)
+                    {
+                        WarningMessage = "추출을 취소했습니다. 여기까지 추출된 내용은 저장소에 남아 있습니다.";
+                        return;
+                    }
+
                     WarningMessage = null;
                     _notifier.ShowError("DBVC 새로고침 실패", ex.Message);
-                    RaiseActionCanExecuteChanged();
                 });
         }
 
@@ -691,20 +762,13 @@ namespace DBVC.Vsix.ViewModels
         /// 새로고침의 무거운 부분. SMO 추출·변경 로그 조회·Git 상태 읽기·작업 트리 정리를 한다.
         /// UI 스레드 밖에서 돌므로 <see cref="Changes"/>를 비롯한 바인딩 대상을 건드리지 않는다.
         /// </summary>
-        private RefreshOutcome GatherRefresh(string server, string database)
+        private RefreshOutcome GatherRefresh(string server, string database, bool fullExtraction, CancellationToken cancellationToken)
         {
             var outcome = new RefreshOutcome();
+            var mapping = _configManager.TryGetMapping(server, database);
 
             // 현재 DB 상태를 파일로 추출해야 Git 상태·Diff가 최신 코드를 반영한다.
-            var scriptResult = _smoManager.ScriptObjectsDetailed(server, database, null);
-            if (scriptResult == null)
-            {
-                outcome.Warnings.Add("데이터베이스에서 객체를 추출하지 못했습니다.");
-            }
-            else if (scriptResult.HasFailures)
-            {
-                outcome.Warnings.Add($"일부 객체를 추출하지 못했습니다: {string.Join(", ", scriptResult.FailedObjects)}");
-            }
+            Extract(server, database, mapping, fullExtraction, outcome, cancellationToken);
 
             if (!_stateTracker.RefreshState(server, database))
             {
@@ -715,7 +779,6 @@ namespace DBVC.Vsix.ViewModels
 
             // DROP된 객체의 파일을 지워야 Git이 삭제를 감지하고 커밋에 포함할 수 있다.
             // RefreshState가 Git 상태를 읽은 뒤이므로 이 정리가 목록 판정을 바꾸지 않는다.
-            var mapping = _configManager.TryGetMapping(server, database);
             if (mapping != null)
             {
                 var cleanup = _cleaner.RemoveDeletedObjectFiles(mapping.GitPath, outcome.Records);
@@ -727,6 +790,48 @@ namespace DBVC.Vsix.ViewModels
             }
 
             return outcome;
+        }
+
+        /// <summary>
+        /// 무엇을 추출할지 정하고 추출한다.
+        ///
+        /// 기본은 DDL 로그가 가리키는 객체만이다. 전체 추출은 SMO 왕복이 객체 수에 비례해
+        /// 쌓여 1000개짜리 DB에서 수 분이 걸린다(CPU가 아니라 SQL 대기다).
+        ///
+        /// 다만 기준선이 없으면 전체를 추출해야 한다. 나머지 객체의 파일이 저장소에 없는데
+        /// 변경분만 뽑으면 사용자는 커밋할 것을 찾지 못한다.
+        /// </summary>
+        private void Extract(string server, string database, MappingConfig? mapping, bool fullExtraction, RefreshOutcome outcome, CancellationToken cancellationToken)
+        {
+            var extractAll = fullExtraction || mapping == null || !ExtractionBaseline.Exists(mapping.GitPath);
+
+            List<string>? targets = null;
+            if (!extractAll)
+            {
+                targets = _stateTracker.GetChangedObjectNames(server, database)?.ToList() ?? new List<string>();
+
+                // 빈 목록을 그대로 넘기면 SmoManager가 "필터 없음"으로 읽어 전체를 추출한다.
+                // 로그가 비어 있다는 것은 추출할 것이 없다는 뜻이므로 아예 부르지 않는다.
+                if (targets.Count == 0) return;
+            }
+
+            // 보고는 백그라운드 스레드에서 온다. 바인딩 속성은 UI 스레드에서만 바꾼다.
+            var progress = new ExtractionProgressRelay(p =>
+            {
+                var text = $"{p.Completed}/{p.Total} 추출 중 — {p.CurrentObject}";
+                _scheduler.Post(() => ProgressText = text);
+            });
+
+            var scriptResult = _smoManager.ScriptObjectsDetailed(server, database, targets, progress, cancellationToken);
+
+            if (scriptResult == null)
+            {
+                outcome.Warnings.Add("데이터베이스에서 객체를 추출하지 못했습니다.");
+            }
+            else if (scriptResult.HasFailures)
+            {
+                outcome.Warnings.Add($"일부 객체를 추출하지 못했습니다: {string.Join(", ", scriptResult.FailedObjects)}");
+            }
         }
 
         private void ApplyRefreshOutcome(RefreshOutcome outcome)
@@ -753,8 +858,21 @@ namespace DBVC.Vsix.ViewModels
             }
 
             WarningMessage = outcome.Warnings.Count > 0 ? string.Join(" / ", outcome.Warnings) : null;
+            ProgressText = null;
             IsBusy = false;
             RaiseActionCanExecuteChanged();
+        }
+
+        /// <summary>
+        /// 보고를 그 자리에서 전달한다. <see cref="Progress{T}"/>는 생성된 스레드의
+        /// SynchronizationContext로 넘기는데, 백그라운드 스레드에는 그것이 없어 보고가
+        /// 스레드 풀로 흩어지고 순서가 뒤집힌다.
+        /// </summary>
+        private sealed class ExtractionProgressRelay : IProgress<ExtractionProgress>
+        {
+            private readonly Action<ExtractionProgress> _onReport;
+            public ExtractionProgressRelay(Action<ExtractionProgress> onReport) { _onReport = onReport; }
+            public void Report(ExtractionProgress value) => _onReport(value);
         }
 
         private sealed class RefreshOutcome
@@ -944,6 +1062,8 @@ namespace DBVC.Vsix.ViewModels
         private void RaiseActionCanExecuteChanged()
         {
             (RefreshCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (RefreshAllCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (CancelCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (SetupCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (ConnectCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CommitCommand as RelayCommand)?.RaiseCanExecuteChanged();

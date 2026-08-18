@@ -1,8 +1,9 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using DBVC.Core.Models;
 using Microsoft.Data.SqlClient;
 using Microsoft.SqlServer.Management.Common;
@@ -46,7 +47,12 @@ namespace DBVC.Core
         /// <see cref="ScriptObjects"/>와 동일하지만 성공/실패 객체 수를 함께 반환한다.
         /// 연결 실패 등으로 스크립팅을 시작조차 못한 경우 <c>null</c>을 반환한다.
         /// </summary>
-        public ScriptResult? ScriptObjectsDetailed(string serverName, string databaseName, List<string>? objectNames = null)
+        public ScriptResult? ScriptObjectsDetailed(
+            string serverName,
+            string databaseName,
+            List<string>? objectNames = null,
+            IProgress<ExtractionProgress>? progress = null,
+            CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(serverName) || string.IsNullOrWhiteSpace(databaseName))
             {
@@ -77,6 +83,7 @@ namespace DBVC.Core
                 using var sqlConn = new SqlConnection(connStr);
                 var conn = new ServerConnection(sqlConn);
                 var server = new Server(conn);
+                ConfigureBulkEnumeration(server);
                 var db = server.Databases[databaseName];
 
                 if (db == null)
@@ -103,13 +110,47 @@ namespace DBVC.Core
                 {
                     scripter.Options.FileName = outputPath;
                     scripter.Script(new[] { (Urn)target.Tag! });
-                });
+                }, progress, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // 사용자가 멈춘 것이다. null로 뭉개면 호출자가 "추출 실패"로 알린다.
+                throw;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"Error during SMO scripting for '{serverName}.{databaseName}': {ex}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// 컬렉션을 열거할 때 SMO가 무엇을 미리 가져올지 정한다.
+        ///
+        /// SMO는 기본적으로 컬렉션을 열거할 때 식별 정보만 읽고, 지정되지 않은 속성을 처음
+        /// 만지는 순간 <b>그 객체 하나를 위해</b> 전체 속성 집합을 다시 조회한다. 여기에는
+        /// 행 수·사용 공간처럼 비싼 것도 들어 있다. <see cref="EnumerateTargets"/>는 객체마다
+        /// IsSystemObject를 읽으므로 그 조회가 객체 수만큼 일어난다.
+        ///
+        /// localhost SQL Server 2022에서 실측한 값이다(객체 200개짜리 DB):
+        ///   지정 없음   : 저장 프로시저 1개당 2842 ms — 컬렉션 전체로 환산하면 72분
+        ///   IsSystemObject만 지정 : 열거 871 ms, 속성 접근 0 ms
+        ///
+        /// 필드를 더 넣으면 오히려 나빠진다. 같은 조건에서 Schema·Name을 덧붙이면 열거가
+        /// 13359 ms, 해당 타입의 전체 필드를 켜면 78568 ms였다. Schema와 Name은 이미 식별
+        /// 정보로 함께 오므로, 여기에 적는 순간 기본 집합을 더 무거운 것으로 바꿔 버린다.
+        /// <b>추가하지 말 것.</b>
+        ///
+        /// 여기 없는 타입(UserDefinedType, Sequence, Synonym 등)은 스키마와 이름만 읽는데
+        /// 둘 다 식별 정보라 별도 조회를 유발하지 않는다.
+        /// </summary>
+        private static void ConfigureBulkEnumeration(Server server)
+        {
+            server.SetDefaultInitFields(typeof(Table), "IsSystemObject");
+            server.SetDefaultInitFields(typeof(View), "IsSystemObject");
+            server.SetDefaultInitFields(typeof(StoredProcedure), "IsSystemObject");
+            server.SetDefaultInitFields(typeof(UserDefinedFunction), "IsSystemObject");
+            server.SetDefaultInitFields(typeof(Trigger), "IsSystemObject");
         }
 
         /// <summary>
@@ -128,9 +169,15 @@ namespace DBVC.Core
         internal static ScriptResult ScriptAll(
             IEnumerable<ScriptTargetInfo> targets,
             string localGitPath,
-            Action<ScriptTargetInfo, string> scriptOne)
+            Action<ScriptTargetInfo, string> scriptOne,
+            IProgress<ExtractionProgress>? progress = null,
+            CancellationToken cancellationToken = default)
         {
             var result = new ScriptResult();
+
+            // 진행률에 분모를 붙이려면 대상 수를 먼저 알아야 한다. 열거는 SetDefaultInitFields로
+            // 이미 싼 연산이 되었으므로(ConfigureBulkEnumeration 참고) 여기서 확정해도 된다.
+            var targetList = targets as System.Collections.Generic.IReadOnlyList<ScriptTargetInfo> ?? targets.ToList();
 
             var stagingDir = Path.Combine(Path.GetTempPath(), "dbvc_smo_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(stagingDir);
@@ -138,8 +185,12 @@ namespace DBVC.Core
             try
             {
                 var index = 0;
-                foreach (var target in targets)
+                foreach (var target in targetList)
                 {
+                    // 취소는 되돌리기가 아니다. 여기까지 옮겨 둔 파일은 그대로 둔다 —
+                    // 지우면 다음 새로고침이 그만큼을 다시 해야 한다.
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     var stagingPath = Path.Combine(stagingDir, (index++).ToString() + ".sql");
 
                     try
@@ -161,6 +212,9 @@ namespace DBVC.Core
                     finally
                     {
                         TryDelete(stagingPath);
+
+                        // 실패한 객체도 센다. 그러지 않으면 실패 지점에서 진행이 멈춘 것처럼 보인다.
+                        progress?.Report(new ExtractionProgress(index, targetList.Count, target.QualifiedName));
                     }
                 }
             }

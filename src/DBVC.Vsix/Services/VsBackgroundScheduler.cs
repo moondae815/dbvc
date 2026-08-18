@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.Shell;
 
@@ -38,6 +38,17 @@ namespace DBVC.Vsix.Services
                 // onSucceeded의 예외는 잡지 않는다. 잡으면 UI 갱신 중의 결함이
                 // 백그라운드 작업의 실패로 둔갑해 엉뚱한 곳을 보게 된다.
                 onSucceeded(value);
+            });
+        }
+
+        public void Post(Action action)
+        {
+            var factory = ThreadHelper.JoinableTaskFactory;
+
+            _ = factory.RunAsync(async () =>
+            {
+                await factory.SwitchToMainThreadAsync();
+                action();
             });
         }
     }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace DBVC.Vsix.Services
 {
@@ -19,6 +19,13 @@ namespace DBVC.Vsix.Services
         /// ObservableCollection이나 바인딩 속성은 <paramref name="onSucceeded"/>에서만 만진다.
         /// </summary>
         void Run<T>(Func<T> work, Action<T> onSucceeded, Action<Exception> onFailed);
+
+        /// <summary>
+        /// UI 스레드에서 실행한다. 백그라운드 작업이 도중에 진행 상황을 알릴 때 쓴다.
+        /// 바인딩된 속성을 백그라운드 스레드에서 직접 바꾸면 WPF가 알림을 어느 스레드에서
+        /// 처리할지가 상황에 따라 달라진다 — 여기를 거치면 언제나 UI 스레드다.
+        /// </summary>
+        void Post(Action action);
     }
 
     /// <summary>
@@ -45,5 +52,7 @@ namespace DBVC.Vsix.Services
 
             onSucceeded(value);
         }
+
+        public void Post(Action action) => action();
     }
 }

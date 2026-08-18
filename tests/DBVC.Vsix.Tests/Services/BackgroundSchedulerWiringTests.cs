@@ -1,4 +1,5 @@
-using System;
+﻿using System;
+using System.Threading;
 using System.Collections.Generic;
 using Moq;
 using NUnit.Framework;
@@ -56,7 +57,7 @@ namespace DBVC.Vsix.Tests.Services
                 .Returns(new List<ChangeRecord>());
 
             var smo = new Mock<ISmoManager>();
-            smo.Setup(s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>()))
+            smo.Setup(s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>(), It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
                 .Returns(new ScriptResult());
 
             return new DbvcServices(
@@ -78,6 +79,8 @@ namespace DBVC.Vsix.Tests.Services
                 catch (Exception ex) { onFailed(ex); return; }
                 onSucceeded(value);
             }
+
+            public void Post(Action action) => action();
         }
     }
 }

@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using DBVC.Core;
@@ -273,6 +273,73 @@ namespace DBVC.Core.Tests
         }
 
         // ---------- 설치 스크립트 ----------
+
+        // ---------- 변경분만 추출하기 위한 대상 목록 ----------
+        //
+        // 새로고침이 DB 전체를 다시 스크립팅하면 객체 수에 비례해 SMO 왕복이 쌓인다.
+        // DDL 로그는 무엇이 바뀌었는지 이미 알고 있으므로, 그 목록을 추출 대상으로 쓴다.
+
+        [Test]
+        public void ToQualifiedNames_ReturnsSchemaQualifiedNames()
+        {
+            var names = StateTracker.ToQualifiedNames(new[]
+            {
+                new ChangeLogRow { Id = 2, SchemaName = "sales", ObjectName = "Orders", ObjectType = "TABLE", EventType = "ALTER_TABLE" },
+                new ChangeLogRow { Id = 1, SchemaName = "dbo", ObjectName = "Users", ObjectType = "TABLE", EventType = "ALTER_TABLE" }
+            });
+
+            Assert.That(names, Is.EquivalentTo(new[] { "sales.Orders", "dbo.Users" }));
+        }
+
+        [Test]
+        public void ToQualifiedNames_DefaultsToDboWhenSchemaIsMissing()
+        {
+            var names = StateTracker.ToQualifiedNames(new[]
+            {
+                new ChangeLogRow { Id = 1, SchemaName = null, ObjectName = "Users", ObjectType = "TABLE", EventType = "ALTER_TABLE" }
+            });
+
+            Assert.That(names, Is.EqualTo(new[] { "dbo.Users" }));
+        }
+
+        [Test]
+        public void ToQualifiedNames_CollapsesRepeatedEventsForTheSameObject()
+        {
+            // 같은 객체를 열 번 고치면 로그 행도 열 개다. 추출은 한 번이면 된다.
+            var names = StateTracker.ToQualifiedNames(new[]
+            {
+                new ChangeLogRow { Id = 3, SchemaName = "dbo", ObjectName = "Users", ObjectType = "TABLE", EventType = "ALTER_TABLE" },
+                new ChangeLogRow { Id = 2, SchemaName = "dbo", ObjectName = "Users", ObjectType = "TABLE", EventType = "ALTER_TABLE" },
+                new ChangeLogRow { Id = 1, SchemaName = "DBO", ObjectName = "users", ObjectType = "TABLE", EventType = "CREATE_TABLE" }
+            });
+
+            Assert.That(names.Count, Is.EqualTo(1), "대소문자가 달라도 같은 객체다");
+        }
+
+        [Test]
+        public void ToQualifiedNames_SkipsRowsWithoutAnObjectName()
+        {
+            var names = StateTracker.ToQualifiedNames(new[]
+            {
+                new ChangeLogRow { Id = 1, SchemaName = "dbo", ObjectName = "", ObjectType = "TABLE", EventType = "ALTER_TABLE" },
+                new ChangeLogRow { Id = 2, SchemaName = "dbo", ObjectName = "Users", ObjectType = "TABLE", EventType = "ALTER_TABLE" }
+            });
+
+            Assert.That(names, Is.EqualTo(new[] { "dbo.Users" }));
+        }
+
+        [Test]
+        public void GetChangedObjectNames_ReturnsEmpty_WhenTheDatabaseCannotBeReached()
+        {
+            // 접속 실패를 "바뀐 것이 없다"로 뭉개면 안 되지만, 예외를 던져 새로고침을 통째로
+            // 무너뜨려서도 안 된다. 호출자(ViewModel)가 전체 추출로 되돌릴 수 있도록 빈 목록을 준다.
+            var config = NewIsolatedConfig();
+            var tracker = new StateTracker(config);
+
+            IReadOnlyList<string>? names = null;
+            Assert.DoesNotThrow(() => names = tracker.GetChangedObjectNames("localhost", "nonexistent_db_xyz"));
+            Assert.That(names, Is.Empty);
+        }
 
         [Test]
         public void InitializeDatabase_ThrowsArgumentException_WhenServerOrDatabaseIsEmpty()
