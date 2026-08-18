@@ -292,10 +292,7 @@ clone은 그 문제를 애초에 만들지 않는다.
 - [ ] **첫 커밋을 만든다.** 항목을 전부 체크하고 커밋 메시지를 쓴 뒤 **Commit** 을 누른다.
       예: `chore: 초기 스키마 스냅샷`
 
-- [ ] 원격에 올린다. DBVC에는 Push 기능이 없으므로 Git 클라이언트에서 한다.
-  ```powershell
-  git -C C:\dbvc-repos\db-schema-<데이터베이스명> push
-  ```
+- [ ] 원격에 올린다. DBVC의 **Push** 버튼을 누른다.
 
 - [ ] **Pull을 눌러본다.** `원격 저장소의 변경을 가져왔습니다.` 알림이 뜨면 SSH 경로가 끝까지 동작하는 것이다.
       **이 확인이 이 문서에서 가장 중요하다** — 여기까지 되면 개발 노트북은 완료다.
@@ -342,7 +339,7 @@ clone은 그 문제를 애초에 만들지 않는다.
 
 - [ ] **4단계를 운영 PC에서 반복한다** (VSIX 설치 → Connect → 저장소 연결).
 
-- [ ] **5단계를 운영 PC에서 반복한다** (Setup DBVC → Refresh → Commit → push → Pull).
+- [ ] **5단계를 운영 PC에서 반복한다** (Setup DBVC → Refresh → Commit → Push → Pull).
 
 ---
 
@@ -431,7 +428,8 @@ clone은 그 문제를 애초에 만들지 않는다.
 - **DDL 변경 이력의 `LoginName`은 실제 접속 계정을 기록한다.** SQL 인증으로 모두가 같은 로그인을
   공유하면 `DBVC_ChangeLog.LoginName`으로 사람을 구분할 수 없다. 현재 화면에는 이 값을 쓰지 않지만
   (Git 커밋 작성자는 `git config`에서 온다), 사람별 추적이 필요하면 로그인을 나눈다.
-- **Push 기능이 없다.** 커밋까지가 DBVC의 역할이고, 원격에 올리는 것은 Git 클라이언트로 한다.
+- **Push는 커밋만 올린다.** 로컬 저장소와 작업 트리는 변하지 않으므로 실패해도 잃을 것이 없다.
+  원격이 앞서 있으면 거부되며, Pull로 받아 병합한 뒤 다시 누른다. force push는 제공하지 않는다.
 - **Pull은 파일만 가져온다.** 받은 `.sql` 을 데이터베이스에 적용할지는 사용자가 판단한다.
   DBVC는 스크립트를 실행하지 않는다.
 - **변경 감지는 Refresh 시점.** DDL 트리거가 발생 즉시 `DBVC_ChangeLog` 에 기록하지만,
@@ -457,7 +455,8 @@ clone은 그 문제를 애초에 만들지 않는다.
 | Refresh해도 목록이 비어 있다 | DDL 트리거 설치 확인. 트리거 설치 **이후에** 변경한 객체만 잡힌다 |
 | Pull이 영문 메시지를 낸다 | 안내가 붙지 않은 경우다. 원격 URL이 SSH도 HTTPS도 아닌 형태인지 확인 |
 | Pull이 `known_hosts` 를 말한다 | Git 클라이언트에서 `ssh -T git@<호스트>` 를 한 번 실행해 `yes` 입력 |
-| 커밋했는데 원격에 없다 | DBVC에 Push가 없다. `git push` 를 직접 실행 |
+| 커밋했는데 원격에 없다 | 커밋과 Push는 별개다. **Push** 버튼을 누른다 |
+| Push가 거부된다 | 원격에 먼저 올라간 커밋이 있다. **Pull** 로 받아 병합한 뒤 다시 Push. 그래도 거부되면 브랜치 보호·권한을 확인 |
 | `type %APPDATA%\...` 가 "경로를 찾을 수 없습니다"를 낸다 | PowerShell에서는 `%VAR%` 가 확장되지 않는다. `Get-Content $env:APPDATA\...` 를 쓴다 |
 | `--add ... ^` 붙여넣기가 깨진다 | `^` 는 명령 프롬프트 전용 줄바꿈이다. PowerShell에서는 백틱(`` ` ``)을 쓰거나 한 줄로 붙여 쓴다 |
 | `ssh-add` 가 "에이전트에 연결할 수 없습니다"를 낸다 | Windows 11에서 `ssh-agent` 서비스가 사용 안 함이다. 2단계의 `Set-Service ssh-agent -StartupType Automatic` + `Start-Service` (관리자 권한) |
