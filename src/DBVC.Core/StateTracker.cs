@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -233,6 +233,55 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
             var gitStates = _gitManager.GetChangedFileStates(mapping.GitPath);
             ApplyChangeSet(serverName, databaseName, BuildChangeSet(rows, gitStates));
             return true;
+        }
+
+        /// <summary>
+        /// 아직 처리되지 않은 DDL 로그가 가리키는 객체의 스키마 한정 이름을 반환한다.
+        /// 새로고침이 DB 전체가 아니라 바뀐 객체만 추출하도록 하는 대상 목록이다.
+        ///
+        /// 접속하지 못하면 빈 목록을 반환한다. 예외로 새로고침을 통째로 무너뜨리지 않기 위해서인데,
+        /// 그러면 "바뀐 것이 없다"와 구분되지 않는다 — 호출자는 이 목록이 비어 있다는 것만으로
+        /// 전체 추출을 건너뛰어서는 안 된다.
+        /// </summary>
+        public IReadOnlyList<string> GetChangedObjectNames(string serverName, string databaseName)
+        {
+            if (string.IsNullOrWhiteSpace(serverName) || string.IsNullOrWhiteSpace(databaseName))
+            {
+                return new List<string>();
+            }
+
+            try
+            {
+                return ToQualifiedNames(ReadPendingRows(BuildConnectionString(serverName, databaseName)));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"StateTracker.GetChangedObjectNames failed for '{serverName}.{databaseName}': {ex.Message}");
+                return new List<string>();
+            }
+        }
+
+        /// <summary>
+        /// 로그 행을 추출 대상 이름으로 바꾼다. 같은 객체를 여러 번 고쳤으면 행도 여러 개지만
+        /// 추출은 한 번이면 되므로 중복을 없앤다.
+        /// </summary>
+        internal static IReadOnlyList<string> ToQualifiedNames(IEnumerable<ChangeLogRow> rows)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var names = new List<string>();
+
+            foreach (var row in rows ?? Enumerable.Empty<ChangeLogRow>())
+            {
+                if (row == null || string.IsNullOrWhiteSpace(row.ObjectName)) continue;
+
+                var qualifiedName = ObjectPathConvention.GetQualifiedName(row.SchemaName, row.ObjectName);
+                if (seen.Add(qualifiedName))
+                {
+                    names.Add(qualifiedName);
+                }
+            }
+
+            return names;
         }
 
         private static List<ChangeLogRow> ReadPendingRows(string connectionString)

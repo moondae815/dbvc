@@ -18,6 +18,12 @@ namespace DBVC.Vsix
         public IStateTracker StateTracker { get; }
 
         /// <summary>
+        /// 도구 창의 무거운 작업을 UI 스레드 밖으로 내보내는 구현.
+        /// 여기가 인라인이면 새로고침이 다시 SSMS를 붙잡는다.
+        /// </summary>
+        public IBackgroundScheduler BackgroundScheduler { get; }
+
+        /// <summary>
         /// 확장 전체가 공유하는 인스턴스.
         /// 도구 창과 패키지가 각자 <see cref="ConfigManager"/>를 만들면 같은 mappings.json에
         /// 서로 다른 메모리 상태를 쓰게 되므로 하나만 둔다.
@@ -37,10 +43,14 @@ namespace DBVC.Vsix
         /// 이제는 메모리뿐이다. ViewModel이 Connect에서 넣은 암호를 StateTracker가 보지 못하면
         /// SQL 인증 접속이 Windows 인증으로 흘러가 실패한다.
         /// </summary>
-        public DbvcServices(IConfigManager configManager, ISqlCredentialStore? credentialStore = null)
+        public DbvcServices(
+            IConfigManager configManager,
+            ISqlCredentialStore? credentialStore = null,
+            IBackgroundScheduler? backgroundScheduler = null)
         {
             ConfigManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
             CredentialStore = credentialStore ?? new SessionCredentialStore();
+            BackgroundScheduler = backgroundScheduler ?? new VsBackgroundScheduler();
 
             var git = new GitManager(ConfigManager);
             GitManager = git;
@@ -58,13 +68,15 @@ namespace DBVC.Vsix
             IGitManager gitManager,
             ISmoManager smoManager,
             IStateTracker stateTracker,
-            ISqlCredentialStore? credentialStore)
+            ISqlCredentialStore? credentialStore,
+            IBackgroundScheduler? backgroundScheduler = null)
         {
             ConfigManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
             GitManager = gitManager ?? throw new ArgumentNullException(nameof(gitManager));
             SmoManager = smoManager ?? throw new ArgumentNullException(nameof(smoManager));
             StateTracker = stateTracker ?? throw new ArgumentNullException(nameof(stateTracker));
             CredentialStore = credentialStore ?? new SessionCredentialStore();
+            BackgroundScheduler = backgroundScheduler ?? new VsBackgroundScheduler();
         }
 
         private ViewChangesViewModel? _sharedViewModel;
@@ -86,7 +98,8 @@ namespace DBVC.Vsix
             return new ViewChangesViewModel(
                 ConfigManager, StateTracker, GitManager, SmoManager, notifier,
                 credentialStore: CredentialStore,
-                ssmsConnectionSource: ssmsConnectionSource ?? new ObjectExplorerConnectionSource());
+                ssmsConnectionSource: ssmsConnectionSource ?? new ObjectExplorerConnectionSource(),
+                scheduler: BackgroundScheduler);
         }
 
         public DiffService CreateDiffService()

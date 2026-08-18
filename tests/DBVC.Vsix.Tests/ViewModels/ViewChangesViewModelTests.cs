@@ -1,4 +1,5 @@
-using System;
+﻿using System;
+using System.Threading;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -61,7 +62,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             _stateTracker.Setup(s => s.TestConnection(It.IsAny<string>(), It.IsAny<string>())).Returns((string?)null);
             _stateTracker.Setup(s => s.RefreshState(Server, Database)).Returns(true);
             _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>());
-            _smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null)).Returns(new ScriptResult());
+            _smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>())).Returns(new ScriptResult());
             _git.Setup(g => g.GetChangedFiles(It.IsAny<string>())).Returns(new List<string>());
 
             _cleaner = new Mock<IWorkingTreeCleaner>();
@@ -518,7 +519,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             // Diff와 커밋이 최신 DB 코드를 보려면 새로고침 시 스크립트 추출이 선행되어야 한다.
             var sequence = new List<string>();
-            _smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null))
+            _smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
                 .Callback(() => sequence.Add("script"))
                 .Returns(new ScriptResult());
             _stateTracker.Setup(s => s.RefreshState(Server, Database))
@@ -551,7 +552,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             vm.RefreshCommand.Execute(null);
 
-            _smo.Verify(s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>()), Times.Never);
+            _smo.Verify(s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>(), It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.Never);
             Assert.That(vm.WarningMessage, Does.Contain("연결된 Git 저장소가 없습니다"));
         }
 
@@ -560,7 +561,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             var result = new ScriptResult { SucceededCount = 3 };
             result.FailedObjects.Add("dbo.Broken");
-            _smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null)).Returns(result);
+            _smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>())).Returns(result);
             var vm = NewConnectedViewModel();
 
             vm.RefreshCommand.Execute(null);
@@ -768,19 +769,26 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
-        public void SelectedChange_ClearsTheHistory_WhenTheSelectionIsCleared()
+        public void SelectedChange_FallsBackToTheRepositoryHistory_WhenTheSelectionIsCleared()
         {
             _git.Setup(g => g.GetHistory(Server, Database, "dbo/Tables/Users.sql"))
                 .Returns(new List<CommitInfo>
                 {
                     new CommitInfo { Sha = "a3f9c2b1d4", Message = "인덱스 추가", Author = "Tester", Date = DateTimeOffset.Now }
                 });
+            _git.Setup(g => g.GetHistory(Server, Database, It.Is<string?>(p => string.IsNullOrWhiteSpace(p))))
+                .Returns(new List<CommitInfo>
+                {
+                    new CommitInfo { Sha = "bbb2222333", Message = "저장소 커밋", Author = "Tester", Date = DateTimeOffset.Now }
+                });
             var vm = NewConnectedViewModel();
             vm.SelectedChange = new ChangeItemViewModel { ObjectName = "dbo.Users", RelativePath = "dbo/Tables/Users.sql" };
 
             vm.SelectedChange = null;
 
-            Assert.That(vm.History.Entries, Is.Empty);
+            Assert.That(vm.History.Entries.Select(e => e.ShortSha), Is.EqualTo(new[] { "bbb2222" }),
+                "선택이 풀리면 이력이 사라지는 것이 아니라 저장소 전체로 넓어져야 합니다");
+            Assert.That(vm.History.ScopeLabel, Is.EqualTo("저장소 전체"));
         }
 
         [Test]
@@ -1008,7 +1016,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             _git.Verify(g => g.PullChanges(Server, Database), Times.Once, "Pull이 실제로 성공했다는 전제 자체를 확인해야 합니다");
             _smo.Verify(
-                s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>?>()),
+                s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>?>(), It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()),
                 Times.Never,
                 "Pull 직후 Refresh하면 방금 받은 원격 변경이 SMO 추출로 즉시 덮어써집니다");
         }
@@ -1125,7 +1133,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             _git.Verify(g => g.PushChanges(Server, Database), Times.Once, "Push가 실제로 성공했다는 전제 자체를 확인해야 합니다");
             _smo.Verify(
-                s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>?>()),
+                s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>?>(), It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()),
                 Times.Never);
         }
 
@@ -1170,6 +1178,37 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             _stateTracker.Verify(s => s.MarkProcessed(Server, Database, It.IsAny<IEnumerable<ChangeRecord>>()), Times.Once);
             Assert.That(vm.CommitMessage, Is.Empty, "커밋 성공 후 메시지 입력창은 비워져야 합니다");
+        }
+
+        /// <summary>
+        /// 커밋하면 변경 목록이 비고, 목록이 비면 선택할 객체가 없다. 그래도 방금 만든 커밋은
+        /// 이력 탭에 보여야 한다 — 첫 커밋 후 "아무 표시도 없다"고 보고된 결함이다.
+        /// </summary>
+        [Test]
+        public void CommitCommand_ShowsTheNewCommitInTheHistory_EvenWithNoObjectSelected()
+        {
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql")
+            });
+            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(true);
+            _git.SetupSequence(g => g.GetHistory(Server, Database, It.Is<string?>(p => string.IsNullOrWhiteSpace(p))))
+                .Returns(new List<CommitInfo>())
+                .Returns(new List<CommitInfo>())
+                .Returns(new List<CommitInfo>
+                {
+                    new CommitInfo { Sha = "a3f9c2b1d4", Message = "초기 스키마 스냅샷", Author = "Tester", Date = DateTimeOffset.Now }
+                });
+            var vm = NewConnectedViewModel();
+            vm.RefreshCommand.Execute(null);
+            vm.Changes[0].IsSelected = true;
+            vm.CommitMessage = "초기 스키마 스냅샷";
+
+            // 사용자가 목록에서 객체를 선택한 적이 없다 — SelectedChange는 계속 null이다.
+            vm.CommitCommand.Execute(null);
+
+            Assert.That(vm.History.Entries.Select(e => e.ShortSha), Is.EqualTo(new[] { "a3f9c2b" }));
+            Assert.That(vm.History.ScopeLabel, Is.EqualTo("저장소 전체"));
         }
 
         [Test]
@@ -1462,6 +1501,361 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.DoesNotThrow(() => vm.GenerateDeploymentScriptCommand.Execute(null));
 
             Assert.That(_notifier.Errors, Has.Count.EqualTo(1));
+        }
+
+        // ---------- UI 스레드 차단 방지 ----------
+        //
+        // Refresh는 SMO로 DB 전 객체를 추출하고 libgit2로 작업 트리 상태를 읽는다. Commit은
+        // 객체 3000개 기준 스테이징에만 15초가 걸린다. 이것들을 명령이 실행되는 스레드에서
+        // 그대로 하면 그 시간 동안 SSMS 전체(메뉴·쿼리 편집기·개체 탐색기)가 멈춘다.
+        // 아래 테스트들은 무거운 호출이 호출자 스레드가 아니라 스케줄러로 넘어가는지 본다.
+
+        /// <summary>
+        /// 넘겨받은 작업을 붙잡아 두었다가 테스트가 <see cref="RunPending"/>을 부를 때 실행한다.
+        /// 인라인으로 실행해 버리면 "호출자 스레드에서 하지 않는다"를 증명할 수 없다.
+        /// </summary>
+        private sealed class DeferredScheduler : IBackgroundScheduler
+        {
+            private readonly List<Action> _pending = new List<Action>();
+
+            public void Run<T>(Func<T> work, Action<T> onSucceeded, Action<Exception> onFailed)
+            {
+                _pending.Add(() =>
+                {
+                    T value;
+                    try { value = work(); }
+                    catch (Exception ex) { onFailed(ex); return; }
+                    onSucceeded(value);
+                });
+            }
+
+            public void Post(Action action) => action();
+
+            /// <summary>대기 중인 작업을 모두 실행한다. 실행 중 새로 등록된 작업도 이어서 처리한다.</summary>
+            public void RunPending()
+            {
+                while (_pending.Count > 0)
+                {
+                    var next = _pending[0];
+                    _pending.RemoveAt(0);
+                    next();
+                }
+            }
+        }
+
+        private ViewChangesViewModel NewViewModel(IBackgroundScheduler scheduler)
+        {
+            return new ViewChangesViewModel(
+                _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
+                _cleaner.Object, _folderDialog, _credentials.Object, _ssms.Object, scheduler);
+        }
+
+        /// <summary>Connect까지 끝낸 ViewModel. Connect 자체도 스케줄러를 타므로 여기서 비워 준다.</summary>
+        private ViewChangesViewModel NewConnectedViewModel(DeferredScheduler scheduler)
+        {
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info());
+            var vm = NewViewModel(scheduler);
+            vm.ConnectCommand.Execute(null);
+            scheduler.RunPending();
+            return vm;
+        }
+
+        [Test]
+        public void Connect_HandsTheConnectionProbeToTheScheduler()
+        {
+            var scheduler = new DeferredScheduler();
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info());
+            var vm = NewViewModel(scheduler);
+
+            vm.ConnectCommand.Execute(null);
+
+            _stateTracker.Verify(s => s.TestConnection(It.IsAny<string>(), It.IsAny<string>()), Times.Never,
+                "접속 시도는 호출자(UI) 스레드가 아니라 스케줄러에 넘겨야 한다");
+
+            scheduler.RunPending();
+
+            _stateTracker.Verify(s => s.TestConnection(Server, Database), Times.Once);
+        }
+
+        [Test]
+        public void Refresh_HandsScriptingToTheScheduler()
+        {
+            var scheduler = new DeferredScheduler();
+            var vm = NewConnectedViewModel(scheduler);
+            _smo.Invocations.Clear();
+
+            vm.RefreshCommand.Execute(null);
+
+            _smo.Verify(s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>(), It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()),
+                Times.Never, "SMO 추출은 호출자(UI) 스레드가 아니라 스케줄러에 넘겨야 한다");
+
+            scheduler.RunPending();
+
+            _smo.Verify(s => s.ScriptObjectsDetailed(Server, Database, null, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Test]
+        public void Refresh_PopulatesChanges_WhenBackgroundWorkCompletes()
+        {
+            var scheduler = new DeferredScheduler();
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database))
+                .Returns(new List<ChangeRecord> { Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql") });
+            var vm = NewConnectedViewModel(scheduler);
+
+            vm.RefreshCommand.Execute(null);
+            scheduler.RunPending();
+
+            Assert.That(vm.Changes.Select(c => c.ObjectName), Is.EqualTo(new[] { "dbo.Users" }));
+        }
+
+        [Test]
+        public void IsBusy_IsTrueWhileRefreshWorkIsOutstanding()
+        {
+            var scheduler = new DeferredScheduler();
+            var vm = NewConnectedViewModel(scheduler);
+
+            vm.RefreshCommand.Execute(null);
+            Assert.That(vm.IsBusy, Is.True, "작업이 끝나기 전에는 진행 중임을 화면이 알 수 있어야 한다");
+
+            scheduler.RunPending();
+            Assert.That(vm.IsBusy, Is.False);
+        }
+
+        [Test]
+        public void RefreshCommand_CannotExecute_WhileWorkIsOutstanding()
+        {
+            var scheduler = new DeferredScheduler();
+            var vm = NewConnectedViewModel(scheduler);
+
+            vm.RefreshCommand.Execute(null);
+
+            Assert.That(vm.RefreshCommand.CanExecute(null), Is.False,
+                "진행 중에 다시 누르면 같은 추출이 겹쳐 돈다");
+
+            scheduler.RunPending();
+            Assert.That(vm.RefreshCommand.CanExecute(null), Is.True);
+        }
+
+        [Test]
+        public void Refresh_ReleasesBusyAndReportsError_WhenBackgroundWorkThrows()
+        {
+            var scheduler = new DeferredScheduler();
+            var vm = NewConnectedViewModel(scheduler);
+            _smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Throws(new InvalidOperationException("추출 중 폭발"));
+
+            vm.RefreshCommand.Execute(null);
+            scheduler.RunPending();
+
+            Assert.That(_notifier.Errors, Has.Some.Contains("추출 중 폭발"));
+            Assert.That(vm.IsBusy, Is.False, "실패해도 잠금이 풀려야 다시 시도할 수 있다");
+        }
+
+        [Test]
+        public void Commit_HandsGitWorkToTheScheduler()
+        {
+            var scheduler = new DeferredScheduler();
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database))
+                .Returns(new List<ChangeRecord> { Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql") });
+            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+                .Returns(true);
+
+            var vm = NewConnectedViewModel(scheduler);
+            vm.RefreshCommand.Execute(null);
+            scheduler.RunPending();
+            vm.CommitMessage = "첫 커밋";
+
+            vm.CommitCommand.Execute(null);
+
+            _git.Verify(g => g.CommitChanges(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>()),
+                Times.Never, "스테이징·커밋은 호출자(UI) 스레드가 아니라 스케줄러에 넘겨야 한다");
+
+            scheduler.RunPending();
+
+            _git.Verify(g => g.CommitChanges(Server, Database, "첫 커밋", It.IsAny<IEnumerable<string>>()), Times.Once);
+        }
+
+        // ---------- 변경분만 추출 ----------
+        //
+        // 새로고침은 DB 전체를 다시 스크립팅했다. 객체 1000개짜리 DB에서 이것은 SQL 왕복
+        // 수천 번이고, 실측에서 열거 단계만으로도 수 분이 걸린다(CPU가 아니라 I/O 대기).
+        // DDL 로그는 무엇이 바뀌었는지 이미 알고 있으므로 그 목록만 추출한다.
+        //
+        // 다만 기준선이 없으면(저장소를 갓 연결한 직후) 변경분만 추출해서는 안 된다 —
+        // 나머지 객체의 파일이 저장소에 없어 사용자가 커밋할 것을 찾지 못한다.
+
+        /// <summary>규약에 맞는 .sql이 하나 들어 있는 실제 폴더를 만들어 기준선이 있는 상태로 만든다.</summary>
+        private string NewRepoWithBaseline()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "dbvc_vm_" + Guid.NewGuid().ToString("N"));
+            var dir = Path.Combine(root, "dbo", "Tables");
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, "Seed.sql"), "-- seed");
+            _tempDirs.Add(root);
+
+            _config.Setup(c => c.TryGetMapping(Server, Database))
+                .Returns(new MappingConfig { ServerName = Server, DatabaseName = Database, GitPath = root });
+            return root;
+        }
+
+        [Test]
+        public void Refresh_ExtractsOnlyTheObjectsTheChangeLogNames_WhenABaselineExists()
+        {
+            NewRepoWithBaseline();
+            _stateTracker.Setup(s => s.GetChangedObjectNames(Server, Database))
+                .Returns(new List<string> { "dbo.Users", "sales.Orders" });
+
+            var vm = NewConnectedViewModel();
+            _smo.Invocations.Clear();
+            vm.RefreshCommand.Execute(null);
+
+            _smo.Verify(s => s.ScriptObjectsDetailed(Server, Database,
+                It.Is<List<string>>(l => l != null && l.Count == 2 && l.Contains("dbo.Users") && l.Contains("sales.Orders")), It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()),
+                Times.Once);
+            _smo.Verify(s => s.ScriptObjectsDetailed(Server, Database, null, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.Never,
+                "기준선이 있으면 전체를 다시 추출해서는 안 된다");
+        }
+
+        [Test]
+        public void Refresh_ExtractsEverything_WhenThereIsNoBaselineYet()
+        {
+            // 매핑 경로에 추출물이 없다. 변경분만 뽑으면 저장소가 빈 채로 남는다.
+            _stateTracker.Setup(s => s.GetChangedObjectNames(Server, Database))
+                .Returns(new List<string> { "dbo.Users" });
+
+            var vm = NewConnectedViewModel();
+            _smo.Invocations.Clear();
+            vm.RefreshCommand.Execute(null);
+
+            _smo.Verify(s => s.ScriptObjectsDetailed(Server, Database, null, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Test]
+        public void Refresh_SkipsExtractionEntirely_WhenTheChangeLogIsEmpty()
+        {
+            NewRepoWithBaseline();
+            _stateTracker.Setup(s => s.GetChangedObjectNames(Server, Database)).Returns(new List<string>());
+
+            var vm = NewConnectedViewModel();
+            _smo.Invocations.Clear();
+            vm.RefreshCommand.Execute(null);
+
+            _smo.Verify(s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>(), It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()),
+                Times.Never,
+                "빈 목록을 그대로 넘기면 필터가 없는 것으로 해석되어 전체가 추출된다");
+        }
+
+        [Test]
+        public void RefreshAll_ExtractsEverything_EvenWhenABaselineExists()
+        {
+            NewRepoWithBaseline();
+            _stateTracker.Setup(s => s.GetChangedObjectNames(Server, Database))
+                .Returns(new List<string> { "dbo.Users" });
+
+            var vm = NewConnectedViewModel();
+            _smo.Invocations.Clear();
+            vm.RefreshAllCommand.Execute(null);
+
+            _smo.Verify(s => s.ScriptObjectsDetailed(Server, Database, null, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.Once,
+                "DDL 로그가 놓친 변경을 되찾을 수 있는 유일한 경로다");
+        }
+
+        [Test]
+        public void Setup_ExtractsEverything_BecauseChangesBeforeTheTriggerAreNotInTheLog()
+        {
+            NewRepoWithBaseline();
+            _stateTracker.Setup(s => s.GetChangedObjectNames(Server, Database))
+                .Returns(new List<string> { "dbo.Users" });
+
+            var vm = NewConnectedViewModel();
+            _smo.Invocations.Clear();
+            vm.SetupCommand.Execute(null);
+
+            _smo.Verify(s => s.ScriptObjectsDetailed(Server, Database, null, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        // ---------- 진행률과 취소 ----------
+
+        [Test]
+        public void ProgressText_ReportsHowFarTheExtractionHasGot()
+        {
+            _smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null,
+                    It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns((string _, string __, List<string>? ___, IProgress<ExtractionProgress>? progress, CancellationToken ____) =>
+                {
+                    progress!.Report(new ExtractionProgress(7, 20, "dbo.Users"));
+                    return new ScriptResult();
+                });
+
+            var vm = NewConnectedViewModel();
+            string? seen = null;
+            vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(vm.ProgressText) && vm.ProgressText != null) seen = vm.ProgressText; };
+
+            vm.RefreshCommand.Execute(null);
+
+            Assert.That(seen, Does.Contain("7/20").And.Contain("dbo.Users"));
+        }
+
+        [Test]
+        public void ProgressText_IsClearedWhenTheWorkFinishes()
+        {
+            var vm = NewConnectedViewModel();
+            vm.RefreshCommand.Execute(null);
+            Assert.That(vm.ProgressText, Is.Null);
+        }
+
+        [Test]
+        public void Cancel_CancelsTheTokenHandedToTheExtraction()
+        {
+            var scheduler = new DeferredScheduler();
+            CancellationToken captured = default;
+            _smo.Setup(s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>(),
+                    It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns((string _, string __, List<string>? ___, IProgress<ExtractionProgress>? ____, CancellationToken token) =>
+                {
+                    captured = token;
+                    return new ScriptResult();
+                });
+
+            var vm = NewConnectedViewModel(scheduler);
+            vm.RefreshCommand.Execute(null);
+
+            vm.CancelCommand.Execute(null);
+            scheduler.RunPending();
+
+            Assert.That(captured.IsCancellationRequested, Is.True,
+                "추출이 받은 토큰이 취소되지 않으면 멈출 방법이 없다");
+        }
+
+        [Test]
+        public void CancelCommand_IsOnlyAvailableWhileWorkIsOutstanding()
+        {
+            var scheduler = new DeferredScheduler();
+            var vm = NewConnectedViewModel(scheduler);
+
+            Assert.That(vm.CancelCommand.CanExecute(null), Is.False);
+
+            vm.RefreshCommand.Execute(null);
+            Assert.That(vm.CancelCommand.CanExecute(null), Is.True);
+
+            scheduler.RunPending();
+            Assert.That(vm.CancelCommand.CanExecute(null), Is.False);
+        }
+
+        [Test]
+        public void Refresh_DoesNotReportAnError_WhenTheUserCancels()
+        {
+            // 사용자가 누른 취소를 오류 상자로 되돌려주면 자기가 한 일을 고장으로 읽는다.
+            _smo.Setup(s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>(),
+                    It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Throws(new OperationCanceledException());
+
+            var vm = NewConnectedViewModel();
+            vm.RefreshCommand.Execute(null);
+
+            Assert.That(_notifier.Errors, Is.Empty);
+            Assert.That(vm.WarningMessage, Does.Contain("취소"));
+            Assert.That(vm.IsBusy, Is.False);
         }
 
         private sealed class RecordingSaveDialog : IFileSaveDialog

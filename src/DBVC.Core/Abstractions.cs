@@ -1,4 +1,6 @@
+﻿using System;
 using System.Collections.Generic;
+using System.Threading;
 using DBVC.Core.Models;
 
 namespace DBVC.Core
@@ -40,6 +42,9 @@ namespace DBVC.Core
         /// <summary>접속을 시도해 성공하면 <c>null</c>, 실패하면 사용자에게 보일 한국어 사유.</summary>
         string? TestConnection(string serverName, string databaseName);
         bool RefreshState(string serverName, string databaseName);
+
+        /// <summary>아직 처리되지 않은 DDL 로그가 가리키는 객체의 스키마 한정 이름.</summary>
+        IReadOnlyList<string> GetChangedObjectNames(string serverName, string databaseName);
         IReadOnlyList<ChangeRecord> GetPendingChanges(string serverName, string databaseName);
         string GetObjectState(string serverName, string databaseName, string objectName);
         void MarkProcessed(string serverName, string databaseName, IEnumerable<ChangeRecord> records);
@@ -55,7 +60,8 @@ namespace DBVC.Core
         bool CommitChanges(string serverName, string databaseName, string message, IEnumerable<string>? relativePaths = null);
         bool PullChanges(string serverName, string databaseName);
         PushResult PushChanges(string serverName, string databaseName);
-        IReadOnlyList<CommitInfo> GetHistory(string serverName, string databaseName, string relativeFilePath);
+        /// <summary><paramref name="relativeFilePath"/>가 비면 저장소 전체 이력을 반환한다.</summary>
+        IReadOnlyList<CommitInfo> GetHistory(string serverName, string databaseName, string? relativeFilePath);
         string? GetFileContentAtHead(string serverName, string databaseName, string relativeFilePath);
         string? GetFileContentBeforeLastCommit(string serverName, string databaseName, string relativeFilePath);
     }
@@ -63,7 +69,17 @@ namespace DBVC.Core
     public interface ISmoManager
     {
         bool ScriptObjects(string serverName, string databaseName, List<string>? objectNames = null);
-        ScriptResult? ScriptObjectsDetailed(string serverName, string databaseName, List<string>? objectNames = null);
+        /// <param name="progress">객체 하나를 처리할 때마다 보고한다. 최초 온보딩은 길다.</param>
+        /// <param name="cancellationToken">
+        /// 취소되면 <see cref="OperationCanceledException"/>이 전파된다.
+        /// 이미 추출해 둔 파일은 그대로 남는다 — 취소는 되돌리기가 아니다.
+        /// </param>
+        ScriptResult? ScriptObjectsDetailed(
+            string serverName,
+            string databaseName,
+            List<string>? objectNames = null,
+            IProgress<ExtractionProgress>? progress = null,
+            CancellationToken cancellationToken = default);
     }
 
     /// <summary>

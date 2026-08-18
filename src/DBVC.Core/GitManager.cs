@@ -465,30 +465,38 @@ namespace DBVC.Core
         }
 
         /// <summary>
-        /// 특정 파일의 커밋 이력을 최신순으로 반환한다. (설계 3.2 History)
+        /// 커밋 이력을 최신순으로 반환한다. (설계 3.2 History)
+        /// <paramref name="relativeFilePath"/>가 비면 저장소 전체 이력을 반환한다 —
+        /// 커밋 직후에는 변경 목록이 비어 화면에서 선택할 객체 자체가 없기 때문이다.
         /// </summary>
-        public IReadOnlyList<CommitInfo> GetHistory(string serverName, string databaseName, string relativeFilePath)
+        public IReadOnlyList<CommitInfo> GetHistory(string serverName, string databaseName, string? relativeFilePath)
         {
             var repoPath = ResolveRepoPath(serverName, databaseName);
-            if (repoPath == null || string.IsNullOrWhiteSpace(relativeFilePath)) return new List<CommitInfo>();
+            if (repoPath == null) return new List<CommitInfo>();
 
             try
             {
                 using var repo = new Repository(repoPath);
-                return repo.Commits
-                    .QueryBy(NormalizePath(relativeFilePath))
-                    .Select(entry => new CommitInfo
+
+                // repo.Commits의 기본 정렬은 시간 역순이고, QueryBy도 같은 순서를 따른다.
+                var commits = string.IsNullOrWhiteSpace(relativeFilePath)
+                    ? repo.Commits.AsEnumerable()
+                    : repo.Commits.QueryBy(NormalizePath(relativeFilePath!)).Select(entry => entry.Commit);
+
+                return commits
+                    .Select(commit => new CommitInfo
                     {
-                        Sha = entry.Commit.Sha,
-                        Message = entry.Commit.Message,
-                        Author = entry.Commit.Author.Name,
-                        Date = entry.Commit.Author.When
+                        Sha = commit.Sha,
+                        Message = commit.Message,
+                        Author = commit.Author.Name,
+                        Date = commit.Author.When
                     })
                     .ToList();
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"GitManager.GetHistory failed for '{relativeFilePath}': {ex.Message}");
+                var scope = string.IsNullOrWhiteSpace(relativeFilePath) ? "(저장소 전체)" : relativeFilePath;
+                Debug.WriteLine($"GitManager.GetHistory failed for '{scope}': {ex.Message}");
                 return new List<CommitInfo>();
             }
         }
