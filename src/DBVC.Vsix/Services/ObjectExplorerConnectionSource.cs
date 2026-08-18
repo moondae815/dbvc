@@ -36,12 +36,15 @@ namespace DBVC.Vsix.Services
         private const string NodeContextTypeName =
             "Microsoft.SqlServer.Management.UI.VSIntegration.ObjectExplorer.INodeContext";
 
+        // 이 두 문구 안에서 "연결"은 버튼 이름으로만 쓰고, 접속 자체는 "접속"으로 부른다.
+        // 둘 다 "연결"이면 "만든 연결을 선택한 뒤 연결을 다시 누르세요"처럼 같은 단어가
+        // 연달아 다른 뜻이 되어, 무엇을 고르고 무엇을 누르라는 것인지 흐려진다.
         private const string EntraReason =
-            "SSMS가 Microsoft Entra ID로 접속해 있습니다. DBVC는 토큰 기반 연결을 재사용할 수 없습니다. " +
-            "개체 탐색기에서 SQL 인증이나 Windows 인증으로 만든 연결을 선택한 뒤 연결을 다시 누르세요.";
+            "SSMS가 Microsoft Entra ID로 접속해 있습니다. DBVC는 토큰 기반 접속을 재사용할 수 없습니다. " +
+            "개체 탐색기에서 SQL 인증이나 Windows 인증으로 만든 접속을 선택한 뒤 연결을 다시 누르세요.";
 
         private const string NoUserNameReason =
-            "SSMS 연결에서 계정 정보를 읽지 못했습니다. 개체 탐색기에서 해당 서버에 다시 접속한 뒤 " +
+            "SSMS 접속에서 계정 정보를 읽지 못했습니다. 개체 탐색기에서 해당 서버에 다시 접속한 뒤 " +
             "연결을 다시 누르세요.";
 
         public SsmsConnectionInfo? TryGetCurrent()
