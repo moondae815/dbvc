@@ -90,7 +90,7 @@
                                 </DataTemplate>
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>
-                        <GridViewColumn Header="State" DisplayMemberBinding="{Binding State}"/>
+                        <GridViewColumn Header="State" DisplayMemberBinding="{Binding StateText}"/>
                         <GridViewColumn Header="Object" DisplayMemberBinding="{Binding ObjectName}"/>
                     </GridView>
                 </ListView.View>
