@@ -22,6 +22,21 @@ namespace DBVC.Vsix.ViewModels
         public string? ObjectName { get; set; }
         public string? State { get; set; } // "Modified", "Added", "Deleted"
 
+        /// <summary>
+        /// 화면에 뿌리는 상태. Core의 <see cref="State"/>는 데이터로 남긴다 —
+        /// WorkingTreeCleaner가 삭제 판정에 쓰고 Core 테스트가 문자열로 검증한다.
+        ///
+        /// 번역표에 없는 값은 원문을 그대로 통과시킨다. 조용히 빈칸이 되면
+        /// Core가 새 상태를 내놓기 시작해도 알아챌 방법이 없다.
+        /// </summary>
+        public string StateText => State switch
+        {
+            "Added" => "추가",
+            "Modified" => "수정",
+            "Deleted" => "삭제",
+            _ => State ?? string.Empty
+        };
+
         /// <summary><c>dbo/Tables/Users.sql</c> 형태의 저장소 상대 경로. 커밋·Diff 대상 식별에 쓴다.</summary>
         public string? RelativePath { get; set; }
 

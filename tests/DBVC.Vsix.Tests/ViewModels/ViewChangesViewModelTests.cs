@@ -177,13 +177,13 @@ namespace DBVC.Vsix.Tests.ViewModels
         [Test]
         public void SetContext_ReportsUnmappedDatabase_WithAProminentWarning()
         {
-            // 설계: "Active Database is not mapped to a Git repository." 경고 표시 + 커밋 비활성화
+            // 설계: "현재 데이터베이스에 연결된 Git 저장소가 없습니다." 경고 표시 + 커밋 비활성화
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
 
             var vm = NewConnectedViewModel();
 
             Assert.That(vm.IsMapped, Is.False);
-            Assert.That(vm.WarningMessage, Does.Contain("not mapped"));
+            Assert.That(vm.WarningMessage, Does.Contain("연결된 Git 저장소가 없습니다"));
         }
 
         [Test]
@@ -379,7 +379,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.CheckSsmsSelection();
 
             Assert.That(vm.SsmsHintMessage, Does.Contain(Server));
-            Assert.That(vm.SsmsHintMessage, Does.Contain("Connect"));
+            Assert.That(vm.SsmsHintMessage, Does.Contain("— 연결을 누르세요"));
         }
 
         [Test]
@@ -552,7 +552,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.RefreshCommand.Execute(null);
 
             _smo.Verify(s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>()), Times.Never);
-            Assert.That(vm.WarningMessage, Does.Contain("not mapped"));
+            Assert.That(vm.WarningMessage, Does.Contain("연결된 Git 저장소가 없습니다"));
         }
 
         [Test]
@@ -1398,7 +1398,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.GenerateDeploymentScriptCommand.Execute(null);
 
             Assert.That(_notifier.InfoCalls, Has.Count.EqualTo(1));
-            Assert.That(_notifier.InfoCalls[0].Title, Is.EqualTo("DBVC Deployment Script"));
+            Assert.That(_notifier.InfoCalls[0].Title, Is.EqualTo("DBVC 배포 스크립트"));
             Assert.That(_notifier.InfoCalls[0].Message, Does.Contain("1개 객체를 내보냈습니다"));
             Assert.That(_notifier.InfoCalls[0].Message, Does.Contain("dbo.Gone"));
             Assert.That(_notifier.InfoCalls[0].Message, Does.Contain("추출된 파일이 없어"),

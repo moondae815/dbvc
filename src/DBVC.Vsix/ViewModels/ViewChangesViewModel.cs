@@ -19,7 +19,9 @@ namespace DBVC.Vsix.ViewModels
     /// </summary>
     public class ViewChangesViewModel : INotifyPropertyChanged
     {
-        private const string NotMappedWarning = "Active Database is not mapped to a Git repository.";
+        // "매핑"은 ConfigManager의 내부 용어다. 바로 옆에 붙는 버튼이 "저장소 연결..."이므로
+        // 배너도 같은 말을 써야 무엇을 눌러야 하는지 문장 하나로 전해진다.
+        private const string NotMappedWarning = "현재 데이터베이스에 연결된 Git 저장소가 없습니다.";
 
         private readonly IConfigManager _configManager;
         private readonly ISqlCredentialStore _credentialStore;
@@ -215,7 +217,7 @@ namespace DBVC.Vsix.ViewModels
                 // 것과 구분할 근거가 없고, 그때마다 배너가 뜨면 진짜 경고까지 함께 묻힌다.
                 SsmsHintMessage = HasContext
                     ? null
-                    : "개체 탐색기에서 데이터베이스(또는 그 하위 개체)를 하나 선택한 뒤 Connect를 누르세요.";
+                    : "개체 탐색기에서 데이터베이스(또는 그 하위 개체)를 하나 선택한 뒤 연결을 누르세요.";
                 return;
             }
 
@@ -231,8 +233,8 @@ namespace DBVC.Vsix.ViewModels
 
             SsmsHintMessage = HasContext
                 ? $"개체 탐색기 선택이 다릅니다 — {info.ServerName}.{info.DatabaseName}. " +
-                  "Connect를 누르면 이 대상으로 전환됩니다."
-                : $"개체 탐색기 선택: {info.ServerName}.{info.DatabaseName} — Connect를 누르세요.";
+                  "연결을 누르면 이 대상으로 전환됩니다."
+                : $"개체 탐색기 선택: {info.ServerName}.{info.DatabaseName} — 연결을 누르세요.";
         }
 
         /// <summary>
@@ -284,7 +286,7 @@ namespace DBVC.Vsix.ViewModels
             }
 
             // 접속부터 확인한다. 실패를 "초기화되지 않음"으로 뭉개면
-            // 사용자는 Setup DBVC 버튼만 보고 원인을 알 수 없다.
+            // 사용자는 DBVC 초기화 버튼만 보고 원인을 알 수 없다.
             var connectionError = _stateTracker.TestConnection(ServerName!, DatabaseName!);
             if (connectionError != null)
             {
@@ -432,7 +434,7 @@ namespace DBVC.Vsix.ViewModels
                     "받아올 변경과 겹치면 Pull이 거부됩니다. 이 경우 저장소는 그대로입니다." + Environment.NewLine +
                     "겹치지 않더라도 병합 중 충돌이 나면 병합을 되돌리면서" + Environment.NewLine +
                     "추적 중인 파일의 변경이 함께 사라질 수 있습니다." + Environment.NewLine +
-                    "(DBVC가 추출한 내용은 Refresh로 다시 만들 수 있습니다)" + Environment.NewLine + Environment.NewLine +
+                    "(DBVC가 추출한 내용은 새로고침으로 다시 만들 수 있습니다)" + Environment.NewLine + Environment.NewLine +
                     "계속하시겠습니까?");
 
                 // 취소는 오류가 아니다.
@@ -557,7 +559,7 @@ namespace DBVC.Vsix.ViewModels
         {
             if (!HasContext)
             {
-                _notifier.ShowError("DBVC", "먼저 Object Explorer에서 대상 데이터베이스를 선택하세요.");
+                _notifier.ShowError("DBVC", "먼저 개체 탐색기에서 대상 데이터베이스를 선택하세요.");
                 return;
             }
 
@@ -568,7 +570,7 @@ namespace DBVC.Vsix.ViewModels
             catch (Exception ex)
             {
                 // 설치 실패(권한 부족 등)를 초기화 성공으로 위장해서는 안 된다.
-                _notifier.ShowError("DBVC 설치 실패", ex.Message);
+                _notifier.ShowError("DBVC 초기화 실패", ex.Message);
                 return;
             }
 
@@ -735,8 +737,11 @@ namespace DBVC.Vsix.ViewModels
         {
             if (!CanGenerateScript()) return;
 
-            var kindLabel = kind == ScriptKind.Rollback ? "Rollback" : "Deployment";
-            var title = $"DBVC {kindLabel} Script";
+            // 표시용과 파일명용을 가른다. 기본 파일명을 한글로 만들면 폐쇄망 반입이나
+            // 다른 도구의 처리에서 인코딩 문제를 살 뿐이고, 얻는 것이 없다.
+            var kindText = kind == ScriptKind.Rollback ? "롤백" : "배포";
+            var kindSlug = kind == ScriptKind.Rollback ? "Rollback" : "Deployment";
+            var title = $"DBVC {kindText} 스크립트";
 
             var result = _scriptExporter.Export(
                 ServerName!, DatabaseName!, GetSelectedRecords(), kind, DateTimeOffset.Now);
@@ -750,7 +755,7 @@ namespace DBVC.Vsix.ViewModels
 
             var targetPath = _saveDialog.PromptForSavePath(
                 $"{title} 저장",
-                $"DBVC_{kindLabel}_{DatabaseName}.sql");
+                $"DBVC_{kindSlug}_{DatabaseName}.sql");
 
             // 사용자가 취소한 경우다. 오류가 아니다.
             if (string.IsNullOrWhiteSpace(targetPath)) return;

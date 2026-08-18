@@ -21,7 +21,7 @@
         -->
         <StackPanel Grid.Row="0">
             <WrapPanel Orientation="Horizontal" Margin="5,5,5,0">
-                <Button Content="Connect" Command="{Binding ConnectCommand}" Width="80" Margin="0,0,10,4"
+                <Button Content="연결" Command="{Binding ConnectCommand}" Width="70" Margin="0,0,10,4"
                         ToolTip="SSMS 개체 탐색기에서 선택한 데이터베이스로 접속합니다. 인증 정보는 그 연결에서만 오며 디스크에 저장되지 않습니다."/>
                 <TextBlock Text="{Binding TargetSummary}" VerticalAlignment="Center" Margin="0,0,0,4"/>
             </WrapPanel>
@@ -64,7 +64,7 @@
                 Top Area. 버튼이 늘어 좁게 도킹하면 잘리므로 WrapPanel로 줄바꿈되게 한다.
             -->
             <WrapPanel Grid.Row="0" Orientation="Horizontal" Margin="5">
-                <Button Content="Refresh" Command="{Binding RefreshCommand}" Width="70" Margin="0,0,10,4"/>
+                <Button Content="새로고침" Command="{Binding RefreshCommand}" Width="80" Margin="0,0,10,4"/>
                 <TextBox Text="{Binding CommitMessage, UpdateSourceTrigger=PropertyChanged}"
                          Width="240" Margin="0,0,10,4"
                          IsEnabled="{Binding IsMapped}"/>
@@ -73,9 +73,9 @@
                         ToolTip="원격 저장소의 변경을 로컬 저장소로 가져옵니다. 데이터베이스에는 적용하지 않습니다." />
                 <Button Content="Push" Command="{Binding PushCommand}" Width="70" Margin="0,0,16,4"
                         ToolTip="로컬 저장소의 커밋을 원격 저장소에 올립니다." />
-                <Button Content="Deployment Script" Command="{Binding GenerateDeploymentScriptCommand}" Width="130" Margin="0,0,6,4"
+                <Button Content="배포 스크립트" Command="{Binding GenerateDeploymentScriptCommand}" Width="100" Margin="0,0,6,4"
                         ToolTip="선택한 객체의 현재 DDL을 단일 .sql 파일로 병합합니다." />
-                <Button Content="Rollback Script" Command="{Binding GenerateRollbackScriptCommand}" Width="120" Margin="0,0,0,4"
+                <Button Content="롤백 스크립트" Command="{Binding GenerateRollbackScriptCommand}" Width="100" Margin="0,0,0,4"
                         ToolTip="선택한 객체가 마지막으로 커밋되기 직전 코드를 단일 .sql 파일로 병합합니다." />
             </WrapPanel>
 
@@ -83,15 +83,15 @@
             <ListView Grid.Row="1" ItemsSource="{Binding Changes}" SelectedItem="{Binding SelectedChange}">
                 <ListView.View>
                     <GridView>
-                        <GridViewColumn Header="Stage">
+                        <GridViewColumn Header="스테이징">
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
                                     <CheckBox IsChecked="{Binding IsSelected}"/>
                                 </DataTemplate>
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>
-                        <GridViewColumn Header="State" DisplayMemberBinding="{Binding State}"/>
-                        <GridViewColumn Header="Object" DisplayMemberBinding="{Binding ObjectName}"/>
+                        <GridViewColumn Header="상태" DisplayMemberBinding="{Binding StateText}"/>
+                        <GridViewColumn Header="객체" DisplayMemberBinding="{Binding ObjectName}"/>
                     </GridView>
                 </ListView.View>
             </ListView>
@@ -100,7 +100,7 @@
 
             <!-- Bottom Area: 선택된 객체에 대한 두 가지 뷰 -->
             <TabControl Grid.Row="3">
-                <TabItem Header="Diff">
+                <TabItem Header="비교">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -114,14 +114,14 @@
                     </Grid>
                 </TabItem>
 
-                <TabItem Header="History">
+                <TabItem Header="이력">
                     <Grid>
                         <ListView ItemsSource="{Binding History.Entries}">
                             <ListView.View>
                                 <GridView>
-                                    <GridViewColumn Header="Date" Width="130" DisplayMemberBinding="{Binding Date}"/>
-                                    <GridViewColumn Header="Author" Width="110" DisplayMemberBinding="{Binding Author}"/>
-                                    <GridViewColumn Header="Message" Width="320" DisplayMemberBinding="{Binding Message}"/>
+                                    <GridViewColumn Header="날짜" Width="130" DisplayMemberBinding="{Binding Date}"/>
+                                    <GridViewColumn Header="작성자" Width="110" DisplayMemberBinding="{Binding Author}"/>
+                                    <GridViewColumn Header="메시지" Width="320" DisplayMemberBinding="{Binding Message}"/>
                                     <GridViewColumn Header="SHA" Width="80" DisplayMemberBinding="{Binding ShortSha}"/>
                                 </GridView>
                             </ListView.View>
@@ -138,8 +138,8 @@
         <!-- The Setup Overlay. 경고는 위 배너가 담당하므로 여기서 중복 표시하지 않는다. -->
         <Grid Grid.Row="2" Visibility="{Binding IsInitialized, Converter={StaticResource InverseBoolToVis}}" Background="#F0F0F0">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                <TextBlock Text="This database is not initialized for DBVC." FontSize="16" Margin="0,0,0,20" Foreground="#333333"/>
-                <Button Content="Setup DBVC" Command="{Binding SetupCommand}" Width="150" Height="40" FontSize="14" Cursor="Hand"/>
+                <TextBlock Text="이 데이터베이스는 아직 DBVC로 초기화되지 않았습니다." FontSize="16" Margin="0,0,0,20" Foreground="#333333"/>
+                <Button Content="DBVC 초기화" Command="{Binding SetupCommand}" Width="150" Height="40" FontSize="14" Cursor="Hand"/>
             </StackPanel>
         </Grid>
     </Grid>

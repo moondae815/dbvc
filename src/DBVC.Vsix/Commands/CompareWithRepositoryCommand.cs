@@ -13,7 +13,7 @@ using Task = System.Threading.Tasks.Task;
 namespace DBVC.Vsix.Commands
 {
     /// <summary>
-    /// SQL 에디터 컨텍스트 메뉴의 "Compare with Repository" 명령. (Feature 11, 12)
+    /// SQL 에디터 컨텍스트 메뉴의 "DBVC: 저장소 버전과 비교" 명령. (Feature 11, 12)
     /// 커서에서 선택된 객체 이름을 해석해 View Changes 창에서 해당 객체의 Diff를 연다.
     /// </summary>
     internal sealed class CompareWithRepositoryCommand
@@ -63,8 +63,8 @@ namespace DBVC.Vsix.Commands
             {
                 _notifier.ShowError(
                     "DBVC",
-                    $"'{name}'은(는) 현재 변경 목록에 없습니다. 이번 세션에서 아직 Connect를 누르지 " +
-                    "않았다면 먼저 DBVC 창에서 Connect를 누르세요. 이미 접속했다면 Refresh를 실행하세요.");
+                    $"'{name}'은(는) 현재 변경 목록에 없습니다. 이번 세션에서 아직 연결을 누르지 " +
+                    "않았다면 먼저 DBVC 창에서 연결을 누르세요. 이미 접속했다면 새로고침을 실행하세요.");
                 return;
             }
 

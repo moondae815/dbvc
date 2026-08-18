@@ -41,7 +41,7 @@ namespace DBVC.Core
             {
                 throw new SqlCredentialException(
                     $"'{serverName}.{databaseName}'은(는) SQL 인증으로 설정되어 있으나 암호를 사용할 수 없습니다. " +
-                    "SSMS 개체 탐색기에서 이 데이터베이스에 접속한 뒤 DBVC 창에서 Connect를 누르세요. " +
+                    "SSMS 개체 탐색기에서 이 데이터베이스에 접속한 뒤 DBVC 창에서 연결을 누르세요. " +
                     "(인증 정보는 SSMS를 닫으면 사라지므로 재시작 후에는 다시 눌러야 합니다.)");
             }
 

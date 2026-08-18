@@ -43,8 +43,8 @@
         <CommandFlag>DefaultInvisible</CommandFlag>
         <CommandFlag>DynamicVisibility</CommandFlag>
         <Strings>
-          <ButtonText>DBVC: Compare with Repository</ButtonText>
-          <MenuText>DBVC: Compare with Repository</MenuText>
+          <ButtonText>DBVC: 저장소 버전과 비교</ButtonText>
+          <MenuText>DBVC: 저장소 버전과 비교</MenuText>
           <ToolTipText>선택한 객체를 Git 저장소의 버전과 비교합니다.</ToolTipText>
         </Strings>
       </Button>
