@@ -183,7 +183,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             var vm = NewConnectedViewModel();
 
             Assert.That(vm.IsMapped, Is.False);
-            Assert.That(vm.WarningMessage, Does.Contain("저장소"));
+            Assert.That(vm.WarningMessage, Does.Contain("연결된 Git 저장소가 없습니다"));
         }
 
         [Test]
@@ -552,7 +552,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.RefreshCommand.Execute(null);
 
             _smo.Verify(s => s.ScriptObjectsDetailed(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>()), Times.Never);
-            Assert.That(vm.WarningMessage, Does.Contain("저장소"));
+            Assert.That(vm.WarningMessage, Does.Contain("연결된 Git 저장소가 없습니다"));
         }
 
         [Test]
