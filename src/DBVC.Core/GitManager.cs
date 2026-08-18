@@ -317,6 +317,32 @@ namespace DBVC.Core
         }
 
         /// <summary>
+        /// Push에 사용할 <see cref="PushOptions"/>를 만든다.
+        /// <c>internal</c>로 노출하는 이유는 <see cref="BuildPullOptions"/>와 같다 —
+        /// 파일 경로 원격을 쓰는 단위 테스트는 자격 증명 콜백도, 서버의 상태 보고도 거치지 않으므로
+        /// 이 배선이 실제로 붙어 있는지는 여기서만 검증할 수 있다.
+        /// </summary>
+        /// <param name="onPushStatusError">
+        /// 서버가 ref 갱신을 거부했을 때 호출된다. 이것을 연결하지 않으면
+        /// <c>Network.Push</c>가 정상 반환해 실패가 성공으로 보고된다.
+        /// </param>
+        internal static PushOptions BuildPushOptions(
+            Action onUserCredentialsRequired,
+            Action<PushStatusError> onPushStatusError)
+        {
+            return new PushOptions
+            {
+                CredentialsProvider = (url, usernameFromUrl, types) =>
+                {
+                    var credentials = ResolveCredentials(types, out var needsUserCredentials);
+                    if (needsUserCredentials) onUserCredentialsRequired();
+                    return credentials;
+                },
+                OnPushStatusError = error => onPushStatusError(error)
+            };
+        }
+
+        /// <summary>
         /// 원격이 요구하는 자격 증명 종류를 보고 무엇을 넘길지 정한다.
         /// libgit2는 SSH를 시스템 ssh 실행 파일에 위임하므로 SSH 원격은 이 콜백을 거치지 않는다.
         /// 뒤집으면 이 콜백이 호출됐다는 것은 원격이 HTTPS이고 자격 증명을 요구한다는 뜻이다.

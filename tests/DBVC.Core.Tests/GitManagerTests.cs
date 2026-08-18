@@ -709,6 +709,58 @@ namespace DBVC.Core.Tests
                 "Default를 지원하지 않으면 GitAuthenticationException으로 감쌀 근거가 됩니다");
         }
 
+        // ---------- BuildPushOptions (콜백 배선) ----------
+
+        [Test]
+        public void BuildPushOptions_WiresResolveCredentialsIntoTheCredentialsProvider()
+        {
+            // Pull과 같은 이유다. ResolveCredentials가 단위 테스트를 통과하는 것과, 그것이 실제로
+            // PushChanges가 쓰는 PushOptions에 연결되어 있는 것은 별개다. 파일 경로 원격을 쓰는
+            // 다른 Push 테스트는 자격 증명 콜백을 아예 거치지 않으므로 이 배선을 지키지 못한다.
+            var options = GitManager.BuildPushOptions(() => { }, _ => { });
+
+            Assert.That(options.CredentialsProvider, Is.Not.Null,
+                "CredentialsProvider가 비어 있으면 인증이 필요한 원격에서 항상 실패합니다");
+        }
+
+        [Test]
+        public void BuildPushOptions_InvokesTheCredentialsCallback_OnlyWhenTheRemoteRequiresUserCredentials()
+        {
+            var requiresUserCredentialsCallCount = 0;
+            var options = GitManager.BuildPushOptions(() => requiresUserCredentialsCallCount++, _ => { });
+
+            // Default를 지원하는 원격: 통합 인증으로 처리되므로 콜백이 불리면 안 된다.
+            options.CredentialsProvider!("https://example.com/repo.git", null, SupportedCredentialTypes.Default);
+            Assert.That(requiresUserCredentialsCallCount, Is.Zero);
+
+            // Default를 지원하지 않는 원격: 콜백이 불려야 PushChanges가 GitAuthenticationException으로 감쌀 수 있다.
+            options.CredentialsProvider!("https://example.com/repo.git", null, SupportedCredentialTypes.UsernamePassword);
+            Assert.That(requiresUserCredentialsCallCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void BuildPushOptions_WiresOnPushStatusError()
+        {
+            // 이 배선이 없으면 서버가 ref 갱신을 거부해도 Network.Push가 정상 반환한다.
+            // 즉 실패가 성공으로 보고된다. 단위 테스트가 닿는 유일한 지점이므로 여기서 지킨다.
+            var collected = 0;
+            var options = GitManager.BuildPushOptions(() => { }, _ => collected++);
+
+            Assert.That(options.OnPushStatusError, Is.Not.Null);
+            options.OnPushStatusError!(default(PushStatusError));
+            Assert.That(collected, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void GitPushRejectedException_CarriesTheInnerException()
+        {
+            var inner = new InvalidOperationException("원본");
+            var ex = new GitPushRejectedException("거부", inner);
+
+            Assert.That(ex.Message, Is.EqualTo("거부"));
+            Assert.That(ex.InnerException, Is.SameAs(inner));
+        }
+
         [Test]
         public void PullChanges_ThrowsWorkingTreeConflictException_WhenUncommittedChangesOverlapTheIncomingOnes()
         {
