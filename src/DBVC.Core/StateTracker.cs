@@ -328,12 +328,15 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
                 // 최신 이벤트가 먼저 오므로 처음 본 것만 채택한다.
                 if (byPath.ContainsKey(relativePath)) continue;
 
+                string? gitState = null;
+                gitStates?.TryGetValue(relativePath, out gitState);
+
                 byPath[relativePath] = new ChangeRecord
                 {
                     Schema = string.IsNullOrWhiteSpace(row.SchemaName) ? ObjectPathConvention.DefaultSchema : row.SchemaName,
                     ObjectName = row.ObjectName,
                     ObjectType = row.ObjectType,
-                    State = MapEventTypeToState(row.EventType),
+                    State = ResolveState(row.EventType, gitState),
                     QualifiedName = ObjectPathConvention.GetQualifiedName(row.SchemaName, row.ObjectName),
                     RelativePath = relativePath,
                     LastLogId = row.Id
@@ -364,6 +367,28 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
             return byPath.Values
                 .OrderBy(r => r.QualifiedName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+        }
+
+        /// <summary>
+        /// DDL 이벤트와 Git 작업 트리 상태를 합쳐 추가/수정/삭제를 정한다.
+        ///
+        /// 추가냐 수정이냐는 저장소가 답을 갖고 있으므로 Git을 먼저 믿는다. DDL 로그의 최신
+        /// 이벤트만 보면 틀린다 — SSMS 테이블 디자이너는 저장 한 번에 CREATE_TABLE 뒤로
+        /// ALTER_TABLE을 더 흘려서, 방금 만든 테이블이 "수정"으로 뜬다. 반대로 아직 커밋된 적
+        /// 없는 객체를 ALTER만 해도 파일은 신규인데 "수정"이 된다.
+        ///
+        /// DROP만 예외다. 파일 정리(WorkingTreeCleaner)는 이 판정 뒤에 돌기 때문에 Git은 아직
+        /// 삭제를 보지 못한다. 그래서 삭제는 DDL 로그가 유일한 근거다.
+        ///
+        /// Git이 그 파일을 아무것도 보고하지 않으면(스크립트가 저장소의 것과 동일한 경우 등)
+        /// 근거가 로그밖에 없으므로 이벤트 타입을 그대로 쓴다.
+        /// </summary>
+        internal static string ResolveState(string? eventType, string? gitState)
+        {
+            var ddlState = MapEventTypeToState(eventType);
+            if (ddlState == "Deleted") return ddlState;
+
+            return gitState == "Added" || gitState == "Modified" ? gitState! : ddlState;
         }
 
         /// <summary>

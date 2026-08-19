@@ -127,6 +127,75 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void BuildChangeSet_ReportsAdded_WhenGitSeesANewFile_EvenIfNewestEventIsAlter()
+        {
+            // SSMS 테이블 디자이너는 저장 한 번에 CREATE_TABLE 뒤로 ALTER_TABLE을 더 흘린다.
+            // 최신 이벤트만 보면 새 테이블이 "수정"으로 뜬다 — 저장소에는 방금 생긴 파일인데도.
+            var tracker = NewTracker();
+            var rows = new[]
+            {
+                Row(20, "dbo", "Table_1", "TABLE", "ALTER_TABLE"),
+                Row(10, "dbo", "Table_1", "TABLE", "CREATE_TABLE")
+            };
+            var gitStates = new Dictionary<string, string>
+            {
+                ["dbo/Tables/Table_1.sql"] = "Added"
+            };
+
+            var changes = tracker.BuildChangeSet(rows, gitStates);
+
+            Assert.That(changes.Count, Is.EqualTo(1));
+            Assert.That(changes[0].State, Is.EqualTo("Added"));
+            Assert.That(changes[0].LastLogId, Is.EqualTo(20), "MarkProcessed가 닫아야 할 행은 여전히 최신 행입니다");
+        }
+
+        [Test]
+        public void BuildChangeSet_ReportsModified_WhenGitSeesATrackedFile_EvenIfNewestEventIsCreate()
+        {
+            // 이미 커밋된 객체를 DROP 후 다시 CREATE하면 이벤트는 CREATE지만
+            // 저장소 기준으로는 기존 파일이 바뀐 것이다.
+            var tracker = NewTracker();
+            var gitStates = new Dictionary<string, string>
+            {
+                ["dbo/Tables/Users.sql"] = "Modified"
+            };
+
+            var changes = tracker.BuildChangeSet(new[] { Row(7, "dbo", "Users", "TABLE", "CREATE_TABLE") }, gitStates);
+
+            Assert.That(changes[0].State, Is.EqualTo("Modified"));
+        }
+
+        [Test]
+        public void BuildChangeSet_FallsBackToEventType_WhenGitHasNoStateForTheFile()
+        {
+            // 스크립트가 저장소의 것과 똑같아 Git이 아무것도 보고하지 않는 경우다.
+            // 근거가 DDL 로그밖에 없으므로 이벤트 타입을 그대로 쓴다.
+            var tracker = NewTracker();
+
+            var changes = tracker.BuildChangeSet(
+                new[] { Row(3, "dbo", "Products", "TABLE", "CREATE_TABLE") },
+                new Dictionary<string, string>());
+
+            Assert.That(changes[0].State, Is.EqualTo("Added"));
+        }
+
+        [Test]
+        public void BuildChangeSet_KeepsDeleted_WhenNewestEventIsDrop_EvenIfGitStillSeesTheFile()
+        {
+            // DROP된 객체의 파일 정리는 이 판정 뒤에 일어난다. 그래서 Git은 아직 삭제를 모르거나
+            // 추출이 남긴 흔적을 다른 상태로 보고한다 — 여기서는 DDL 로그만 믿어야 한다.
+            var tracker = NewTracker();
+            var gitStates = new Dictionary<string, string>
+            {
+                ["dbo/Tables/Legacy.sql"] = "Added"
+            };
+
+            var changes = tracker.BuildChangeSet(new[] { Row(9, "dbo", "Legacy", "TABLE", "DROP_TABLE") }, gitStates);
+
+            Assert.That(changes[0].State, Is.EqualTo("Deleted"));
+        }
+
+        [Test]
         public void BuildChangeSet_ReturnsEmpty_WhenNeitherSourceHasChanges()
         {
             var tracker = NewTracker();
