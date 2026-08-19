@@ -544,13 +544,10 @@ namespace DBVC.Vsix.ViewModels
                 if (!proceed) return;
             }
 
+            PullResult result;
             try
             {
-                if (_gitManager.PullChanges(ServerName!, DatabaseName!) == PullResult.NoMapping)
-                {
-                    _notifier.ShowError("DBVC Pull 실패", "매핑된 Git 저장소를 찾을 수 없습니다.");
-                    return;
-                }
+                result = _gitManager.PullChanges(ServerName!, DatabaseName!);
             }
             catch (MergeConflictException ex)
             {
@@ -575,10 +572,29 @@ namespace DBVC.Vsix.ViewModels
             }
 
             // 여기서 Refresh를 부르면 안 된다. SMO 추출이 방금 받은 원격 변경을 즉시 덮어쓴다.
-            _notifier.ShowInfo(
-                "DBVC Pull",
-                "원격 저장소의 변경을 가져왔습니다." + Environment.NewLine +
-                "받은 스크립트를 확인한 뒤 필요하면 데이터베이스에 적용하세요.");
+            switch (result)
+            {
+                case PullResult.NoMapping:
+                    _notifier.ShowError("DBVC Pull 실패", "매핑된 Git 저장소를 찾을 수 없습니다.");
+                    return;
+
+                case PullResult.AlreadyUpToDate:
+                    // 받은 것이 없으므로 이력도 Diff도 바뀌지 않았다. 아래 재적재를 건너뛴다 -
+                    // 화면이 다시 그려지면 사용자는 무언가 받아왔다고 읽는다.
+                    _notifier.ShowInfo("DBVC Pull", "원격에 새 변경이 없습니다. 저장소가 이미 최신입니다.");
+                    return;
+
+                case PullResult.Pulled:
+                    // 받은 스크립트가 어디 놓였는지 말하지 않으면 사용자가 찾지 못한다 -
+                    // DBVC는 파일만 가져올 뿐 데이터베이스에 적용하지 않기 때문이다.
+                    _notifier.ShowInfo(
+                        "DBVC Pull",
+                        "원격 저장소의 변경을 가져왔습니다." + Environment.NewLine +
+                        "받은 스크립트는 아래 폴더에 있습니다:" + Environment.NewLine + Environment.NewLine +
+                        mapping.GitPath + Environment.NewLine + Environment.NewLine +
+                        "확인한 뒤 필요하면 데이터베이스에 적용하세요.");
+                    break;
+            }
 
             // History.Load와 SelectionChanged는 Git/작업 트리를 읽기만 할 뿐 SMO를 호출하지 않는다.
             // 그래서 위의 "Refresh 금지" 규칙과 충돌하지 않는다 — 오히려 Pull의 목적(새 커밋 반영)을

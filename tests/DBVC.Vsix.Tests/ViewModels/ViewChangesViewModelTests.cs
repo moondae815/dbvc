@@ -988,7 +988,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
-        public void PullCommand_NotifiesOnSuccess()
+        public void PullCommand_NotifiesOnSuccess_AndSaysWhereTheScriptsLanded()
         {
             _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.Pulled);
             var vm = NewConnectedViewModel();
@@ -997,6 +997,44 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(_notifier.Infos, Has.Count.EqualTo(1));
             Assert.That(_notifier.Errors, Is.Empty);
+            Assert.That(_notifier.Infos[0], Does.Contain(@"C:\repo"),
+                "받은 스크립트가 어디 놓였는지 말하지 않으면 사용자가 찾지 못합니다");
+        }
+
+        [Test]
+        public void PullCommand_ReportsAlreadyUpToDate_WhenNothingWasPulled()
+        {
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.AlreadyUpToDate);
+            var vm = NewConnectedViewModel();
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(_notifier.Errors, Is.Empty, "받을 것이 없는 것은 오류가 아닙니다");
+            Assert.That(_notifier.Infos, Has.Count.EqualTo(1));
+            Assert.That(_notifier.Infos[0], Does.Not.Contain("가져왔습니다"),
+                "받은 것이 없는데 가져왔다고 말하면 사용자가 없는 스크립트를 찾아 헤맵니다");
+            Assert.That(_notifier.Infos[0], Does.Contain("이미 최신"));
+        }
+
+        [Test]
+        public void PullCommand_DoesNotReloadHistory_WhenNothingWasPulled()
+        {
+            // 이력을 다시 읽어도 내용은 같다. 그런데 화면이 다시 그려지면 사용자는
+            // 무언가 받아왔다고 읽는다 - 안내 문구를 고친 이유와 같은 문제다.
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.AlreadyUpToDate);
+            var vm = NewConnectedViewModel();
+            vm.SelectedChange = new ChangeItemViewModel { ObjectName = "dbo.Users", RelativePath = "dbo/Tables/Users.sql" };
+            // SelectedChange 대입 자체가 이력을 한 번 읽는다. 그것을 세지 않도록 지운다.
+            _git.Invocations.Clear();
+            int selectionChangedCount = 0;
+            vm.SelectionChanged += (_, __) => selectionChangedCount++;
+
+            vm.PullCommand.Execute(null);
+
+            _git.Verify(g => g.GetHistory(Server, Database, It.IsAny<string?>()), Times.Never,
+                "받은 것이 없으면 이력이 바뀌지 않았으므로 다시 읽을 이유가 없습니다");
+            Assert.That(selectionChangedCount, Is.EqualTo(0),
+                "Diff도 다시 렌더링할 이유가 없습니다");
         }
 
         [Test]
