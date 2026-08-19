@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Id="DBVC.Vsix.1c4e8f90" Version="0.2.0" Language="en-US" Publisher="DBVC" />
+    <Identity Id="DBVC.Vsix.1c4e8f90" Version="0.2.1" Language="en-US" Publisher="DBVC" />
     <DisplayName>DBVC — SSMS 데이터베이스 형상 관리</DisplayName>
     <Description xml:space="preserve">SQL Server Management Studio 21용 데이터베이스 형상 관리(Database Version Control) 확장입니다.</Description>
     <MoreInfo>https://github.com/dbvc/dbvc</MoreInfo>
