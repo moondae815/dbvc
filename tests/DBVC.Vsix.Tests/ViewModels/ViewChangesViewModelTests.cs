@@ -997,6 +997,8 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(_notifier.Infos, Has.Count.EqualTo(1));
             Assert.That(_notifier.Errors, Is.Empty);
+            Assert.That(_notifier.InfoCalls[0].Title, Is.EqualTo("DBVC Pull"),
+                "제목이 실패와 구분되지 않으면 사용자가 목록만 보고도 결과를 알 수 없습니다");
             Assert.That(_notifier.Infos[0], Does.Contain(@"C:\repo"),
                 "받은 스크립트가 어디 놓였는지 말하지 않으면 사용자가 찾지 못합니다");
         }
@@ -1011,6 +1013,8 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(_notifier.Errors, Is.Empty, "받을 것이 없는 것은 오류가 아닙니다");
             Assert.That(_notifier.Infos, Has.Count.EqualTo(1));
+            Assert.That(_notifier.InfoCalls[0].Title, Is.EqualTo("DBVC Pull"),
+                "이미 최신인 경우도 성공 경로이므로 제목이 실패 알림과 섞이면 안 됩니다");
             Assert.That(_notifier.Infos[0], Does.Not.Contain("가져왔습니다"),
                 "받은 것이 없는데 가져왔다고 말하면 사용자가 없는 스크립트를 찾아 헤맵니다");
             Assert.That(_notifier.Infos[0], Does.Contain("이미 최신"));

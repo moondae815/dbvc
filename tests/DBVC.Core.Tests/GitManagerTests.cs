@@ -539,6 +539,45 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void PullChanges_ReturnsPulled_WhenTheMergeCreatesAMergeCommit()
+        {
+            // Pulled 판정은 MergeStatus.NonFastForward를 곧 병합 커밋이 생겼다는 뜻으로 읽는다.
+            // 이 가정은 Commands.Pull의 기본 MergeOptions가 CommitOnSuccess = true라는 데
+            // 기대고 있다 - 이 테스트가 그 전제를 직접 확인한다. 원격과 로컬이 서로 다른
+            // 파일을 바꿔 히스토리만 갈라지게 하고(충돌 없음), 병합 뒤 HEAD가 부모 둘을
+            // 가진 병합 커밋인지까지 본다.
+            var originPath = NewRepoWithCommit();
+            var clonePath = NewTempDir();
+            Repository.Clone(originPath, clonePath);
+
+            WriteRepoFile(originPath, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);");
+            using (var origin = new Repository(originPath))
+            {
+                Commands.Stage(origin, "*");
+                origin.Commit("remote change", TestSignature, TestSignature);
+            }
+
+            WriteRepoFile(clonePath, "dbo/Tables/Products.sql", "CREATE TABLE Products (Id INT);");
+            using (var clone = new Repository(clonePath))
+            {
+                Commands.Stage(clone, "*");
+                clone.Commit("local change", TestSignature, TestSignature);
+            }
+
+            var git = NewGitManager("localhost", "testdb", clonePath);
+
+            var result = git.PullChanges("localhost", "testdb");
+
+            Assert.That(result, Is.EqualTo(PullResult.Pulled));
+            using (var clone = new Repository(clonePath))
+            {
+                Assert.That(clone.Head.Tip.Parents.Count(), Is.EqualTo(2),
+                    "NonFastForward가 Pulled로 분류되는 근거는 병합 커밋이 실제로 만들어졌다는 것입니다 - " +
+                    "부모가 둘이 아니면 그 전제가 깨진 것입니다");
+            }
+        }
+
+        [Test]
         public void PullChanges_ReturnsNoMapping_WhenDatabaseIsNotMapped()
         {
             var configPath = Path.Combine(NewTempDir(), "mappings.json");

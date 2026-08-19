@@ -587,13 +587,23 @@ namespace DBVC.Vsix.ViewModels
                 case PullResult.Pulled:
                     // 받은 스크립트가 어디 놓였는지 말하지 않으면 사용자가 찾지 못한다 -
                     // DBVC는 파일만 가져올 뿐 데이터베이스에 적용하지 않기 때문이다.
+                    // 저장소 루트를 알려주는 것만으로는 부족하다 - 실제 파일은 루트가 아니라
+                    // ObjectPathConvention이 정한 하위 경로에 있기 때문이다(README.md와 일치시킨다).
                     _notifier.ShowInfo(
                         "DBVC Pull",
                         "원격 저장소의 변경을 가져왔습니다." + Environment.NewLine +
                         "받은 스크립트는 아래 폴더에 있습니다:" + Environment.NewLine + Environment.NewLine +
-                        mapping.GitPath + Environment.NewLine + Environment.NewLine +
+                        mapping.GitPath + Environment.NewLine +
+                        "(스크립트는 [스키마]/[객체 유형]/[이름].sql 에 있습니다)" + Environment.NewLine + Environment.NewLine +
                         "확인한 뒤 필요하면 데이터베이스에 적용하세요.");
                     break;
+
+                default:
+                    // 클래식 switch문은 열거형이 case를 놓쳐도 컴파일러가 경고하지 않는다.
+                    // Pull()에서 처리되지 않은 값은 아래 History 재적재로 그대로 흘러 화면만
+                    // 조용히 다시 그려질 뿐 아무 안내도 뜨지 않는다 - 이 지점이 없애려는 혼란
+                    // 그 자체이므로, 새 값이 추가되면 여기서 반드시 시끄럽게 죽어야 한다.
+                    throw new InvalidOperationException($"처리되지 않은 {nameof(PullResult)}: {result}");
             }
 
             // History.Load와 SelectionChanged는 Git/작업 트리를 읽기만 할 뿐 SMO를 호출하지 않는다.
@@ -641,6 +651,11 @@ namespace DBVC.Vsix.ViewModels
                 case PushResult.Pushed:
                     _notifier.ShowInfo("DBVC Push", "커밋을 원격 저장소에 올렸습니다.");
                     break;
+
+                default:
+                    // Pull()의 default와 같은 이유다 - 컴파일러가 놓친 case를 잡아주지 않으므로
+                    // 새 열거값이 추가되면 조용히 지나치지 않고 여기서 드러나야 한다.
+                    throw new InvalidOperationException($"처리되지 않은 {nameof(PushResult)}: {result}");
             }
 
             RaiseActionCanExecuteChanged();
