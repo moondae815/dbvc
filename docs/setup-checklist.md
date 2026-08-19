@@ -12,9 +12,8 @@
 | 계정 | GitHub 계정 | LDAP(Windows AD) |
 
 **명령을 실행하는 곳.** 이 문서의 명령은 Windows 11의 기본 터미널인 **Windows Terminal의
-PowerShell** 에서 실행하는 것을 기준으로 적었다. 예외는 1단계의 `msbuild` 하나뿐이고
-(개발자용 셸이 필요하다), 그 자리에 따로 적어 두었다. 일부 명령은 **관리자 권한** 창이
-필요한데, 역시 해당 항목에 표시해 두었다.
+PowerShell** 에서 실행하는 것을 기준으로 적었다. 일부 명령은 **관리자 권한** 창이
+필요한데, 해당 항목에 표시해 두었다.
 
 > Windows 10에서 쓰던 `type %APPDATA%\...` 같은 명령 프롬프트 문법은 PowerShell에서 동작하지 않는다
 > (`%VAR%`가 그대로 문자열로 남는다). 아래 명령은 모두 PowerShell 문법으로 바꿔 두었다.
@@ -103,12 +102,9 @@ PowerShell에서는 줄바꿈 기호가 `^`가 아니라 백틱(`` ` ``)이다. 
   git clone https://github.com/moondae815/dbvc.git
   cd dbvc
   ```
-- [ ] **개발자용 셸**을 열고 빌드한다. 일반 PowerShell 창에서는 `msbuild`를 찾지 못한다.
-      시작 메뉴에서 `Developer PowerShell for VS 2022`(또는 `Developer Command Prompt for VS 2022`)
-      를 연다. Windows 11의 Windows Terminal을 쓴다면 탭 새로 만들기 옆 **∨** 를 눌러 같은 이름의
-      프로필을 고르면 된다.
+- [ ] 빌드한다. 일반 PowerShell 창에서 그대로 된다 — 개발자용 셸은 필요하지 않다.
   ```powershell
-  msbuild src\DBVC.Vsix\DBVC.Vsix.csproj -restore -p:Configuration=Release
+  dotnet build src\DBVC.Vsix\DBVC.Vsix.csproj -c Release
   ```
 - [ ] 산출물이 실제로 생겼는지 확인한다. **경로에 `net48`이 들어간다.**
   ```powershell
@@ -118,7 +114,16 @@ PowerShell에서는 줄바꿈 기호가 `^`가 아니라 백틱(`` ` ``)이다. 
   크기가 8MB 안팎이면 정상이다.
 
 > **`.vsix`가 없으면 여기서 멈춘다.** 뒷단계가 전부 이것에 의존한다.
-> msbuild가 성공했는데 파일이 없으면 위 표의 "확장 빌드 도구" 워크로드를 확인한다.
+> 빌드가 성공했는데 파일이 없으면 위 표의 "확장 빌드 도구" 워크로드를 확인한다 —
+> `Microsoft.VSSDK.BuildTools`가 임포트되지 않으면 어떤 빌드 도구로도 `.vsix`는 나오지 않는다.
+> 워크로드가 멀쩡한데도 안 나오면 **개발자용 셸**에서 msbuild로 한 번 더 시도한다. 시작 메뉴에서
+> `Developer PowerShell for VS 2022`(또는 `Developer Command Prompt for VS 2022`)를 연다 —
+> Windows 11의 Windows Terminal을 쓴다면 탭 새로 만들기 옆 **∨** 를 눌러 같은 이름의 프로필을
+> 고르면 된다.
+>
+> ```powershell
+> msbuild src\DBVC.Vsix\DBVC.Vsix.csproj -restore -p:Configuration=Release
+> ```
 
 - [ ] 만들어진 `.vsix` 파일을 **따로 보관한다.** 6단계에서 폐쇄망 PC로 옮겨야 한다.
 

@@ -17,13 +17,20 @@ dotnet test tests/DBVC.Core.Tests -f net48    # Windows에서만 실행 가능
 dotnet test tests/DBVC.Core.Tests -f net10.0
 ```
 
-`.vsix` 패키징은 `dotnet build`로는 되지 않는다. VSSDK 타깃이 .NET Framework MSBuild를 요구하므로
-Windows에서 개발자 셸로 직접 만든다:
+`.vsix` 패키징은 `dotnet build`로도 된다. 이 저장소의 현재 구성에서 확인했다 — 이렇게 만든
+Release 패키지는 msbuild 산출물과 담긴 항목 85개가 같고, 매니페스트의 `InstallationTarget`도
+그대로 들어간다:
 
 ```powershell
-msbuild src/DBVC.Vsix/DBVC.Vsix.csproj -restore -p:Configuration=Release
+dotnet build src/DBVC.Vsix/DBVC.Vsix.csproj -c Release
 dir src\DBVC.Vsix\bin\Release\net48\*.vsix   # 빌드 성공 ≠ .vsix 생성. 산출물 존재를 반드시 확인한다.
 ```
+
+제약은 빌드 도구가 아니라 `Microsoft.VSSDK.BuildTools`가 복원·임포트되느냐다. 그것이 안 되면
+msbuild로도 `.vsix`는 나오지 않는다 — GitHub Actions의 `windows-latest`가 그런 경우여서 VSIX
+패키징은 CI에서 제외되어 있다(README의 "알려진 이슈"). 개발자 셸에서
+`msbuild src/DBVC.Vsix/DBVC.Vsix.csproj -restore -p:Configuration=Release`도 그대로 동작하므로,
+`dotnet build`가 산출물을 내지 않으면 그쪽으로 한 번 더 확인해 본다.
 
 `SmoManagerIntegrationTests`는 `localhost`의 SQL Server에 Windows 인증으로 붙어 임시 DB를 만든다.
 접속되지 않으면 실패가 아니라 Skip이다 — 이 경로를 실제로 고칠 때는 로컬 SQL Server가 필요하다.
