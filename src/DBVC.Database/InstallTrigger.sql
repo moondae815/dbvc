@@ -3,6 +3,13 @@
 -- 이 스크립트는 멱등(idempotent)하다. 이미 설치된 데이터베이스에 다시 실행해도 안전하며,
 -- 구버전 스키마에는 누락된 컬럼만 추가한다.
 
+-- 트리거는 이 두 옵션을 생성 시점 값으로 저장하고, 본문의 EVENTDATA().value()가 그것이 ON이어야
+-- 동작한다. QUOTED_IDENTIFIER가 기본 OFF인 클라이언트(sqlcmd)로 설치하면 이 데이터베이스의
+-- 모든 DDL이 오류 1934 -> 3616으로 실패한다. 클라이언트 기본값에 기대지 않는다.
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND type in (N'U'))
 BEGIN
     CREATE TABLE [dbo].[DBVC_ChangeLog] (
@@ -48,43 +55,43 @@ GO
 
 CREATE TRIGGER [trg_DBVC_DDL_Tracker]
 ON DATABASE
+-- 로깅 INSERT를 dbo 권한으로 돌린다. 사용자 권한으로 돌리면 ChangeLog에 쓸 수 없는 사용자의
+-- DDL이 통째로 실패한다 - 트리거 안의 오류는 트랜잭션을 uncommittable로 만들어, CATCH로 삼켜도
+-- SQL Server가 오류 3616으로 배치를 중단하고 롤백하기 때문이다. 그래서 CATCH도 두지 않는다:
+-- 트리거 안의 오류를 무해하게 만드는 방법은 없고, 삼키는 척하는 코드는 잘못된 안심만 남긴다.
+WITH EXECUTE AS 'dbo'
 FOR DDL_DATABASE_LEVEL_EVENTS
 AS
 BEGIN
     SET NOCOUNT ON;
-    BEGIN TRY
-        DECLARE @EventData XML;
-        SET @EventData = EVENTDATA();
 
-        DECLARE @ObjectName NVARCHAR(256) = @EventData.value('(/EVENT_INSTANCE/ObjectName)[1]', 'NVARCHAR(256)');
+    DECLARE @EventData XML = EVENTDATA();
 
-        -- DBVC 자체 테이블/트리거에 대한 DDL은 사용자 변경이 아니므로 기록하지 않는다.
-        IF @ObjectName IS NULL OR @ObjectName IN (N'DBVC_ChangeLog', N'trg_DBVC_DDL_Tracker')
-            RETURN;
+    DECLARE @ObjectName NVARCHAR(256) = @EventData.value('(/EVENT_INSTANCE/ObjectName)[1]', 'NVARCHAR(256)');
 
-        INSERT INTO [dbo].[DBVC_ChangeLog] (
-            [EventType],
-            [SchemaName],
-            [ObjectName],
-            [ObjectType],
-            [PostTime],
-            [LoginName],
-            [TSQLCommand],
-            [IsProcessed]
-        )
-        VALUES (
-            @EventData.value('(/EVENT_INSTANCE/EventType)[1]', 'NVARCHAR(100)'),
-            @EventData.value('(/EVENT_INSTANCE/SchemaName)[1]', 'NVARCHAR(128)'),
-            @ObjectName,
-            @EventData.value('(/EVENT_INSTANCE/ObjectType)[1]', 'NVARCHAR(100)'),
-            GETDATE(),
-            @EventData.value('(/EVENT_INSTANCE/LoginName)[1]', 'NVARCHAR(256)'),
-            @EventData.value('(/EVENT_INSTANCE/TSQLCommand/CommandText)[1]', 'NVARCHAR(MAX)'),
-            0
-        );
-    END TRY
-    BEGIN CATCH
-        -- Suppress trigger errors so database operations do not fail if logging fails
-    END CATCH
+    -- DBVC 자체 테이블/트리거에 대한 DDL은 사용자 변경이 아니므로 기록하지 않는다.
+    IF @ObjectName IS NULL OR @ObjectName IN (N'DBVC_ChangeLog', N'trg_DBVC_DDL_Tracker')
+        RETURN;
+
+    INSERT INTO [dbo].[DBVC_ChangeLog] (
+        [EventType],
+        [SchemaName],
+        [ObjectName],
+        [ObjectType],
+        [PostTime],
+        [LoginName],
+        [TSQLCommand],
+        [IsProcessed]
+    )
+    VALUES (
+        @EventData.value('(/EVENT_INSTANCE/EventType)[1]', 'NVARCHAR(100)'),
+        @EventData.value('(/EVENT_INSTANCE/SchemaName)[1]', 'NVARCHAR(128)'),
+        @ObjectName,
+        @EventData.value('(/EVENT_INSTANCE/ObjectType)[1]', 'NVARCHAR(100)'),
+        GETDATE(),
+        @EventData.value('(/EVENT_INSTANCE/LoginName)[1]', 'NVARCHAR(256)'),
+        @EventData.value('(/EVENT_INSTANCE/TSQLCommand/CommandText)[1]', 'NVARCHAR(MAX)'),
+        0
+    );
 END;
 GO

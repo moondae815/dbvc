@@ -29,67 +29,33 @@ namespace DBVC.Core.Tests
         /// <summary>접속할 수 없으면 null. 그러면 모든 테스트가 건너뛴다.</summary>
         private static string? _database;
         private static string? _skipReason;
+        private static SqlServerTestDatabase? _testDatabase;
 
         [OneTimeSetUp]
         public void CreateTestDatabase()
         {
-            var name = "DBVC_ITest_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            _testDatabase = SqlServerTestDatabase.TryCreate(out _skipReason);
+            if (_testDatabase == null) return;
 
-            try
-            {
-                var connString = new SqlConnectionStringBuilder(SqlConnectionFactory.BuildWindows(ServerName, "master"))
-                {
-                    ConnectTimeout = 1
-                }.ToString();
-                using var conn = new SqlConnection(connString);
-                conn.Open();
+            // EnumerateTargets의 여러 갈래를 한 번에 지나가도록 타입을 섞는다.
+            _testDatabase.ExecuteInOneSession(
+                "CREATE TABLE dbo.Users (Id int IDENTITY(1,1) PRIMARY KEY, Name nvarchar(100) NOT NULL)",
+                "CREATE VIEW dbo.vUsers AS SELECT Id, Name FROM dbo.Users",
+                "CREATE PROCEDURE dbo.usp_GetUser @Id int AS SELECT Id, Name FROM dbo.Users WHERE Id = @Id",
+                "CREATE FUNCTION dbo.fn_Double(@n int) RETURNS int AS BEGIN RETURN @n * 2 END",
+                "CREATE TRIGGER dbo.trg_Users_Ins ON dbo.Users AFTER INSERT AS BEGIN SET NOCOUNT ON END",
+                // 컬럼 정의만으로는 드러나지 않는 것들이다. 스크립팅 옵션이 꺼지면 조용히 사라진다.
+                "ALTER TABLE dbo.Users ADD CreatedAt datetime2(7) NOT NULL " +
+                "CONSTRAINT DF_Users_CreatedAt DEFAULT sysutcdatetime()",
+                "CREATE NONCLUSTERED INDEX IX_Users_Name ON dbo.Users (Name)",
+                "EXEC sp_addextendedproperty @name=N'MS_Description', @value=N'사용자', " +
+                "@level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'Users'");
 
-                Execute(conn, "CREATE DATABASE [" + name + "]");
-                Execute(conn, "USE [" + name + "]");
-
-                // EnumerateTargets의 여러 갈래를 한 번에 지나가도록 타입을 섞는다.
-                Execute(conn, "CREATE TABLE dbo.Users (Id int IDENTITY(1,1) PRIMARY KEY, Name nvarchar(100) NOT NULL)");
-                Execute(conn, "CREATE VIEW dbo.vUsers AS SELECT Id, Name FROM dbo.Users");
-                Execute(conn, "CREATE PROCEDURE dbo.usp_GetUser @Id int AS SELECT Id, Name FROM dbo.Users WHERE Id = @Id");
-                Execute(conn, "CREATE FUNCTION dbo.fn_Double(@n int) RETURNS int AS BEGIN RETURN @n * 2 END");
-                Execute(conn, "CREATE TRIGGER dbo.trg_Users_Ins ON dbo.Users AFTER INSERT AS BEGIN SET NOCOUNT ON END");
-
-                // 컬럼 정의만으로는 드러나지 않는 것들이다. 스크립팅 옵션이 꺼지면 이것들이 조용히 사라진다.
-                Execute(conn, "ALTER TABLE dbo.Users ADD CreatedAt datetime2(7) NOT NULL " +
-                              "CONSTRAINT DF_Users_CreatedAt DEFAULT sysutcdatetime()");
-                Execute(conn, "CREATE NONCLUSTERED INDEX IX_Users_Name ON dbo.Users (Name)");
-                Execute(conn, "EXEC sp_addextendedproperty @name=N'MS_Description', @value=N'사용자', " +
-                              "@level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'Users'");
-
-                _database = name;
-            }
-            catch (Exception ex)
-            {
-                _skipReason = "SQL Server '" + ServerName + "'에 접속할 수 없어 SMO 통합 테스트를 건너뜁니다: " + ex.Message;
-            }
+            _database = _testDatabase.Name;
         }
 
         [OneTimeTearDown]
-        public void DropTestDatabase()
-        {
-            if (_database == null) return;
-
-            try
-            {
-                var connString = new SqlConnectionStringBuilder(SqlConnectionFactory.BuildWindows(ServerName, "master"))
-                {
-                    ConnectTimeout = 1
-                }.ToString();
-                using var conn = new SqlConnection(connString);
-                conn.Open();
-                Execute(conn, "ALTER DATABASE [" + _database + "] SET SINGLE_USER WITH ROLLBACK IMMEDIATE");
-                Execute(conn, "DROP DATABASE [" + _database + "]");
-            }
-            catch (Exception ex)
-            {
-                TestContext.Out.WriteLine("테스트 데이터베이스를 지우지 못했습니다: " + ex.Message);
-            }
-        }
+        public void DropTestDatabase() => _testDatabase?.Dispose();
 
         [SetUp]
         public void SkipWhenNoServer()
@@ -223,13 +189,6 @@ namespace DBVC.Core.Tests
                 repo.Smo.ScriptObjectsDetailed(ServerName, _database!, null, null, cts.Token));
 
             Assert.That(repo.RelativePaths(), Is.Empty, "취소된 추출이 파일을 남겼습니다.");
-        }
-
-        private static void Execute(SqlConnection conn, string sql)
-        {
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = sql;
-            cmd.ExecuteNonQuery();
         }
 
         /// <summary>매핑까지 갖춘 임시 저장소 폴더. 사용자의 실제 mappings.json을 건드리지 않는다.</summary>
