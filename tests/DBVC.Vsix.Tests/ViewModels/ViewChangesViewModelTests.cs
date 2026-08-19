@@ -1089,6 +1089,24 @@ namespace DBVC.Vsix.Tests.ViewModels
                 "Pull 직후 Refresh하면 방금 받은 원격 변경이 SMO 추출로 즉시 덮어써집니다");
         }
 
+        [Test]
+        public void PullCommand_RaisesPushCanExecuteChanged_AfterASuccessfulPull()
+        {
+            // 병합 커밋이 만들어지는 Pull은 올릴 커밋을 새로 만든다. 그런데 RelayCommand는
+            // CommandManager.RequerySuggested를 구독하지 않으므로, 이 이벤트를 직접 올리지
+            // 않으면 Push 버튼은 꺼진 채로 남는다 - 사용자가 새로고침이나 커밋 같은 다른
+            // 동작을 할 때까지 올릴 수 있다는 사실이 화면에 드러나지 않는다.
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.Pulled);
+            var vm = NewConnectedViewModel();
+            int pushCanExecuteChangedCount = 0;
+            vm.PushCommand.CanExecuteChanged += (_, __) => pushCanExecuteChangedCount++;
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(pushCanExecuteChangedCount, Is.GreaterThan(0),
+                "Pull이 커밋을 만들어도 이벤트가 오지 않으면 Push 버튼은 눌리지 않는 상태로 남습니다");
+        }
+
         // ---------- Push ----------
 
         [Test]

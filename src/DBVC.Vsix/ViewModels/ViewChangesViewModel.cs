@@ -611,6 +611,11 @@ namespace DBVC.Vsix.ViewModels
             // 이루려면 방금 받은 커밋 로그와 Diff를 화면에 즉시 보여줘야 한다.
             History.Load(ServerName, DatabaseName, SelectedChange?.RelativePath);
             SelectionChanged?.Invoke(this, EventArgs.Empty);
+
+            // 병합 커밋이 만들어지는 Pull은 올릴 커밋을 새로 만든다. RelayCommand는
+            // CommandManager.RequerySuggested를 구독하지 않으므로, 여기서 직접 올리지 않으면
+            // Push 버튼이 꺼진 채로 남아 사용자가 다른 동작을 할 때까지 그 사실이 드러나지 않는다.
+            RaiseActionCanExecuteChanged();
         }
 
         // ---------- Push ----------
