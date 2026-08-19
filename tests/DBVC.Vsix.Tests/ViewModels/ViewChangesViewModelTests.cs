@@ -71,6 +71,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             _git.Setup(g => g.GetHistory(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
                 .Returns(new List<CommitInfo>());
+            _git.Setup(g => g.HasCommitsToPush(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
 
             // 목을 쓰는 이유: 저장소에 무엇이 어떤 인자로 전달됐는지 Moq로 직접 검증하기 위해서다.
             _credentials = new Mock<ISqlCredentialStore>();
@@ -1060,6 +1061,23 @@ namespace DBVC.Vsix.Tests.ViewModels
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
 
             Assert.That(NewConnectedViewModel().PushCommand.CanExecute(null), Is.False);
+        }
+
+        [Test]
+        public void PushCommand_CanExecute_OnlyWhenHasCommitsToPushIsTrue()
+        {
+            var vm = NewConnectedViewModel();
+
+            // 처음에는 앞선 커밋이 없다고 가정
+            _git.Setup(g => g.HasCommitsToPush(Server, Database)).Returns(false);
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.PushCommand.CanExecute(null), Is.False, "커밋이 없으므로 비활성화되어야 함");
+
+            _git.Setup(g => g.HasCommitsToPush(Server, Database)).Returns(true);
+            vm.RefreshCommand.Execute(null);
+
+            Assert.That(vm.PushCommand.CanExecute(null), Is.True, "앞선 커밋이 생기면 활성화되어야 함");
         }
 
         [Test]

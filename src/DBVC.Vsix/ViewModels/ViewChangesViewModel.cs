@@ -589,7 +589,7 @@ namespace DBVC.Vsix.ViewModels
 
         // ---------- Push ----------
 
-        private bool CanPush() => HasContext && IsMapped;
+        private bool CanPush() => HasContext && IsMapped && _gitManager.HasCommitsToPush(ServerName!, DatabaseName!);
 
         /// <summary>
         /// Pull과 달리 사전 확인이 없다 - Push는 작업 트리도 커밋 이력도 바꾸지 않으므로
@@ -626,6 +626,8 @@ namespace DBVC.Vsix.ViewModels
                     _notifier.ShowInfo("DBVC Push", "커밋을 원격 저장소에 올렸습니다.");
                     break;
             }
+
+            RaiseActionCanExecuteChanged();
         }
 
         // ---------- 저장소 매핑 ----------
