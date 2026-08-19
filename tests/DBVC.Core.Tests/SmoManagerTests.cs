@@ -12,42 +12,16 @@ namespace DBVC.Core.Tests
     [TestFixture]
     public class SmoManagerTests
     {
-        [Test]
-        public void ScriptObjects_GivenValidDb_GeneratesFileOrHandlesUnreachableDb()
-        {
-            var tempDir = Path.Combine(Path.GetTempPath(), "dbvc_test_" + Path.GetRandomFileName());
-            try
-            {
-                var config = new ConfigManager();
-                config.AddMapping(new MappingConfig
-                {
-                    ServerName = "localhost",
-                    DatabaseName = "master",
-                    GitPath = tempDir
-                });
-                var smo = new SmoManager(config);
-
-                bool result = smo.ScriptObjects("localhost", "master");
-
-                if (result)
-                {
-                    Assert.That(Directory.Exists(tempDir), Is.True, "Output directory should be created when scripting succeeds");
-                    var sqlFiles = Directory.GetFiles(tempDir, "*.sql", SearchOption.AllDirectories);
-                    Assert.That(sqlFiles, Is.Not.Empty, "Expected .sql files to be generated when scripting succeeds");
-                }
-                else
-                {
-                    Assert.That(result, Is.False, "Expected ScriptObjects to return false when database server connection fails");
-                }
-            }
-            finally
-            {
-                if (Directory.Exists(tempDir))
-                {
-                    try { Directory.Delete(tempDir, recursive: true); } catch { }
-                }
-            }
-        }
+        // ScriptObjects_GivenValidDb_...를 여기서 지웠다. 두 가지가 잘못되어 있었다.
+        //
+        // 첫째, 기본 경로의 ConfigManager를 써서 사용자의 실제 %APPDATA%\DBVC\mappings.json에
+        // localhost/master 매핑을 남겼다 — 테스트가 개발자의 설정 파일을 오염시켰다.
+        //
+        // 둘째, "성공했으면 파일이 있어야 한다"를 단정했는데 master에는 사용자 객체가 없어
+        // 성공해도 파일이 생기지 않는다. 그런데도 오랫동안 통과했다 — 성공/실패 어느 쪽이든
+        // 넘어가도록 쓰여 있었고, 실제로는 SMO 버전 불일치로 늘 실패 갈래를 탔기 때문이다.
+        //
+        // 실제 데이터베이스에 대고 하는 검증은 SmoManagerIntegrationTests가 맡는다.
 
         [Test]
         public void ScriptObjects_WithInvalidServerOrDb_ReturnsFalse()
