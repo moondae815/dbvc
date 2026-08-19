@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -66,13 +66,13 @@ namespace DBVC.Core
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Config error in GetMapping for '{serverName}.{databaseName}': {ex.Message}");
+                Trace.WriteLine($"Config error in GetMapping for '{serverName}.{databaseName}': {ex.Message}");
                 return null;
             }
 
             if (string.IsNullOrWhiteSpace(localGitPath))
             {
-                Debug.WriteLine($"'{serverName}.{databaseName}'에 매핑된 Git 저장소가 없습니다.");
+                Trace.WriteLine($"'{serverName}.{databaseName}'에 매핑된 Git 저장소가 없습니다.");
                 return null;
             }
 
@@ -88,7 +88,7 @@ namespace DBVC.Core
 
                 if (db == null)
                 {
-                    Debug.WriteLine($"Database '{databaseName}' not found on server '{serverName}'.");
+                    Trace.WriteLine($"Database '{databaseName}' not found on server '{serverName}'.");
                     return null;
                 }
 
@@ -119,7 +119,7 @@ namespace DBVC.Core
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error during SMO scripting for '{serverName}.{databaseName}': {ex}");
+                Trace.WriteLine($"Error during SMO scripting for '{serverName}.{databaseName}': {ex}");
                 return null;
             }
         }

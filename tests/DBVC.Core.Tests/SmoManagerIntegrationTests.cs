@@ -114,7 +114,8 @@ namespace DBVC.Core.Tests
         {
             using var repo = new TempRepo(_database!);
 
-            repo.Smo.ScriptObjectsDetailed(ServerName, _database!, null);
+            var result = repo.Smo.ScriptObjectsDetailed(ServerName, _database!, null);
+            Assert.That(result, Is.Not.Null, "Initial script failed");
 
             var sql = File.ReadAllText(Path.Combine(repo.Path, "dbo", "StoredProcedures", "usp_GetUser.sql"));
             Assert.That(sql, Does.Contain("CREATE").And.Contain("usp_GetUser"));
@@ -127,7 +128,8 @@ namespace DBVC.Core.Tests
 
             var result = repo.Smo.ScriptObjectsDetailed(ServerName, _database!, new List<string> { "dbo.Users" });
 
-            Assert.That(result!.SucceededCount, Is.EqualTo(1));
+            Assert.That(result, Is.Not.Null, "Initial script failed");
+            Assert.That(result.SucceededCount, Is.EqualTo(1));
             Assert.That(repo.RelativePaths(), Is.EqualTo(new[] { "dbo/Tables/Users.sql" }));
         }
 
@@ -153,13 +155,15 @@ namespace DBVC.Core.Tests
             // 바이트까지 같은지는 여기서만 알 수 있고, 같지 않으면 git status 최적화가 무너진다.
             using var repo = new TempRepo(_database!);
 
-            repo.Smo.ScriptObjectsDetailed(ServerName, _database!, null);
+            var result = repo.Smo.ScriptObjectsDetailed(ServerName, _database!, null);
+            Assert.That(result, Is.Not.Null, "Initial script failed");
 
             var path = Path.Combine(repo.Path, "dbo", "Tables", "Users.sql");
             var stamp = new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(path, stamp);
 
-            repo.Smo.ScriptObjectsDetailed(ServerName, _database!, null);
+            var result2 = repo.Smo.ScriptObjectsDetailed(ServerName, _database!, null);
+            Assert.That(result2, Is.Not.Null, "Second script failed");
 
             Assert.That(File.GetLastWriteTimeUtc(path), Is.EqualTo(stamp),
                 "SMO가 같은 내용을 냈는데도 파일을 다시 썼습니다. git이 전 파일을 다시 해시하게 됩니다.");
@@ -171,9 +175,10 @@ namespace DBVC.Core.Tests
             using var repo = new TempRepo(_database!);
             var reported = new List<ExtractionProgress>();
 
-            repo.Smo.ScriptObjectsDetailed(ServerName, _database!, null,
+            var result = repo.Smo.ScriptObjectsDetailed(ServerName, _database!, null,
                 new ImmediateProgress(reported.Add), CancellationToken.None);
 
+            Assert.That(result, Is.Not.Null, "Initial script failed");
             Assert.That(reported, Is.Not.Empty);
             Assert.That(reported[reported.Count - 1].Completed, Is.EqualTo(reported[reported.Count - 1].Total));
             Assert.That(reported.Select(p => p.Completed), Is.Ordered);
