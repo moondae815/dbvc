@@ -192,10 +192,10 @@ namespace DBVC.Core
         /// 그 외에 원격과 통신하지 못했고 안내할 원인이 있으면 <see cref="GitRemoteException"/>을 던진다.
         /// 원격이 없거나 현재 브랜치에 추적 중인 원격 브랜치가 없으면 <see cref="InvalidOperationException"/>을 던진다.
         /// </summary>
-        public bool PullChanges(string serverName, string databaseName)
+        public PullResult PullChanges(string serverName, string databaseName)
         {
             var repoPath = ResolveRepoPath(serverName, databaseName);
-            if (repoPath == null) return false;
+            if (repoPath == null) return PullResult.NoMapping;
 
             using var repo = new Repository(repoPath);
 
@@ -250,7 +250,11 @@ namespace DBVC.Core
                     "Git 클라이언트에서 충돌을 해결한 뒤 다시 시도하세요.");
             }
 
-            return true;
+            // UpToDate는 "받을 것이 없었다"이지 실패가 아니다. Pulled와 구분하지 않으면
+            // 화면이 받은 것이 없는데 받았다고 말하고, 사용자는 받은 스크립트를 찾아 헤맨다.
+            return result.Status == MergeStatus.UpToDate
+                ? PullResult.AlreadyUpToDate
+                : PullResult.Pulled;
         }
 
         /// <summary>

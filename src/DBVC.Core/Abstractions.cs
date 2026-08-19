@@ -58,7 +58,7 @@ namespace DBVC.Core
         IReadOnlyList<string> GetChangedFiles(string repoPath);
         IReadOnlyDictionary<string, string> GetChangedFileStates(string repoPath);
         bool CommitChanges(string serverName, string databaseName, string message, IEnumerable<string>? relativePaths = null);
-        bool PullChanges(string serverName, string databaseName);
+        PullResult PullChanges(string serverName, string databaseName);
         PushResult PushChanges(string serverName, string databaseName);
         bool HasCommitsToPush(string serverName, string databaseName);
         /// <summary><paramref name="relativeFilePath"/>가 비면 저장소 전체 이력을 반환한다.</summary>

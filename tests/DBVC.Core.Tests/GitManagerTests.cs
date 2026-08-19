@@ -516,18 +516,35 @@ namespace DBVC.Core.Tests
 
             var result = git.PullChanges("localhost", "testdb");
 
-            Assert.That(result, Is.True);
+            Assert.That(result, Is.EqualTo(PullResult.Pulled));
             Assert.That(File.Exists(Path.Combine(clonePath, "dbo", "Tables", "Orders.sql")), Is.True,
                 "Pull 후 원격 커밋의 파일이 로컬에 존재해야 합니다");
         }
 
         [Test]
-        public void PullChanges_ReturnsFalse_WhenDatabaseIsNotMapped()
+        public void PullChanges_ReturnsAlreadyUpToDate_WhenTheRemoteHasNoNewCommits()
+        {
+            // 원격에 새 커밋이 없으면 libgit2는 MergeStatus.UpToDate를 준다. 이것을
+            // FastForward와 구분하지 않으면 화면이 받은 것이 없는데 받았다고 말한다.
+            var originPath = NewRepoWithCommit();
+            var clonePath = NewTempDir();
+            Repository.Clone(originPath, clonePath);
+
+            var git = NewGitManager("localhost", "testdb", clonePath);
+
+            var result = git.PullChanges("localhost", "testdb");
+
+            Assert.That(result, Is.EqualTo(PullResult.AlreadyUpToDate),
+                "clone 직후에는 원격에 받아올 새 커밋이 없습니다");
+        }
+
+        [Test]
+        public void PullChanges_ReturnsNoMapping_WhenDatabaseIsNotMapped()
         {
             var configPath = Path.Combine(NewTempDir(), "mappings.json");
             var git = new GitManager(new ConfigManager(configPath));
 
-            Assert.That(git.PullChanges("localhost", "testdb"), Is.False);
+            Assert.That(git.PullChanges("localhost", "testdb"), Is.EqualTo(PullResult.NoMapping));
         }
 
         [Test]

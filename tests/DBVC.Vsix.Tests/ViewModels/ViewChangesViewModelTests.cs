@@ -848,7 +848,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         [Test]
         public void PullCommand_PullsWithoutAsking_WhenTheWorkingTreeIsClean()
         {
-            _git.Setup(g => g.PullChanges(Server, Database)).Returns(true);
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.Pulled);
             var vm = NewConnectedViewModel();
 
             vm.PullCommand.Execute(null);
@@ -862,7 +862,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _git.Setup(g => g.GetChangedFiles(It.IsAny<string>()))
                 .Returns(new List<string> { "dbo/Tables/Users.sql", "dbo/Views/vw_Sales.sql" });
-            _git.Setup(g => g.PullChanges(Server, Database)).Returns(true);
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.Pulled);
             var vm = NewConnectedViewModel();
 
             vm.PullCommand.Execute(null);
@@ -873,10 +873,10 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
-        public void PullCommand_ReportsAMissingMapping_WhenPullChangesReturnsFalse()
+        public void PullCommand_ReportsAMissingMapping_WhenPullChangesReturnsNoMapping()
         {
-            // PullChanges가 false를 돌려주는 경우: GitManager 안에서 매핑을 다시 찾지 못한 경우다.
-            _git.Setup(g => g.PullChanges(Server, Database)).Returns(false);
+            // PullChanges가 NoMapping을 돌려주는 경우: GitManager 안에서 매핑을 다시 찾지 못한 경우다.
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.NoMapping);
             var vm = NewConnectedViewModel();
 
             vm.PullCommand.Execute(null);
@@ -975,7 +975,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _git.Setup(g => g.GetChangedFiles(It.IsAny<string>()))
                 .Returns(new List<string> { "dbo/Tables/Users.sql" });
-            _git.Setup(g => g.PullChanges(Server, Database)).Returns(true);
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.Pulled);
             var vm = NewConnectedViewModel();
 
             vm.PullCommand.Execute(null);
@@ -990,7 +990,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         [Test]
         public void PullCommand_NotifiesOnSuccess()
         {
-            _git.Setup(g => g.PullChanges(Server, Database)).Returns(true);
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.Pulled);
             var vm = NewConnectedViewModel();
 
             vm.PullCommand.Execute(null);
@@ -1016,7 +1016,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             _git.SetupSequence(g => g.GetHistory(Server, Database, "dbo/Tables/Users.sql"))
                 .Returns(beforePull)
                 .Returns(afterPull);
-            _git.Setup(g => g.PullChanges(Server, Database)).Returns(true);
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.Pulled);
             var vm = NewConnectedViewModel();
             vm.SelectedChange = new ChangeItemViewModel { ObjectName = "dbo.Users", RelativePath = "dbo/Tables/Users.sql" };
             Assert.That(vm.History.Entries.Select(e => e.ShortSha), Is.EqualTo(new[] { "aaa1111" }), "선행 조건: Pull 이전 이력");
@@ -1034,7 +1034,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         [Test]
         public void PullCommand_DoesNotRefresh_AfterASuccessfulPull()
         {
-            _git.Setup(g => g.PullChanges(Server, Database)).Returns(true);
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.Pulled);
             var vm = NewConnectedViewModel();
             _smo.Invocations.Clear();
 

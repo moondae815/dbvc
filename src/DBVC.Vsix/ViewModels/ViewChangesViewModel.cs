@@ -546,7 +546,7 @@ namespace DBVC.Vsix.ViewModels
 
             try
             {
-                if (!_gitManager.PullChanges(ServerName!, DatabaseName!))
+                if (_gitManager.PullChanges(ServerName!, DatabaseName!) == PullResult.NoMapping)
                 {
                     _notifier.ShowError("DBVC Pull 실패", "매핑된 Git 저장소를 찾을 수 없습니다.");
                     return;
