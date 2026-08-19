@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Collections.Generic;
 using System.IO;
@@ -108,11 +108,12 @@ namespace DBVC.Vsix.Tests.ViewModels
             string? unsupportedReason = null)
             => new SsmsConnectionInfo(server, database, authMode, userName, password, unsupportedReason);
 
-        private static ChangeRecord Record(string schema, string name, string state, string path)
+        private static ChangeRecord Record(string schema, string name, string state, string path, string objectType = "")
             => new ChangeRecord
             {
                 Schema = schema,
                 ObjectName = name,
+                ObjectType = objectType,
                 State = state,
                 QualifiedName = $"{schema}.{name}",
                 RelativePath = path,
@@ -512,6 +513,30 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.Changes.Select(c => c.ObjectName), Is.EqualTo(new[] { "dbo.Users", "dbo.vw_Users" }));
             Assert.That(vm.Changes[0].State, Is.EqualTo("Modified"));
             Assert.That(vm.Changes[1].RelativePath, Is.EqualTo("dbo/Views/vw_Users.sql"));
+        }
+
+        [Test]
+        public void RefreshCommand_PopulatesObjectTypeOnChanges()
+        {
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                Record("dbo", "usp_GetUser", "Modified", "dbo/Stored Procedures/usp_GetUser.sql", "PROCEDURE"),
+                Record("dbo", "fn_GetTotal", "Added", "dbo/Functions/fn_GetTotal.sql", "FUNCTION"),
+                Record("dbo", "Orders", "Modified", "dbo/Tables/Orders.sql", "TABLE"),
+                Record("dbo", "CustomSynonym", "Added", "dbo/Synonyms/CustomSynonym.sql", "SYNONYM")
+            });
+            var vm = NewConnectedViewModel();
+
+            vm.RefreshCommand.Execute(null);
+
+            Assert.That(vm.Changes[0].ObjectType, Is.EqualTo("PROCEDURE"));
+            Assert.That(vm.Changes[0].ObjectTypeText, Is.EqualTo("SP"));
+            Assert.That(vm.Changes[1].ObjectType, Is.EqualTo("FUNCTION"));
+            Assert.That(vm.Changes[1].ObjectTypeText, Is.EqualTo("UDF"));
+            Assert.That(vm.Changes[2].ObjectType, Is.EqualTo("TABLE"));
+            Assert.That(vm.Changes[2].ObjectTypeText, Is.EqualTo("Table"));
+            Assert.That(vm.Changes[3].ObjectType, Is.EqualTo("SYNONYM"));
+            Assert.That(vm.Changes[3].ObjectTypeText, Is.EqualTo("Synonym"));
         }
 
         [Test]

@@ -1,4 +1,4 @@
-﻿<UserControl x:Class="DBVC.Vsix.UI.ViewChangesControl"
+<UserControl x:Class="DBVC.Vsix.UI.ViewChangesControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:avalonEdit="http://icsharpcode.net/sharpdevelop/avalonedit"
@@ -112,6 +112,7 @@
                         </GridViewColumn>
                         <GridViewColumn Header="상태" DisplayMemberBinding="{Binding StateText}"/>
                         <GridViewColumn Header="객체" DisplayMemberBinding="{Binding ObjectName}"/>
+                        <GridViewColumn Header="객체 유형" DisplayMemberBinding="{Binding ObjectTypeText}"/>
                     </GridView>
                 </ListView.View>
             </ListView>

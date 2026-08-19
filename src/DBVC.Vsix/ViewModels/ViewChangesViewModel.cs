@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -851,6 +851,7 @@ namespace DBVC.Vsix.ViewModels
                 Changes.Add(new ChangeItemViewModel
                 {
                     ObjectName = record.QualifiedName,
+                    ObjectType = record.ObjectType,
                     State = record.State,
                     RelativePath = record.RelativePath,
                     IsSelected = !cleanupFailed
