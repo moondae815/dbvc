@@ -18,17 +18,25 @@ namespace DBVC.Core
     /// </summary>
     public class StateTracker : IStateTracker
     {
+        /// <summary>설치 스크립트가 심는 스키마 버전. 이 값보다 낮으면 도구 창이 업데이트를 안내한다.</summary>
+        public const int RequiredSchemaVersion = 2;
+
         /// <summary>
-        /// 설계상 DBVC가 "초기화됨"이려면 ChangeLog 테이블과 DDL 트리거가 모두 있어야 한다.
+        /// 설치 상태를 한 번의 왕복으로 판정한다.
+        /// 0 = 미설치, 1 = 버전 표식이 없던 시절의 설치, 그 외 = 심어진 값.
         /// </summary>
-        internal const string IsInitializedQuery = @"
-SELECT CASE WHEN EXISTS (
-           SELECT 1 FROM sys.objects
-           WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND type = N'U')
-       AND EXISTS (
-           SELECT 1 FROM sys.triggers
-           WHERE parent_class = 0 AND name = N'trg_DBVC_DDL_Tracker')
-       THEN 1 ELSE 0 END";
+        internal const string InstalledVersionQuery = @"
+SELECT CASE
+    WHEN NOT EXISTS (SELECT 1 FROM sys.objects
+                     WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND type = N'U')
+      OR NOT EXISTS (SELECT 1 FROM sys.triggers
+                     WHERE parent_class = 0 AND name = N'trg_DBVC_DDL_Tracker')
+    THEN 0
+    ELSE ISNULL((SELECT TRY_CAST(CAST(value AS NVARCHAR(50)) AS int)
+                 FROM sys.extended_properties
+                 WHERE class = 1 AND major_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]')
+                   AND minor_id = 0 AND name = N'DBVC_SchemaVersion'), 1)
+END";
 
         /// <summary>
         /// 아직 처리(커밋)되지 않은 DDL 이벤트만 최신순으로 읽는다.
@@ -76,26 +84,25 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
         // ---------- 초기화 ----------
 
         /// <summary>
-        /// 대상 DB에 DBVC_ChangeLog 테이블과 DDL 트리거가 모두 설치되어 있는지 확인한다.
-        /// 접속 실패(인증 오류 포함)는 "초기화되지 않음"과 구분하지 않고 false로 알린다 —
-        /// 호출자가 배너로 안내할 수 있도록 접속 실패 사유는 <see cref="TestConnection"/>으로 따로 확인한다.
+        /// 설치된 스키마 버전을 반환한다. 접속 실패는 0으로 알린다 — 사유는 <see cref="TestConnection"/>이
+        /// 따로 만들며, 여기서 구분하면 호출자가 같은 배너를 두 곳에서 채우게 된다.
         /// </summary>
-        public bool IsInitialized(string serverName, string databaseName)
+        public int GetInstalledVersion(string serverName, string databaseName)
         {
-            if (string.IsNullOrWhiteSpace(serverName) || string.IsNullOrWhiteSpace(databaseName)) return false;
+            if (string.IsNullOrWhiteSpace(serverName) || string.IsNullOrWhiteSpace(databaseName)) return 0;
             try
             {
                 using var conn = new SqlConnection(_connectionFactory.Build(serverName, databaseName));
                 conn.Open();
                 using var cmd = conn.CreateCommand();
-                cmd.CommandText = IsInitializedQuery;
+                cmd.CommandText = InstalledVersionQuery;
                 var result = cmd.ExecuteScalar();
-                return result != null && Convert.ToInt32(result) > 0;
+                return result == null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"StateTracker.IsInitialized failed: {ex.Message}");
-                return false;
+                Debug.WriteLine($"StateTracker.GetInstalledVersion failed: {ex.Message}");
+                return 0;
             }
         }
 
@@ -162,7 +169,7 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
         /// 실제로 접속을 시도해 본다. 성공하면 <c>null</c>, 실패하면 사용자에게 그대로 보여줄
         /// 한국어 사유를 반환한다.
         ///
-        /// <see cref="IsInitialized"/>는 "접속 실패"와 "초기화 안 됨"을 모두 false로 뭉개므로,
+        /// <see cref="GetInstalledVersion"/>는 "접속 실패"와 "초기화 안 됨"을 모두 0으로 뭉개므로,
         /// SQL 인증 암호가 틀렸을 때 사용자가 원인을 알 방법이 없다. 그 구분을 여기서 만든다.
         /// </summary>
         public string? TestConnection(string serverName, string databaseName)

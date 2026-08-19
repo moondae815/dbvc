@@ -126,3 +126,22 @@ BEGIN
     );
 END;
 GO
+
+-- 스키마 버전. Core(StateTracker.RequiredSchemaVersion)가 이 값을 보고 구버전 설치를 알아챈다.
+-- 확장 속성을 쓰는 이유는 객체가 늘지 않고, 이 DDL 자체가 트리거의 DBVC_ChangeLog 예외에 걸려
+-- 로그를 더럽히지 않기 때문이다.
+IF NOT EXISTS (SELECT 1 FROM sys.extended_properties
+               WHERE class = 1 AND major_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]')
+                 AND minor_id = 0 AND name = N'DBVC_SchemaVersion')
+BEGIN
+    EXEC sp_addextendedproperty @name = N'DBVC_SchemaVersion', @value = N'2',
+         @level0type = N'SCHEMA', @level0name = N'dbo',
+         @level1type = N'TABLE',  @level1name = N'DBVC_ChangeLog';
+END
+ELSE
+BEGIN
+    EXEC sp_updateextendedproperty @name = N'DBVC_SchemaVersion', @value = N'2',
+         @level0type = N'SCHEMA', @level0name = N'dbo',
+         @level1type = N'TABLE',  @level1name = N'DBVC_ChangeLog';
+END
+GO

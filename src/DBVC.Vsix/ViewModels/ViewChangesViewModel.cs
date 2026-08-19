@@ -336,7 +336,7 @@ namespace DBVC.Vsix.ViewModels
             // 접속하지 못했으면 초기화 여부는 물어볼 수 없다.
             if (probe.ConnectionError == null)
             {
-                probe.IsInitialized = _stateTracker.IsInitialized(server, database);
+                probe.IsInitialized = _stateTracker.GetInstalledVersion(server, database) > 0;
             }
 
             return probe;

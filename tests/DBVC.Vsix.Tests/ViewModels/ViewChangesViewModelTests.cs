@@ -57,7 +57,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             // 기본값: 매핑되어 있고 초기화되어 있으며 변경 없음
             _config.Setup(c => c.TryGetMapping(Server, Database))
                 .Returns(new MappingConfig { ServerName = Server, DatabaseName = Database, GitPath = @"C:\repo" });
-            _stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
+            _stateTracker.Setup(s => s.GetInstalledVersion(It.IsAny<string>(), It.IsAny<string>())).Returns(StateTracker.RequiredSchemaVersion);
             // null = 접속 성공. 인증 실패 경로를 보는 테스트만 이 값을 덮어쓴다.
             _stateTracker.Setup(s => s.TestConnection(It.IsAny<string>(), It.IsAny<string>())).Returns((string?)null);
             _stateTracker.Setup(s => s.RefreshState(Server, Database)).Returns(true);
@@ -163,14 +163,14 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             var vm = NewConnectedViewModel();
 
-            _stateTracker.Verify(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+            _stateTracker.Verify(s => s.GetInstalledVersion(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
             Assert.That(vm.IsInitialized, Is.True);
         }
 
         [Test]
         public void SetContext_MarksNotInitialized_WhenTrackerSaysSo()
         {
-            _stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>())).Returns(false);
+            _stateTracker.Setup(s => s.GetInstalledVersion(It.IsAny<string>(), It.IsAny<string>())).Returns(0);
 
             var vm = NewConnectedViewModel();
 
@@ -234,7 +234,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.ServerName, Is.EqualTo(Server));
             Assert.That(vm.DatabaseName, Is.EqualTo(Database));
             Assert.That(vm.IsMapped, Is.True);
-            _stateTracker.Verify(s => s.IsInitialized(Server, Database), Times.Once);
+            _stateTracker.Verify(s => s.GetInstalledVersion(Server, Database), Times.Once);
         }
 
         [Test]
@@ -342,7 +342,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.IsInitialized, Is.False);
             Assert.That(vm.WarningMessage, Does.Contain("로그인하지 못했습니다"),
                 "접속 실패를 '초기화되지 않음'으로 뭉개면 원인을 알 수 없습니다");
-            _stateTracker.Verify(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>()), Times.Never,
+            _stateTracker.Verify(s => s.GetInstalledVersion(It.IsAny<string>(), It.IsAny<string>()), Times.Never,
                 "접속도 안 되는 상태에서 초기화 여부를 물을 이유가 없습니다");
         }
 
@@ -450,7 +450,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         [Test]
         public void SetupCommand_InstallsTheChangeLogAndTrigger()
         {
-            _stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>())).Returns(false);
+            _stateTracker.Setup(s => s.GetInstalledVersion(It.IsAny<string>(), It.IsAny<string>())).Returns(0);
             var vm = NewConnectedViewModel();
 
             vm.SetupCommand.Execute(null);
@@ -462,7 +462,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         [Test]
         public void SetupCommand_RefreshesAfterSuccessfulInstall()
         {
-            _stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>())).Returns(false);
+            _stateTracker.Setup(s => s.GetInstalledVersion(It.IsAny<string>(), It.IsAny<string>())).Returns(0);
             var vm = NewConnectedViewModel();
 
             vm.SetupCommand.Execute(null);
@@ -474,7 +474,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         public void SetupCommand_KeepsOverlayVisibleAndNotifies_WhenInstallationFails()
         {
             // 권한 부족(db_owner 아님) 등으로 설치가 실패하면 초기화되었다고 주장해서는 안 된다.
-            _stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>())).Returns(false);
+            _stateTracker.Setup(s => s.GetInstalledVersion(It.IsAny<string>(), It.IsAny<string>())).Returns(0);
             _stateTracker.Setup(s => s.InitializeDatabase(It.IsAny<string>(), It.IsAny<string>()))
                 .Throws(new InvalidOperationException("권한이 없습니다"));
             var vm = NewConnectedViewModel();

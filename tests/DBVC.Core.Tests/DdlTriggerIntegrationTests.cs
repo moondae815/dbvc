@@ -99,6 +99,15 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void GetInstalledVersion_ReturnsTheRequiredVersion_AfterInstall()
+        {
+            var version = new StateTracker(NewConfig())
+                .GetInstalledVersion(SqlServerTestDatabase.ServerName, _db!.Name);
+
+            Assert.That(version, Is.EqualTo(StateTracker.RequiredSchemaVersion));
+        }
+
+        [Test]
         public void InstallScript_IsIdempotent_WhenRunTwice()
         {
             // 재설치는 업데이트 경로이기도 하다. 두 번째 실행이 실패하면 구버전 사용자가 올라갈 길이 없다.

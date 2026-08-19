@@ -49,5 +49,15 @@ namespace DBVC.Core.Tests
                     "설치 스크립트의 타입 목록이 ObjectPathConvention과 다릅니다");
             }
         }
+
+        [Test]
+        public void InstallScript_StampsTheVersionCoreRequires()
+        {
+            var script = StateTracker.ReadInstallScript();
+            var match = Regex.Match(script, @"@name\s*=\s*N'DBVC_SchemaVersion'\s*,\s*@value\s*=\s*N'(\d+)'");
+
+            Assert.That(match.Success, Is.True, "설치 스크립트에서 DBVC_SchemaVersion 값을 찾지 못했습니다");
+            Assert.That(int.Parse(match.Groups[1].Value), Is.EqualTo(StateTracker.RequiredSchemaVersion));
+        }
     }
 }

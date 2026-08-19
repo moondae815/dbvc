@@ -36,7 +36,8 @@ namespace DBVC.Core
 
     public interface IStateTracker
     {
-        bool IsInitialized(string serverName, string databaseName);
+        /// <summary>설치된 스키마 버전. 0이면 미설치다.</summary>
+        int GetInstalledVersion(string serverName, string databaseName);
         void InitializeDatabase(string serverName, string databaseName);
 
         /// <summary>접속을 시도해 성공하면 <c>null</c>, 실패하면 사용자에게 보일 한국어 사유.</summary>

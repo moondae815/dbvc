@@ -302,31 +302,39 @@ namespace DBVC.Core.Tests
         // ---------- 초기화 확인 ----------
 
         [Test]
-        public void IsInitialized_ReturnsFalse_WhenTheServerCannotBeReached()
+        public void GetInstalledVersion_ReturnsZero_WhenTheServerCannotBeReached()
         {
-            Assert.That(NewTracker().IsInitialized("no_such_server_hostname", "no_such_db"), Is.False);
+            Assert.That(NewTracker().GetInstalledVersion("no_such_server_hostname", "no_such_db"), Is.Zero);
         }
 
         [Test]
-        public void IsInitialized_ReturnsFalse_WhenServerOrDatabaseIsMissing()
+        public void GetInstalledVersion_ReturnsZero_WhenServerOrDatabaseIsMissing()
         {
             var tracker = NewTracker();
-
-            Assert.That(tracker.IsInitialized("", "db"), Is.False);
-            Assert.That(tracker.IsInitialized("server", ""), Is.False);
+            Assert.That(tracker.GetInstalledVersion("", "db"), Is.Zero);
+            Assert.That(tracker.GetInstalledVersion("server", ""), Is.Zero);
         }
 
         [Test]
-        public void IsInitializedQuery_ChecksBothTheChangeLogTableAndTheDdlTrigger()
+        public void InstalledVersionQuery_ChecksTheChangeLogTableTheTriggerAndTheVersionProperty()
         {
-            // 설계(setup-automation)는 테이블과 트리거가 "둘 다" 있어야 초기화된 것으로 본다.
-            // 테이블만 검사하면 트리거가 삭제된 DB에서 변경 감지가 조용히 멈춘다.
-            var query = StateTracker.IsInitializedQuery;
+            // 셋 중 하나라도 빠지면 구버전을 최신으로 읽거나, 설치된 것을 미설치로 읽는다.
+            var query = StateTracker.InstalledVersionQuery;
 
-            Assert.That(query, Does.Contain("sys.objects"));
-            Assert.That(query, Does.Contain("sys.triggers"));
-            Assert.That(query, Does.Contain("DBVC_ChangeLog"));
-            Assert.That(query, Does.Contain("trg_DBVC_DDL_Tracker"));
+            Assert.Multiple(() =>
+            {
+                Assert.That(query, Does.Contain("DBVC_ChangeLog"));
+                Assert.That(query, Does.Contain("trg_DBVC_DDL_Tracker"));
+                Assert.That(query, Does.Contain("DBVC_SchemaVersion"));
+            });
+        }
+
+        [Test]
+        public void RequiredSchemaVersion_IsTwo()
+        {
+            // 설치 스크립트가 심는 값과 같아야 한다. 어긋나면 모든 사용자에게 업데이트 배너가 계속 뜨거나
+            // 구버전이 최신으로 읽힌다. 스크립트 쪽 값은 InstallScriptSyncTests가 대조한다.
+            Assert.That(StateTracker.RequiredSchemaVersion, Is.EqualTo(2));
         }
 
         [Test]
