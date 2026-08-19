@@ -55,6 +55,7 @@
 - Create: `tests/DBVC.Core.Tests/SqlServerTestDatabase.cs`
 - Create: `tests/DBVC.Core.Tests/DdlTriggerIntegrationTests.cs`
 - Modify: `src/DBVC.Database/InstallTrigger.sql`
+- Modify: `tests/DBVC.Core.Tests/SmoManagerIntegrationTests.cs`
 
 **Interfaces:**
 - Consumes: `StateTracker.InitializeDatabase(server, database)`, `SqlConnectionFactory.BuildWindows(server, database)` (모두 기존 공개 API)
@@ -515,7 +516,7 @@ Expected: FAIL — `Expected: 0 But was: 2`
     DECLARE @ObjectType NVARCHAR(100) = @EventData.value('(/EVENT_INSTANCE/ObjectType)[1]', 'NVARCHAR(100)');
 
     -- DBVC_TRACKED_TYPES: ObjectPathConvention.DdlEventObjectTypes + INDEX와 같아야 한다.
-    -- InstallScriptSyncTests가 이 목록을 읽어 대조하므로 형식(N'값' 나열)을 바꾸지 말 것.
+    -- InstallScriptSyncTests가 이 목록을 읽어 대조하므로 형식(따옴표 붙은 값 나열)을 바꾸지 말 것.
     -- 여기서 거르지 않으면 사용자·권한 이벤트가 파일 없는 항목으로 목록에 남는다.
     IF @ObjectType NOT IN (N'TABLE', N'VIEW', N'PROCEDURE', N'SQL_STORED_PROCEDURE',
         N'FUNCTION', N'SQL_SCALAR_FUNCTION', N'SQL_TABLE_VALUED_FUNCTION',
