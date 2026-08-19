@@ -760,6 +760,35 @@ namespace DBVC.Core.Tests
                 "Default를 지원하지 않으면 GitAuthenticationException으로 감쌀 근거가 됩니다");
         }
 
+        // ---------- HasCommitsToPush ----------
+
+        [Test]
+        public void HasCommitsToPush_ReturnsTrue_WhenLocalIsAheadOfRemote()
+        {
+            var (localPath, originPath) = NewClonedRepoWithBareOrigin();
+            var git = NewGitManager("ServerA", "DB1", localPath);
+
+            // 클론 직후에는 앞선 커밋이 없다
+            Assert.That(git.HasCommitsToPush("ServerA", "DB1"), Is.False);
+
+            // 새 커밋을 만들면 앞선다
+            CommitOneFile(localPath, "test.sql", "select 1", "new commit");
+            Assert.That(git.HasCommitsToPush("ServerA", "DB1"), Is.True);
+        }
+
+        [Test]
+        public void HasCommitsToPush_ReturnsFalse_WhenNoRemoteOrMapping()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager("ServerA", "DB1", repoPath);
+
+            // 매핑은 있지만 원격이 없으므로 false
+            Assert.That(git.HasCommitsToPush("ServerA", "DB1"), Is.False);
+            
+            // 매핑이 없으면 false
+            Assert.That(git.HasCommitsToPush("ServerB", "DB2"), Is.False);
+        }
+
         // ---------- PushChanges ----------
 
         [Test]

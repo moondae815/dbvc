@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using DBVC.Core.Models;
@@ -60,6 +60,7 @@ namespace DBVC.Core
         bool CommitChanges(string serverName, string databaseName, string message, IEnumerable<string>? relativePaths = null);
         bool PullChanges(string serverName, string databaseName);
         PushResult PushChanges(string serverName, string databaseName);
+        bool HasCommitsToPush(string serverName, string databaseName);
         /// <summary><paramref name="relativeFilePath"/>가 비면 저장소 전체 이력을 반환한다.</summary>
         IReadOnlyList<CommitInfo> GetHistory(string serverName, string databaseName, string? relativeFilePath);
         string? GetFileContentAtHead(string serverName, string databaseName, string relativeFilePath);

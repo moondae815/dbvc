@@ -254,6 +254,31 @@ namespace DBVC.Core
         }
 
         /// <summary>
+        /// 로컬 브랜치에 원격 브랜치로 푸시할 커밋이 남아 있는지 확인한다.
+        /// 원격이 없거나 추적 브랜치가 설정되지 않은 경우 false를 반환한다.
+        /// </summary>
+        public bool HasCommitsToPush(string serverName, string databaseName)
+        {
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null) return false;
+
+            try
+            {
+                using var repo = new Repository(repoPath);
+
+                // 원격이 없거나 추적 중인 브랜치가 없으면 올릴 수 없다(libgit2 예외와 일치).
+                if (!repo.Network.Remotes.Any() || !repo.Head.IsTracking) return false;
+
+                return repo.Head.TrackingDetails.AheadBy > 0;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"GitManager.HasCommitsToPush failed for '{repoPath}': {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
         /// 현재 브랜치의 커밋을 추적 중인 원격 브랜치에 올린다.
         /// 원격이 ref 갱신을 거부하면 <see cref="GitPushRejectedException"/>을,
         /// 원격이 사용자 자격 증명을 요구하면 <see cref="GitAuthenticationException"/>을,
