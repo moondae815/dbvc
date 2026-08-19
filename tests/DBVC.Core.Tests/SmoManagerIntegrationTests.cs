@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -37,7 +37,11 @@ namespace DBVC.Core.Tests
 
             try
             {
-                using var conn = new SqlConnection(SqlConnectionFactory.BuildWindows(ServerName, "master"));
+                var connString = new SqlConnectionStringBuilder(SqlConnectionFactory.BuildWindows(ServerName, "master"))
+                {
+                    ConnectTimeout = 1
+                }.ToString();
+                using var conn = new SqlConnection(connString);
                 conn.Open();
 
                 Execute(conn, "CREATE DATABASE [" + name + "]");
@@ -65,7 +69,11 @@ namespace DBVC.Core.Tests
 
             try
             {
-                using var conn = new SqlConnection(SqlConnectionFactory.BuildWindows(ServerName, "master"));
+                var connString = new SqlConnectionStringBuilder(SqlConnectionFactory.BuildWindows(ServerName, "master"))
+                {
+                    ConnectTimeout = 1
+                }.ToString();
+                using var conn = new SqlConnection(connString);
                 conn.Open();
                 Execute(conn, "ALTER DATABASE [" + _database + "] SET SINGLE_USER WITH ROLLBACK IMMEDIATE");
                 Execute(conn, "DROP DATABASE [" + _database + "]");
