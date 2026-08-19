@@ -374,6 +374,44 @@ namespace DBVC.Core.Tests
             public void Report(ExtractionProgress value) => _onReport(value);
         }
 
+        // ---------- 스크립팅 옵션 ----------
+
+        [Test]
+        public void BuildScriptingOptions_EnablesConstraintsIndexesAndExtendedProperties()
+        {
+            // 이 값들이 꺼져 있으면 테이블 .sql에 컬럼 정의만 남는다. 기본값 제약도,
+            // 기본 키도, 인덱스도 없는 파일로는 배포 스크립트가 테이블을 재생산하지 못한다.
+            var options = SmoManager.BuildScriptingOptions();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(options.DriAll, Is.True, "기본값·PK·FK·UNIQUE·CHECK");
+                Assert.That(options.Indexes, Is.True);
+                Assert.That(options.ClusteredIndexes, Is.True);
+                Assert.That(options.NonClusteredIndexes, Is.True);
+                Assert.That(options.XmlIndexes, Is.True);
+                Assert.That(options.FullTextIndexes, Is.True);
+                Assert.That(options.ExtendedProperties, Is.True);
+            });
+        }
+
+        [Test]
+        public void BuildScriptingOptions_LeavesEnvironmentSpecificArtifactsOut()
+        {
+            // 끄는 쪽도 계약이다. 권한은 서버마다 주체가 달라 저장소를 환경 종속으로 만들고,
+            // 통계는 데이터 분포의 부산물이라 같은 스키마에서도 매번 달라져 잡음 diff가 된다.
+            var options = SmoManager.BuildScriptingOptions();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(options.Permissions, Is.False);
+                Assert.That(options.Statistics, Is.False);
+                Assert.That(options.ScriptData, Is.False);
+                Assert.That(options.ScriptDrops, Is.False);
+                Assert.That(options.IncludeIfNotExists, Is.False);
+            });
+        }
+
         // ---------- 객체 필터 ----------
 
         [Test]

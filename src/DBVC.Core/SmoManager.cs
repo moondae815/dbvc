@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -92,16 +92,7 @@ namespace DBVC.Core
                     return null;
                 }
 
-                var scripter = new Scripter(server)
-                {
-                    Options = new ScriptingOptions
-                    {
-                        ScriptDrops = false,
-                        IncludeIfNotExists = false,
-                        ToFileOnly = true,
-                        AppendToFile = false
-                    }
-                };
+                var scripter = new Scripter(server) { Options = BuildScriptingOptions() };
 
                 var filter = BuildFilter(objectNames);
                 var targets = EnumerateTargets(db).Where(t => ShouldInclude(t, filter));
@@ -122,6 +113,45 @@ namespace DBVC.Core
                 Trace.WriteLine($"Error during SMO scripting for '{serverName}.{databaseName}': {ex}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// 스크립팅 옵션. 지정하지 않은 값은 SMO 기본값을 따르는데, 테이블에 관계된 것은
+        /// <b>전부 false</b>다 — 그래서 켜기 전까지 테이블 .sql에 컬럼 정의만 남았다.
+        /// 기본값 제약도 기본 키도 인덱스도 없는 파일로는 배포 스크립트가 테이블을 재생산하지
+        /// 못한다. 저장소가 테이블의 실제 모습을 담는 것이 형상 관리의 전제이므로 켠다.
+        ///
+        /// <see cref="ScriptingOptions.DriAll"/>로 묶어 켠다. 개별 Dri* 를 나열하면 SMO가 항목을
+        /// 더할 때 조용히 빠지는 것이 생긴다. 인덱스는 <see cref="ScriptingOptions.Indexes"/>
+        /// 하나에 기대지 않고 종류별로 명시한다.
+        ///
+        /// <b>켜지 않는 것.</b> Permissions는 서버마다 로그인과 역할이 달라 저장소를 환경 종속으로
+        /// 만들고, 배포 스크립트에 들어가면 대상 환경에 없는 주체를 참조해 실패한다. Statistics는
+        /// 데이터 분포의 부산물이라 같은 스키마에서도 매번 달라져 잡음 diff가 된다.
+        ///
+        /// 이 옵션들은 스크립팅 단계의 조회를 늘린다. 열거 단계를 다루는
+        /// <see cref="ConfigureBulkEnumeration"/>의 실측 튜닝과는 층이 다르므로 그쪽은 건드리지 않는다.
+        /// 비용이 드러나는 곳은 새로고침이 아니라 전체 다시 추출이다.
+        /// </summary>
+        internal static ScriptingOptions BuildScriptingOptions()
+        {
+            return new ScriptingOptions
+            {
+                ScriptDrops = false,
+                IncludeIfNotExists = false,
+                ToFileOnly = true,
+                AppendToFile = false,
+
+                DriAll = true,
+
+                Indexes = true,
+                ClusteredIndexes = true,
+                NonClusteredIndexes = true,
+                XmlIndexes = true,
+                FullTextIndexes = true,
+
+                ExtendedProperties = true
+            };
         }
 
         /// <summary>

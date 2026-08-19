@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -53,6 +53,13 @@ namespace DBVC.Core.Tests
                 Execute(conn, "CREATE PROCEDURE dbo.usp_GetUser @Id int AS SELECT Id, Name FROM dbo.Users WHERE Id = @Id");
                 Execute(conn, "CREATE FUNCTION dbo.fn_Double(@n int) RETURNS int AS BEGIN RETURN @n * 2 END");
                 Execute(conn, "CREATE TRIGGER dbo.trg_Users_Ins ON dbo.Users AFTER INSERT AS BEGIN SET NOCOUNT ON END");
+
+                // 컬럼 정의만으로는 드러나지 않는 것들이다. 스크립팅 옵션이 꺼지면 이것들이 조용히 사라진다.
+                Execute(conn, "ALTER TABLE dbo.Users ADD CreatedAt datetime2(7) NOT NULL " +
+                              "CONSTRAINT DF_Users_CreatedAt DEFAULT sysutcdatetime()");
+                Execute(conn, "CREATE NONCLUSTERED INDEX IX_Users_Name ON dbo.Users (Name)");
+                Execute(conn, "EXEC sp_addextendedproperty @name=N'MS_Description', @value=N'사용자', " +
+                              "@level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'Users'");
 
                 _database = name;
             }
@@ -119,6 +126,27 @@ namespace DBVC.Core.Tests
 
             var sql = File.ReadAllText(Path.Combine(repo.Path, "dbo", "StoredProcedures", "usp_GetUser.sql"));
             Assert.That(sql, Does.Contain("CREATE").And.Contain("usp_GetUser"));
+        }
+
+        [Test]
+        public void ScriptObjectsDetailed_IncludesConstraintsIndexesAndExtendedProperties_InTheTableScript()
+        {
+            // SMO의 ScriptingOptions 기본값은 이 셋이 모두 false다. 켜지 않으면 테이블 .sql에
+            // 컬럼 정의만 남고, 그 파일로 만든 배포 스크립트는 테이블을 재생산하지 못한다.
+            using var repo = new TempRepo(_database!);
+
+            var result = repo.Smo.ScriptObjectsDetailed(ServerName, _database!, new List<string> { "dbo.Users" });
+            Assert.That(result, Is.Not.Null, "Initial script failed");
+
+            var sql = File.ReadAllText(Path.Combine(repo.Path, "dbo", "Tables", "Users.sql"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(sql, Does.Contain("PRIMARY KEY"), "기본 키가 빠졌습니다");
+                Assert.That(sql, Does.Contain("DF_Users_CreatedAt"), "기본값 제약이 빠졌습니다");
+                Assert.That(sql, Does.Contain("IX_Users_Name"), "인덱스가 빠졌습니다");
+                Assert.That(sql, Does.Contain("MS_Description"), "확장 속성이 빠졌습니다");
+            });
         }
 
         [Test]
