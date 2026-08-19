@@ -21,6 +21,8 @@ BEGIN
         [PostTime] DATETIME NOT NULL DEFAULT GETDATE(),
         [LoginName] NVARCHAR(256) NOT NULL,
         [TSQLCommand] NVARCHAR(MAX) NULL,
+        [TargetObjectName] NVARCHAR(256) NULL,
+        [TargetObjectType] NVARCHAR(100) NULL,
         [IsProcessed] BIT NOT NULL DEFAULT 0
     );
 END
@@ -36,6 +38,19 @@ GO
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'IsProcessed')
 BEGIN
     ALTER TABLE [dbo].[DBVC_ChangeLog] ADD [IsProcessed] BIT NOT NULL CONSTRAINT [DF_DBVC_ChangeLog_IsProcessed] DEFAULT 0;
+END
+GO
+
+-- v1(Target 컬럼 이전)에 설치된 테이블 보정. 인덱스 이벤트가 부모 테이블을 가리키는 유일한 근거다.
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'TargetObjectName')
+BEGIN
+    ALTER TABLE [dbo].[DBVC_ChangeLog] ADD [TargetObjectName] NVARCHAR(256) NULL;
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'TargetObjectType')
+BEGIN
+    ALTER TABLE [dbo].[DBVC_ChangeLog] ADD [TargetObjectType] NVARCHAR(100) NULL;
 END
 GO
 
@@ -93,6 +108,8 @@ BEGIN
         [PostTime],
         [LoginName],
         [TSQLCommand],
+        [TargetObjectName],
+        [TargetObjectType],
         [IsProcessed]
     )
     VALUES (
@@ -103,6 +120,8 @@ BEGIN
         GETDATE(),
         @EventData.value('(/EVENT_INSTANCE/LoginName)[1]', 'NVARCHAR(256)'),
         @EventData.value('(/EVENT_INSTANCE/TSQLCommand/CommandText)[1]', 'NVARCHAR(MAX)'),
+        @EventData.value('(/EVENT_INSTANCE/TargetObjectName)[1]', 'NVARCHAR(256)'),
+        @EventData.value('(/EVENT_INSTANCE/TargetObjectType)[1]', 'NVARCHAR(100)'),
         0
     );
 END;

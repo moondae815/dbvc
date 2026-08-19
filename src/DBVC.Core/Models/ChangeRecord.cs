@@ -10,6 +10,11 @@ namespace DBVC.Core.Models
         public string ObjectName { get; set; } = string.Empty;
         public string ObjectType { get; set; } = string.Empty;
         public string EventType { get; set; } = string.Empty;
+
+        /// <summary>인덱스처럼 다른 객체에 딸린 이벤트의 부모. 없으면 null이다.</summary>
+        public string? TargetObjectName { get; set; }
+
+        public string? TargetObjectType { get; set; }
     }
 
     /// <summary>

@@ -82,5 +82,29 @@ namespace DBVC.Core.Tests
 
             Assert.That(after - before, Is.Zero);
         }
+
+        [Test]
+        public void Trigger_RecordsTheParentTable_ForIndexEvents()
+        {
+            // 부모를 남기지 않으면 새로고침이 인덱스 이름만 추출 대상으로 잡고 테이블을 건드리지 않는다.
+            // 0.2.4부터 인덱스는 테이블 스크립트에 담기므로, 저장소가 데이터베이스와 조용히 어긋난다.
+            _db!.Execute("CREATE TABLE dbo.IndexedTable (Id int NOT NULL PRIMARY KEY, Name nvarchar(50) NULL)");
+            _db.Execute("CREATE NONCLUSTERED INDEX IX_IndexedTable_Name ON dbo.IndexedTable (Name)");
+
+            var target = _db.QueryScalar(
+                "SELECT TargetObjectName FROM dbo.DBVC_ChangeLog " +
+                "WHERE ObjectName = N'IX_IndexedTable_Name' AND EventType = N'CREATE_INDEX'");
+
+            Assert.That(target, Is.EqualTo("IndexedTable"));
+        }
+
+        [Test]
+        public void InstallScript_IsIdempotent_WhenRunTwice()
+        {
+            // 재설치는 업데이트 경로이기도 하다. 두 번째 실행이 실패하면 구버전 사용자가 올라갈 길이 없다.
+            var tracker = new StateTracker(NewConfig());
+            Assert.DoesNotThrow(() => tracker.InitializeDatabase(SqlServerTestDatabase.ServerName, _db!.Name));
+            Assert.DoesNotThrow(() => tracker.InitializeDatabase(SqlServerTestDatabase.ServerName, _db!.Name));
+        }
     }
 }
