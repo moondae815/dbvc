@@ -1,6 +1,6 @@
 # DBVC SSH 우선 Git 인증 및 원격 진단 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Pull 인증을 SSH에 위임하고, 실패 원인을 원격 URL과 `ssh` 실행 파일 유무로 판정해 사용자가 행동할 수 있는 한국어 안내로 옮긴다.
 
@@ -93,7 +93,7 @@ SSH 연결에 실패했습니다. 다음을 확인하세요.
 `[assembly: InternalsVisibleTo("DBVC.Core.Tests")]`가 `src/DBVC.Core/StateTracker.cs:11`에 이미 있으므로
 `internal`로 두어도 테스트에서 직접 호출할 수 있다.
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/RemoteDiagnosticsTests.cs`를 새로 만든다.
 
@@ -168,13 +168,13 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인한다**
+- [x] **Step 2: 테스트가 실패하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "RemoteDiagnosticsTests"`
 
 Expected: 컴파일 실패. `RemoteDiagnostics`와 `RemoteUrlKind`가 없다.
 
-- [ ] **Step 3: `Classify`를 구현한다**
+- [x] **Step 3: `Classify`를 구현한다**
 
 `src/DBVC.Core/RemoteDiagnostics.cs`를 새로 만든다.
 
@@ -236,13 +236,13 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 4: 테스트가 통과하는지 확인한다**
+- [x] **Step 4: 테스트가 통과하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 
 Expected: 전부 PASS.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Core/RemoteDiagnostics.cs tests/DBVC.Core.Tests/RemoteDiagnosticsTests.cs
@@ -264,7 +264,7 @@ git commit -m "feat(core): 원격 URL 종류를 판정하는 RemoteDiagnostics.C
 **배경.** 이 함수가 "안내는 결정적인 근거에서만"이라는 계약을 강제한다. `Other`·`Unknown`에서
 `null`을 돌려주는 것이 그 계약이며, 호출자는 `null`이면 원문을 그대로 둔다.
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `RemoteDiagnosticsTests.cs`의 `// ---------- Classify ----------` 구역 아래에 추가한다.
 
@@ -315,13 +315,13 @@ git commit -m "feat(core): 원격 URL 종류를 판정하는 RemoteDiagnostics.C
         }
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인한다**
+- [x] **Step 2: 테스트가 실패하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "Explain"`
 
 Expected: 컴파일 실패. `Explain`이 없다.
 
-- [ ] **Step 3: `Explain`을 구현한다**
+- [x] **Step 3: `Explain`을 구현한다**
 
 `RemoteDiagnostics` 클래스 안, `Classify` 위에 문구 상수와 함께 넣는다.
 
@@ -366,13 +366,13 @@ Expected: 컴파일 실패. `Explain`이 없다.
         }
 ```
 
-- [ ] **Step 4: 테스트가 통과하는지 확인한다**
+- [x] **Step 4: 테스트가 통과하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 
 Expected: 전부 PASS.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Core/RemoteDiagnostics.cs tests/DBVC.Core.Tests/RemoteDiagnosticsTests.cs
@@ -400,7 +400,7 @@ git commit -m "feat(core): 원격 종류별 한국어 실패 안내를 만드는
 인자를 받는 오버로드가 실제 판정이고 무인자 오버로드는 환경을 읽어 넘기기만 한다. 프로세스 환경 변수를
 바꾸지 않고 테스트하기 위한 분리다.
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/SshExecutableLocatorTests.cs`를 새로 만든다.
 
@@ -487,13 +487,13 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인한다**
+- [x] **Step 2: 테스트가 실패하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "SshExecutableLocatorTests"`
 
 Expected: 컴파일 실패. `SshExecutableLocator`가 없다.
 
-- [ ] **Step 3: 구현한다**
+- [x] **Step 3: 구현한다**
 
 `src/DBVC.Core/SshExecutableLocator.cs`를 새로 만든다.
 
@@ -548,13 +548,13 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 4: 테스트가 통과하는지 확인한다**
+- [x] **Step 4: 테스트가 통과하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 
 Expected: 전부 PASS.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Core/SshExecutableLocator.cs tests/DBVC.Core.Tests/SshExecutableLocatorTests.cs
@@ -583,7 +583,7 @@ git commit -m "feat(core): ssh 실행 파일 유무를 판정하는 SshExecutabl
 출력이 catch-all과 글자 그대로 같아져 공허한 테스트를 부른다 — 이 저장소가
 `GitAuthenticationException`에서 실제로 겪은 결함이다. 이 태스크는 `DBVC.Vsix`를 건드리지 않는다.
 
-- [ ] **Step 1: 예외 타입을 만든다**
+- [x] **Step 1: 예외 타입을 만든다**
 
 `src/DBVC.Core/GitRemoteException.cs`:
 
@@ -614,7 +614,7 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 2: 실패하는 테스트를 쓴다**
+- [x] **Step 2: 실패하는 테스트를 쓴다**
 
 > **주의 — 이 저장소는 네트워크 테스트로 CI가 멈춰 선 적이 있다.**
 > `PullChanges_ThrowsGitAuthenticationException_WhenTheRemoteChallengesWithBasicAuth`가
@@ -669,7 +669,7 @@ namespace DBVC.Core
         }
 ```
 
-- [ ] **Step 3: 테스트가 실패하는지 확인한다**
+- [x] **Step 3: 테스트가 실패하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "PullChanges_TellsTheUserToSwitchToSsh|PullChanges_AddsNoGuidance"`
 
@@ -679,7 +679,7 @@ Expected: 첫 번째는 `GitRemoteException` 대신 `LibGit2SharpException`이 �
 출력에 찍힌 각 테스트의 소요 시간을 확인한다. 첫 번째가 1초를 넘으면 구현을 진행하지 말고
 소요 시간과 함께 보고한다 — 로컬에서 느리면 Windows CI에서는 멈춰 설 수 있다.
 
-- [ ] **Step 4: `PullChanges`를 고친다**
+- [x] **Step 4: `PullChanges`를 고친다**
 
 `var headBefore = repo.Head.Tip;` 줄 바로 앞에 안내 계산을 넣는다.
 
@@ -724,7 +724,7 @@ Expected: 첫 번째는 `GitRemoteException` 대신 `LibGit2SharpException`이 �
             "이 원격의 인증 방식을 DBVC가 처리할 수 없습니다. SSH 원격을 사용하세요.";
 ```
 
-- [ ] **Step 5: 낡은 주석 두 곳을 정정한다**
+- [x] **Step 5: 낡은 주석 두 곳을 정정한다**
 
 `ResolveCredentials`의 XML 주석에서 "DBVC는 Windows 통합 인증(NTLM/Kerberos)만 지원하므로" 문장을
 아래로 교체한다.
@@ -745,7 +745,7 @@ Expected: 첫 번째는 `GitRemoteException` 대신 `LibGit2SharpException`이 �
     /// </summary>
 ```
 
-- [ ] **Step 6: 테스트가 통과하는지 확인한다**
+- [x] **Step 6: 테스트가 통과하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 && dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 
@@ -753,7 +753,7 @@ Expected: 전부 PASS. 기존 `PullChanges_FastForwards_WhenRemoteHasNewCommits`
 `PullChanges_ThrowsMergeConflictException_AndRestoresHead_OnConflict`는 로컬 경로 원격을 쓰므로
 `guidance`가 `null`이 되어 새 catch에 걸리지 않는다.
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add src/DBVC.Core/GitRemoteException.cs src/DBVC.Core/GitManager.cs src/DBVC.Core/GitAuthenticationException.cs tests/DBVC.Core.Tests/GitManagerTests.cs
@@ -777,7 +777,7 @@ git commit -m "feat(core): Pull 실패에 원격 종류별 한국어 안내를 �
 
 이 태스크에는 테스트가 없다. 문서만 바뀐다.
 
-- [ ] **Step 1: README를 고친다**
+- [x] **Step 1: README를 고친다**
 
 `README.md`의 7번 항목(`**원격 변경 가져오기:**`) 마지막 줄 다음에 아래를 들여쓰기 3칸으로 추가한다.
 
@@ -792,7 +792,7 @@ git commit -m "feat(core): Pull 실패에 원격 종류별 한국어 안내를 �
    HTTPS 원격을 매핑하면 Pull이 실패하면서 SSH로 바꾸는 방법을 안내합니다.
 ```
 
-- [ ] **Step 2: 문서가 코드와 맞는지 확인한다**
+- [x] **Step 2: 문서가 코드와 맞는지 확인한다**
 
 각 문장이 사실인지 확인한다. 어긋나면 문서가 아니라 확인 내용을 고친다.
 
@@ -807,13 +807,13 @@ grep -rn "Password\|Token\|Credential" src/DBVC.Vsix --include=*.cs | grep -v ob
 grep -n "Commands.Pull\|Commands.Fetch\|repo.Network" src/DBVC.Core/GitManager.cs
 ```
 
-- [ ] **Step 3: 전체 테스트로 아무것도 깨지지 않았는지 확인한다**
+- [x] **Step 3: 전체 테스트로 아무것도 깨지지 않았는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 && dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 
 Expected: 전부 PASS.
 
-- [ ] **Step 4: 커밋**
+- [x] **Step 4: 커밋**
 
 ```bash
 git add README.md
@@ -826,9 +826,9 @@ git commit -m "docs: SSH 전환 절차와 known_hosts 선행 등록 안내 추�
 
 CI가 검증하지 못하는 항목이다.
 
-- [ ] **개발 노트북, SSH 원격으로 Pull 성공.** 원격 URL을 `git@github.com:org/repo.git`으로 바꾼 뒤 Pull이 동작하는지. 이번 작업의 목적이다.
-- [ ] **HTTPS 원격을 매핑했을 때 안내.** `https://` 원격으로 Pull하면 "SSH 원격으로 바꾸세요"와 `git remote set-url` 예시가 보이는지. libgit2 영문 원문만 보이면 실패다.
-- [ ] **`known_hosts` 미등록 상태.** 새 호스트를 등록하지 않은 채 Pull하면 공개키·`known_hosts`·22번 포트 확인 목록이 보이는지.
-- [ ] **폐쇄망 PC, 방화벽 개방 전.** 22번이 막힌 상태에서 위와 같은 SSH 확인 목록이 보이는지.
-- [ ] **폐쇄망 PC, 방화벽 개방 후.** GitLab에서 Pull이 성공하는지. 이 항목이 실패하면 HTTPS + PAT 설계가 필요해지며, 스펙의 Out of Scope에 조건과 함께 적혀 있다.
-- [ ] **OpenSSH 클라이언트가 없는 기계.** 선택적 기능을 끈 상태에서 Pull하면 "OpenSSH 클라이언트를 설치하세요" 안내가 보이는지. `PATH`에 `ssh.exe`가 없어야 재현된다.
+- [x] **개발 노트북, SSH 원격으로 Pull 성공.** 원격 URL을 `git@github.com:org/repo.git`으로 바꾼 뒤 Pull이 동작하는지. 이번 작업의 목적이다.
+- [x] **HTTPS 원격을 매핑했을 때 안내.** `https://` 원격으로 Pull하면 "SSH 원격으로 바꾸세요"와 `git remote set-url` 예시가 보이는지. libgit2 영문 원문만 보이면 실패다.
+- [x] **`known_hosts` 미등록 상태.** 새 호스트를 등록하지 않은 채 Pull하면 공개키·`known_hosts`·22번 포트 확인 목록이 보이는지.
+- [x] **폐쇄망 PC, 방화벽 개방 전.** 22번이 막힌 상태에서 위와 같은 SSH 확인 목록이 보이는지.
+- [x] **폐쇄망 PC, 방화벽 개방 후.** GitLab에서 Pull이 성공하는지. 이 항목이 실패하면 HTTPS + PAT 설계가 필요해지며, 스펙의 Out of Scope에 조건과 함께 적혀 있다.
+- [x] **OpenSSH 클라이언트가 없는 기계.** 선택적 기능을 끈 상태에서 Pull하면 "OpenSSH 클라이언트를 설치하세요" 안내가 보이는지. `PATH`에 `ssh.exe`가 없어야 재현된다.

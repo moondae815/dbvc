@@ -1,6 +1,6 @@
 # View Changes Tool Window Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Implement a VS SDK Tool Window in the DBVC VSIX plugin that provides a split-view UI to list database schema changes and view side-by-side SQL diffs before committing.
 
@@ -28,7 +28,7 @@
 - Consumes: N/A
 - Produces: `ViewChangesViewModel` class (INotifyPropertyChanged).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 ```csharp
 // tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
 using NUnit.Framework;
@@ -50,11 +50,11 @@ namespace DBVC.Vsix.Tests.ViewModels
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 Expected: FAIL (missing classes)
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 ```csharp
 // src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs
 using System.ComponentModel;
@@ -84,15 +84,15 @@ namespace DBVC.Vsix.ViewModels
 }
 ```
 
-- [ ] **Step 4: Add NuGet Packages to csproj**
+- [x] **Step 4: Add NuGet Packages to csproj**
 Add `AvalonEdit` (latest compatible with net48, e.g. 6.3.0.90) and `DiffPlex` (1.7.2) to `src/DBVC.Vsix/DBVC.Vsix.csproj`.
 Add `Moq` (4.18.4) to `tests/DBVC.Vsix.Tests/DBVC.Vsix.Tests.csproj`.
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 ```bash
 git add .
 git commit -m "feat: scaffold ViewChangesViewModel and UI dependencies"
@@ -111,7 +111,7 @@ git commit -m "feat: scaffold ViewChangesViewModel and UI dependencies"
 - Consumes: `DBVC.Core.StateTracker`
 - Produces: `ObservableCollection<ChangeItemViewModel> Changes` property, `RefreshCommand`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 ```csharp
 // Append to ViewChangesViewModelTests.cs
 [Test]
@@ -124,11 +124,11 @@ public void Refresh_PopulatesChangesList()
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 Expected: FAIL (missing Changes property)
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 ```csharp
 // src/DBVC.Vsix/ViewModels/ChangeItemViewModel.cs
 using System.ComponentModel;
@@ -165,11 +165,11 @@ public void Refresh()
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add .
 git commit -m "feat: implement change item list logic in ViewModel"
@@ -187,7 +187,7 @@ git commit -m "feat: implement change item list logic in ViewModel"
 - Consumes: `DiffPlex.DiffBuilder`, `DBVC.Core.GitManager`, `DBVC.Core.SmoManager`
 - Produces: `DiffService.GetDiffModel(string objectName)` returning `SideBySideDiffModel`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 ```csharp
 // tests/DBVC.Vsix.Tests/Services/DiffServiceTests.cs
 using NUnit.Framework;
@@ -210,11 +210,11 @@ namespace DBVC.Vsix.Tests.Services
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 Expected: FAIL
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 ```csharp
 // src/DBVC.Vsix/Services/DiffService.cs
 using DiffPlex.DiffBuilder;
@@ -232,11 +232,11 @@ namespace DBVC.Vsix.Services
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add .
 git commit -m "feat: add DiffService using DiffPlex"
@@ -255,7 +255,7 @@ git commit -m "feat: add DiffService using DiffPlex"
 - Consumes: `ViewChangesViewModel`
 - Produces: VS SDK ToolWindow implementation.
 
-- [ ] **Step 1: Create XAML Control**
+- [x] **Step 1: Create XAML Control**
 ```xml
 <!-- src/DBVC.Vsix/UI/ViewChangesControl.xaml -->
 <UserControl x:Class="DBVC.Vsix.UI.ViewChangesControl"
@@ -329,7 +329,7 @@ namespace DBVC.Vsix.UI
 }
 ```
 
-- [ ] **Step 2: Create ToolWindowPane**
+- [x] **Step 2: Create ToolWindowPane**
 ```csharp
 // src/DBVC.Vsix/UI/ViewChangesToolWindow.cs
 using System.Runtime.InteropServices;
@@ -349,11 +349,11 @@ namespace DBVC.Vsix.UI
 }
 ```
 
-- [ ] **Step 3: Compile**
+- [x] **Step 3: Compile**
 Run: `dotnet build src/DBVC.Vsix`
 Expected: Build SUCCESS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 ```bash
 git add .
 git commit -m "feat: add WPF ViewChangesControl and ToolWindowPane"

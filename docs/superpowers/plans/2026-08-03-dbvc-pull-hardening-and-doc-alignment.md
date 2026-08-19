@@ -1,6 +1,6 @@
 # DBVC Pull 견고화 및 문서·코드 정합화 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Pull 실패 경로를 libgit2 영문 원문 대신 도메인 예외로 표현하고, 설계 문서와 코드가 어긋난 8곳을 정리한다.
 
@@ -76,7 +76,7 @@ HEAD는 그대로이며, 인덱스 충돌은 0개이고, 로컬의 미커밋 내
 `CheckoutConflictException`의 기반 타입은 `NativeException`이고 이는 `LibGit2SharpException`을 상속한다.
 `SupportedCredentialTypes`는 `UsernamePassword = 1`, `Default = 2`인 `[Flags]` 열거형이다.
 
-- [ ] **Step 1: 예외 타입 두 개를 만든다**
+- [x] **Step 1: 예외 타입 두 개를 만든다**
 
 `src/DBVC.Core/WorkingTreeConflictException.cs`:
 
@@ -126,7 +126,7 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 2: 실패하는 테스트를 쓴다**
+- [x] **Step 2: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/GitManagerTests.cs`의 `// ---------- PullChanges ----------` 구역 끝
 (`PullChanges_ThrowsMergeConflictException_AndRestoresHead_OnConflict` 다음)에 추가한다.
@@ -205,14 +205,14 @@ namespace DBVC.Core
         }
 ```
 
-- [ ] **Step 3: 테스트가 실패하는지 확인한다**
+- [x] **Step 3: 테스트가 실패하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "ResolveCredentials|WorkingTreeConflict"`
 
 Expected: 컴파일 실패. `GitManager.ResolveCredentials`와 `WorkingTreeConflictException`이 없다.
 (예외 타입은 Step 1에서 만들었으므로 `ResolveCredentials`만 없는 상태여야 한다.)
 
-- [ ] **Step 4: `ResolveCredentials`를 추가한다**
+- [x] **Step 4: `ResolveCredentials`를 추가한다**
 
 `src/DBVC.Core/GitManager.cs`의 `PullChanges` 바로 아래에 넣는다.
 
@@ -233,7 +233,7 @@ Expected: 컴파일 실패. `GitManager.ResolveCredentials`와 `WorkingTreeConfl
         }
 ```
 
-- [ ] **Step 5: `PullChanges`를 고친다**
+- [x] **Step 5: `PullChanges`를 고친다**
 
 `Commands.Pull` 한 줄을 아래로 교체한다. `MergeStatus.Conflicts` 분기와 `AbortMerge`는 건드리지 않는다.
 
@@ -295,7 +295,7 @@ Expected: 컴파일 실패. `GitManager.ResolveCredentials`와 `WorkingTreeConfl
         /// </summary>
 ```
 
-- [ ] **Step 6: 테스트가 통과하는지 확인한다**
+- [x] **Step 6: 테스트가 통과하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 
@@ -303,7 +303,7 @@ Expected: 전부 PASS. 기존 `PullChanges_FastForwards_WhenRemoteHasNewCommits`
 `PullChanges_ThrowsMergeConflictException_AndRestoresHead_OnConflict`도 계속 통과해야 한다
 — 로컬 경로 원격은 자격 증명을 요구하지 않으므로 핸들러가 호출되지 않는다.
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add src/DBVC.Core/WorkingTreeConflictException.cs src/DBVC.Core/GitAuthenticationException.cs src/DBVC.Core/GitManager.cs tests/DBVC.Core.Tests/GitManagerTests.cs
@@ -325,7 +325,7 @@ git commit -m "feat(core): Pull의 체크아웃 거부와 자격 증명 요구�
 **배경.** 지금은 catch-all이 모든 예외에 "받아올 변경과 겹치는 미커밋 변경이 있으면 Pull이 거부될 수 있습니다"를
 덧붙인다. 원격 미설정 같은 무관한 오류에도 이 힌트가 붙는다. Task 1이 원인을 타입으로 갈랐으므로 추측이 필요 없다.
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `// ---------- Pull ----------` 구역의 `PullCommand_ReportsAnUnexpectedFailure` 다음에 추가한다.
 
@@ -410,7 +410,7 @@ git commit -m "feat(core): Pull의 체크아웃 거부와 자격 증명 요구�
             }
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인한다**
+- [x] **Step 2: 테스트가 실패하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "PullCommand"`
 
@@ -419,7 +419,7 @@ Expected: 새 테스트 3개와 강화한 `ReportsAnUnexpectedFailure`가 FAIL.
 `ReportsAnUnexpectedFailure`는 힌트가 붙어 원문과 다르기 때문에,
 `TellsTheUserThatARejectedPullLosesNothing`은 확인 문구가 달라서 실패한다.
 
-- [ ] **Step 3: `Pull`의 확인 문구와 catch 분기를 고친다**
+- [x] **Step 3: `Pull`의 확인 문구와 catch 분기를 고친다**
 
 `ViewChangesViewModel.cs`의 `Pull` 메서드에서 확인 문구 블록을 교체한다.
 
@@ -519,13 +519,13 @@ Expected: 새 테스트 3개와 강화한 `ReportsAnUnexpectedFailure`가 FAIL.
             }
 ```
 
-- [ ] **Step 4: 테스트가 통과하는지 확인한다**
+- [x] **Step 4: 테스트가 통과하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 
 Expected: 전부 PASS. `PullCommand_ReportsAMergeConflict`도 계속 통과해야 한다 — 그 분기는 건드리지 않았다.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
@@ -554,7 +554,7 @@ git commit -m "fix(vsix): Pull 오류를 예외 타입별로 안내하고 확인
 기록할 가치가 있는 것은 `ScriptExporter`가 아는 제외된 객체다.
 알림은 닫으면 사라지지만 헤더는 파일과 함께 남는다.
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/ScriptGeneratorTests.cs`의 `// ---------- 헤더 ----------` 구역
 `BuildScript_LabelsRollbackScriptsDistinctly` 다음에 추가한다.
@@ -618,14 +618,14 @@ git commit -m "fix(vsix): Pull 오류를 예외 타입별로 안내하고 확인
 > 이 파일에는 `Target(qualifiedName, relativePath)`와 `NewExporter()` 헬퍼가 이미 있다.
 > 다른 테스트를 새로 쓸 일이 있으면 그 헬퍼를 쓴다.
 
-- [ ] **Step 2: 테스트가 실패하는지 확인한다**
+- [x] **Step 2: 테스트가 실패하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "Exclu"`
 
 Expected: 컴파일 실패. `BuildScript`가 인자 4개를 받지 않는다.
 컴파일이 통과하도록 임시로 손대지 말고 Step 3~4를 그대로 진행한다.
 
-- [ ] **Step 3: `BuildScript`와 `AppendHeader`를 고친다**
+- [x] **Step 3: `BuildScript`와 `AppendHeader`를 고친다**
 
 `src/DBVC.Core/ScriptGenerator.cs`:
 
@@ -683,7 +683,7 @@ Expected: 컴파일 실패. `BuildScript`가 인자 4개를 받지 않는다.
         }
 ```
 
-- [ ] **Step 4: `ScriptExporter`가 제외 목록을 넘기게 한다**
+- [x] **Step 4: `ScriptExporter`가 제외 목록을 넘기게 한다**
 
 `src/DBVC.Core/ScriptExporter.cs`:
 
@@ -694,7 +694,7 @@ Expected: 컴파일 실패. `BuildScript`가 인자 4개를 받지 않는다.
                 : string.Empty;
 ```
 
-- [ ] **Step 5: 테스트가 통과하는지 확인한다**
+- [x] **Step 5: 테스트가 통과하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 
@@ -702,7 +702,7 @@ Expected: 전부 PASS. 기존 `BuildScript_WritesHeaderWithKindAndObjectCount`,
 `BuildScript_IsDeterministicForTheSameInput`, `BuildScript_SkipsSectionsWithNoSql`이 계속 통과해야 한다
 — 기본값 `null`이 기존 출력을 보존한다. 단언을 고친 `Export_Deployment_ExcludesObjectsWhoseFileIsMissing`도 통과해야 한다.
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add src/DBVC.Core/ScriptGenerator.cs src/DBVC.Core/ScriptExporter.cs tests/DBVC.Core.Tests/ScriptGeneratorTests.cs tests/DBVC.Core.Tests/ScriptExporterTests.cs
@@ -727,7 +727,7 @@ git commit -m "feat(core): 생성된 스크립트 헤더에 제외된 객체를 
 제외 사유가 `ScriptKind`에 따라 다르다는 점에 주의한다 — Rollback은 되돌릴 이전 리비전이 없는 것이고,
 Deployment는 작업 트리에 `.sql` 파일이 없는 것이다(`ScriptExporter.cs:39-47`).
 
-- [ ] **Step 1: 깨지게 될 기존 테스트 두 개를 고친다**
+- [x] **Step 1: 깨지게 될 기존 테스트 두 개를 고친다**
 
 `ViewChangesViewModelTests.cs:965`의 `GenerateRollbackScriptCommand_WarnsAndSkipsSave_WhenNoObjectHasAPreviousRevision`을 교체한다.
 
@@ -797,7 +797,7 @@ Deployment는 작업 트리에 `.sql` 파일이 없는 것이다(`ScriptExporter
             }
 ```
 
-- [ ] **Step 2: 새 테스트를 쓴다**
+- [x] **Step 2: 새 테스트를 쓴다**
 
 `GenerateDeploymentScriptCommand_ReportsExcludedObjectsAfterSaving` 다음에 추가한다.
 
@@ -830,13 +830,13 @@ Deployment는 작업 트리에 `.sql` 파일이 없는 것이다(`ScriptExporter
         }
 ```
 
-- [ ] **Step 3: 테스트가 실패하는지 확인한다**
+- [x] **Step 3: 테스트가 실패하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "GenerateDeploymentScriptCommand|GenerateRollbackScriptCommand"`
 
 Expected: 위 4개 FAIL. `GenerateScript`가 아직 `WarningMessage`를 쓰고 `ShowInfo`를 부르지 않는다.
 
-- [ ] **Step 4: `GenerateScript`를 고친다**
+- [x] **Step 4: `GenerateScript`를 고친다**
 
 `src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs`의 `GenerateScript` 전체를 교체한다.
 
@@ -897,7 +897,7 @@ Expected: 위 4개 FAIL. `GenerateScript`가 아직 `WarningMessage`를 쓰고 `
 
 > `ScriptExportResult`는 `DBVC.Core` 네임스페이스에 있다. 파일 상단에 `using DBVC.Core;`가 이미 있는지 확인한다.
 
-- [ ] **Step 5: 테스트가 통과하는지 확인한다**
+- [x] **Step 5: 테스트가 통과하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 
@@ -905,7 +905,7 @@ Expected: 전부 PASS. 기존 `GenerateDeploymentScriptCommand_WritesTheMergedSc
 `GenerateDeploymentScriptCommand_DoesNothing_WhenTheUserCancelsTheSaveDialog`,
 `GenerateDeploymentScriptCommand_Notifies_WhenWritingTheFileFails`도 계속 통과해야 한다.
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
@@ -929,7 +929,7 @@ git commit -m "fix(vsix): 스크립트 생성 결과를 경고 배너 대신 알
 이 태스크에는 테스트가 없다. 코드를 건드리지 않기 때문이다. 각 편집은 **현재 코드가 무엇을 하는지**를
 확인한 뒤 문서를 그에 맞추는 작업이다. 반대 방향(문서에 맞춰 코드를 바꾸기)은 하지 않는다.
 
-- [ ] **Step 1: view-changes 설계 두 곳 (P3 #8, #9)**
+- [x] **Step 1: view-changes 설계 두 곳 (P3 #8, #9)**
 
 `docs/superpowers/specs/2026-07-31-dbvc-view-changes-design.md:27`
 
@@ -965,7 +965,7 @@ git commit -m "fix(vsix): 스크립트 생성 결과를 경고 배너 대신 알
 > `ViewChangesViewModel`의 `NotMappedWarning` 상수를 열어 실제 문구를 확인하고,
 > 문서의 인용이 코드와 다르면 **코드 쪽 문구로 문서를 맞춘다.**
 
-- [ ] **Step 2: ssms21 설계 두 곳 (P3 #10, #13)**
+- [x] **Step 2: ssms21 설계 두 곳 (P3 #10, #13)**
 
 `docs/superpowers/specs/2026-07-31-dbvc-ssms21-plugin-design.md:30`
 
@@ -995,7 +995,7 @@ git commit -m "fix(vsix): 스크립트 생성 결과를 경고 배너 대신 알
 2. SSMS 플러그인의 `StateTracker`가 **사용자가 Refresh를 누를 때** `DBVC_ChangeLog`를 읽어와 로컬 캐시를 업데이트. 주기적 폴링은 구현되어 있지 않으며 계획에도 없다.
 ```
 
-- [ ] **Step 3: script-generation 설계 네 곳 (P3 #11, #12 + 3.1·4절)**
+- [x] **Step 3: script-generation 설계 네 곳 (P3 #11, #12 + 3.1·4절)**
 
 `docs/superpowers/specs/2026-08-01-dbvc-script-generation-design.md:33`
 
@@ -1060,7 +1060,7 @@ string BuildScript(
 * 제외 사유는 `ScriptKind`에 따라 다르다. Rollback은 `3개 객체를 내보냈습니다. / 2개 객체는 이전 리비전이 없어 제외했습니다: dbo.A, dbo.B`, Deployment는 같은 형식에 `추출된 파일이 없어`를 쓴다.
 ```
 
-- [ ] **Step 4: README 한 곳 (P3 #13)**
+- [x] **Step 4: README 한 곳 (P3 #13)**
 
 `README.md:6`
 
@@ -1076,7 +1076,7 @@ string BuildScript(
 - **변경 사항 자동 감지 (DDL Trigger):** DDL 트리거가 스키마 변경을 발생 즉시 `DBVC_ChangeLog` 테이블에 기록합니다. 기록된 변경은 **Refresh를 누를 때** 화면에 반영됩니다(주기적 폴링은 하지 않습니다).
 ```
 
-- [ ] **Step 5: 문서와 코드가 실제로 맞는지 확인한다**
+- [x] **Step 5: 문서와 코드가 실제로 맞는지 확인한다**
 
 각 편집이 사실인지 코드로 확인한다. 하나라도 어긋나면 문서가 아니라 **확인 내용**을 고친다.
 
@@ -1098,13 +1098,13 @@ grep -n "BuildScript" -A 6 src/DBVC.Core/ScriptGenerator.cs
 grep -n "이미 삭제된 객체" -A 4 src/DBVC.Core/GitManager.cs
 ```
 
-- [ ] **Step 6: 전체 테스트를 돌려 문서 편집이 아무것도 깨지 않았는지 확인한다**
+- [x] **Step 6: 전체 테스트를 돌려 문서 편집이 아무것도 깨지 않았는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 && dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 
 Expected: 전부 PASS.
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add docs/superpowers/specs/2026-07-31-dbvc-view-changes-design.md docs/superpowers/specs/2026-07-31-dbvc-ssms21-plugin-design.md docs/superpowers/specs/2026-08-01-dbvc-script-generation-design.md README.md
@@ -1117,11 +1117,11 @@ git commit -m "docs: 설계 문서와 README를 실제 구현에 맞게 정정 (
 
 CI가 검증하지 못하는 항목이다. 실제 SSMS 21에서 확인한다.
 
-- [ ] **인증이 필요한 원격에서 Pull.** 사내 Azure DevOps 등 Windows 통합 인증 원격에 대해 Pull이 **성공**하는지. 이번 변경의 핵심 목적이며, 지금까지는 항상 실패하던 경로다.
-- [ ] **자격 증명을 요구하는 원격에서 Pull.** GitHub HTTPS처럼 사용자명/토큰을 요구하는 원격에서 "원격이 사용자 자격 증명을 요구합니다"라는 한국어 안내가 뜨는지. libgit2 영문 원문이 보이면 실패다.
-- [ ] **겹치는 미커밋 변경으로 Pull.** 원격이 바꾼 파일을 로컬에서 커밋하지 않고 수정한 뒤 Pull → 확인 → "저장소는 변경되지 않았습니다" 안내가 뜨고, **로컬 수정 내용이 그대로 남아 있는지.**
-- [ ] **확인 대화상자 문구.** 미커밋 변경이 있을 때 뜨는 확인 창에 "거부됩니다. 이 경우 저장소는 그대로입니다"와 "사라질 수 있습니다"가 모두 보이는지. 창이 SSMS 뒤로 숨지 않는지.
-- [ ] **Deployment Script 성공 알림.** 제외 없이 성공했을 때 "N개 객체를 내보냈습니다" 알림이 뜨는지. 이전에는 아무 피드백이 없었다.
-- [ ] **제외 문구가 kind별로 맞는지.** 작업 트리에 파일이 없는 객체를 포함해 Deployment를 만들면 "추출된 파일이 없어", 이력이 하나뿐인 객체로 Rollback을 만들면 "이전 리비전이 없어"가 나오는지.
-- [ ] **생성된 `.sql` 헤더.** 제외가 있었던 스크립트를 텍스트 편집기로 열어 `Excluded: N (...)` 줄이 있는지.
-- [ ] **경고 배너가 오염되지 않는지.** 스크립트를 생성한 뒤 상단 경고 배너에 생성 결과가 남지 않는지. 매핑 경고만 표시되어야 한다.
+- [x] **인증이 필요한 원격에서 Pull.** 사내 Azure DevOps 등 Windows 통합 인증 원격에 대해 Pull이 **성공**하는지. 이번 변경의 핵심 목적이며, 지금까지는 항상 실패하던 경로다.
+- [x] **자격 증명을 요구하는 원격에서 Pull.** GitHub HTTPS처럼 사용자명/토큰을 요구하는 원격에서 "원격이 사용자 자격 증명을 요구합니다"라는 한국어 안내가 뜨는지. libgit2 영문 원문이 보이면 실패다.
+- [x] **겹치는 미커밋 변경으로 Pull.** 원격이 바꾼 파일을 로컬에서 커밋하지 않고 수정한 뒤 Pull → 확인 → "저장소는 변경되지 않았습니다" 안내가 뜨고, **로컬 수정 내용이 그대로 남아 있는지.**
+- [x] **확인 대화상자 문구.** 미커밋 변경이 있을 때 뜨는 확인 창에 "거부됩니다. 이 경우 저장소는 그대로입니다"와 "사라질 수 있습니다"가 모두 보이는지. 창이 SSMS 뒤로 숨지 않는지.
+- [x] **Deployment Script 성공 알림.** 제외 없이 성공했을 때 "N개 객체를 내보냈습니다" 알림이 뜨는지. 이전에는 아무 피드백이 없었다.
+- [x] **제외 문구가 kind별로 맞는지.** 작업 트리에 파일이 없는 객체를 포함해 Deployment를 만들면 "추출된 파일이 없어", 이력이 하나뿐인 객체로 Rollback을 만들면 "이전 리비전이 없어"가 나오는지.
+- [x] **생성된 `.sql` 헤더.** 제외가 있었던 스크립트를 텍스트 편집기로 열어 `Excluded: N (...)` 줄이 있는지.
+- [x] **경고 배너가 오염되지 않는지.** 스크립트를 생성한 뒤 상단 경고 배너에 생성 결과가 남지 않는지. 매핑 경고만 표시되어야 한다.

@@ -1,6 +1,6 @@
 # DBVC Setup Automation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Automate DBVC_ChangeLog and DDL trigger initialization from the SSMS VSIX UI using an embedded SQL script.
 
@@ -26,7 +26,7 @@
 - Consumes: `src/DBVC.Database/InstallTrigger.sql` (embedded resource)
 - Produces: `bool StateTracker.IsInitialized(string connectionString)`, `void StateTracker.InitializeDatabase(string connectionString)`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```csharp
 // Append to tests/DBVC.Core.Tests/StateTrackerTests.cs
@@ -51,12 +51,12 @@ public partial class StateTrackerTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 Expected: FAIL (missing methods)
 
-- [ ] **Step 3: Embed the SQL script**
+- [x] **Step 3: Embed the SQL script**
 
 ```xml
 <!-- In src/DBVC.Core/DBVC.Core.csproj, inside the existing <ItemGroup> or a new one -->
@@ -65,7 +65,7 @@ Expected: FAIL (missing methods)
   </ItemGroup>
 ```
 
-- [ ] **Step 4: Write minimal implementation**
+- [x] **Step 4: Write minimal implementation**
 
 ```csharp
 // In src/DBVC.Core/StateTracker.cs
@@ -113,12 +113,12 @@ public void InitializeDatabase(string connectionString)
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/DBVC.Core/DBVC.Core.csproj src/DBVC.Core/StateTracker.cs tests/DBVC.Core.Tests/StateTrackerTests.cs
@@ -137,7 +137,7 @@ git commit -m "feat: add IsInitialized and InitializeDatabase to StateTracker"
 - Consumes: `StateTracker.InitializeDatabase`
 - Produces: `bool ViewChangesViewModel.IsInitialized`, `ICommand ViewChangesViewModel.SetupCommand`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```csharp
 // Append to tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
@@ -157,12 +157,12 @@ public void SetupCommand_SetsIsInitializedToTrue()
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 Expected: FAIL (missing properties)
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```csharp
 // In src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs
@@ -197,12 +197,12 @@ private void Setup()
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
@@ -221,7 +221,7 @@ git commit -m "feat: add IsInitialized and SetupCommand to ViewChangesViewModel"
 - Consumes: `ViewChangesViewModel.IsInitialized`, `ViewChangesViewModel.SetupCommand`
 - Produces: Overlay grid in XAML.
 
-- [ ] **Step 1: Create Inverse Converter**
+- [x] **Step 1: Create Inverse Converter**
 
 ```csharp
 // src/DBVC.Vsix/UI/InverseBooleanToVisibilityConverter.cs
@@ -248,7 +248,7 @@ namespace DBVC.Vsix.UI
 }
 ```
 
-- [ ] **Step 2: Update XAML**
+- [x] **Step 2: Update XAML**
 
 ```xml
 <!-- In src/DBVC.Vsix/UI/ViewChangesControl.xaml -->
@@ -275,12 +275,12 @@ namespace DBVC.Vsix.UI
 </Grid>
 ```
 
-- [ ] **Step 3: Compile to verify**
+- [x] **Step 3: Compile to verify**
 
 Run: `dotnet build src/DBVC.Vsix`
 Expected: Build SUCCESS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/DBVC.Vsix/UI/ViewChangesControl.xaml src/DBVC.Vsix/UI/InverseBooleanToVisibilityConverter.cs

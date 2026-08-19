@@ -1,6 +1,6 @@
 # Object Type Column Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 'View Changes' 창의 변경 목록(Grid)에 '객체 유형' 컬럼을 추가하여 PROCEDURE, TABLE 등을 SP, Table 등 직관적인 텍스트로 보여준다.
 
@@ -26,7 +26,7 @@
 **Interfaces:**
 - Produces: `ChangeItemViewModel.ObjectType` (string?), `ChangeItemViewModel.ObjectTypeText` (string)
 
-- [ ] **Step 1: Write the failing tests for `ObjectTypeText`**
+- [x] **Step 1: Write the failing tests for `ObjectTypeText`**
 
 ```csharp
 // tests/DBVC.Vsix.Tests/ViewModels/ChangeItemViewModelTests.cs
@@ -58,12 +58,12 @@
         }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests/DBVC.Vsix.Tests.csproj --filter ChangeItemViewModelTests`
 Expected: 컴파일 에러 (`ObjectType`, `ObjectTypeText` 속성 없음) 또는 실패
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```csharp
 // src/DBVC.Vsix/ViewModels/ChangeItemViewModel.cs
@@ -91,12 +91,12 @@ Expected: 컴파일 에러 (`ObjectType`, `ObjectTypeText` 속성 없음) 또는
         }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests/DBVC.Vsix.Tests.csproj --filter ChangeItemViewModelTests`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/DBVC.Vsix/ViewModels/ChangeItemViewModel.cs tests/DBVC.Vsix.Tests/ViewModels/ChangeItemViewModelTests.cs
@@ -113,7 +113,7 @@ git commit -m "feat: add ObjectType and ObjectTypeText mapping to ChangeItemView
 **Interfaces:**
 - Consumes: `ChangeRecord.ObjectType`, `ChangeItemViewModel.ObjectType`, `ChangeItemViewModel.ObjectTypeText`
 
-- [ ] **Step 1: 뷰모델 갱신 로직 수정**
+- [x] **Step 1: 뷰모델 갱신 로직 수정**
 
 `src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs` 파일 안의 `ApplyRefreshOutcome` 메서드 내 `Changes.Add(new ChangeItemViewModel ...)` 객체 초기화 부분에 `ObjectType = record.ObjectType`를 추가.
 
@@ -128,7 +128,7 @@ git commit -m "feat: add ObjectType and ObjectTypeText mapping to ChangeItemView
                 });
 ```
 
-- [ ] **Step 2: UI (XAML) 수정**
+- [x] **Step 2: UI (XAML) 수정**
 
 `src/DBVC.Vsix/UI/ViewChangesControl.xaml` 내 `ListView`의 `GridView` 컬럼에 "객체 유형"을 추가한다. "객체" 컬럼 바로 아래(또는 다음)에 위치시킨다.
 
@@ -136,12 +136,12 @@ git commit -m "feat: add ObjectType and ObjectTypeText mapping to ChangeItemView
                         <GridViewColumn Header="객체 유형" DisplayMemberBinding="{Binding ObjectTypeText}"/>
 ```
 
-- [ ] **Step 3: 빌드하여 에러가 없는지 확인**
+- [x] **Step 3: 빌드하여 에러가 없는지 확인**
 
 Run: `dotnet build src/DBVC.Vsix/DBVC.Vsix.csproj`
 Expected: 빌드 성공
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs src/DBVC.Vsix/UI/ViewChangesControl.xaml

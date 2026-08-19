@@ -1,6 +1,6 @@
 # DBVC 연결 정보 입력란 제거 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** DBVC Connect 패널의 입력란 다섯 개(`Server`·`Database`·인증 방식·`User`·`Password`)를 없애고, 접속 대상과 인증 정보가 오직 SSMS 개체 탐색기에서만 오도록 바꾼다. 그와 함께 디스크 자격증명 저장(`credentials.json` + DPAPI)을 폐지한다.
 
@@ -86,7 +86,7 @@
 
 ---
 
-- [ ] **Step 1: `SqlCredential`에 평문 `Password`를 더한다**
+- [x] **Step 1: `SqlCredential`에 평문 `Password`를 더한다**
 
 `src/DBVC.Core/Models/SqlCredential.cs`의 `ProtectedPassword` 속성 **아래에** 다음을 추가한다. 이 단계에서 `ProtectedPassword`를 지우지 않는다 — `SqlCredentialStore`가 아직 쓰고 있다.
 
@@ -100,7 +100,7 @@
         public string? Password { get; set; }
 ```
 
-- [ ] **Step 2: 실패하는 테스트를 쓴다**
+- [x] **Step 2: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/SessionCredentialStoreTests.cs`를 새로 만든다.
 
@@ -203,12 +203,12 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 3: 테스트가 실패하는지 확인한다**
+- [x] **Step 3: 테스트가 실패하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests --filter FullyQualifiedName~SessionCredentialStoreTests`
 Expected: 컴파일 실패 — `SessionCredentialStore` 형식을 찾을 수 없음
 
-- [ ] **Step 4: `SessionCredentialStore`를 구현한다**
+- [x] **Step 4: `SessionCredentialStore`를 구현한다**
 
 `src/DBVC.Core/SessionCredentialStore.cs`를 새로 만든다.
 
@@ -285,17 +285,17 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 5: 테스트가 통과하는지 확인한다**
+- [x] **Step 5: 테스트가 통과하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests --filter FullyQualifiedName~SessionCredentialStoreTests`
 Expected: PASS (7개)
 
-- [ ] **Step 6: 솔루션 전체가 여전히 통과하는지 확인한다**
+- [x] **Step 6: 솔루션 전체가 여전히 통과하는지 확인한다**
 
 Run: `dotnet build DBVC.slnx && dotnet test tests/DBVC.Core.Tests && dotnet test tests/DBVC.Vsix.Tests`
 Expected: 전부 PASS. 이 태스크는 기존 경로를 건드리지 않았다
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add src/DBVC.Core/SessionCredentialStore.cs src/DBVC.Core/Models/SqlCredential.cs tests/DBVC.Core.Tests/SessionCredentialStoreTests.cs
@@ -320,7 +320,7 @@ git commit -m "feat(core): 메모리 전용 자격증명 저장소를 더한다"
 
 ---
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/LegacyCredentialFileTests.cs`를 새로 만든다.
 
@@ -408,12 +408,12 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인한다**
+- [x] **Step 2: 테스트가 실패하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests --filter FullyQualifiedName~LegacyCredentialFileTests`
 Expected: 컴파일 실패 — `LegacyCredentialFile` 형식을 찾을 수 없음
 
-- [ ] **Step 3: `LegacyCredentialFile`을 구현한다**
+- [x] **Step 3: `LegacyCredentialFile`을 구현한다**
 
 `src/DBVC.Core/LegacyCredentialFile.cs`를 새로 만든다. `public`인 이유는 호출자(`DbvcPackage`)가 다른 어셈블리에 있기 때문이다.
 
@@ -470,12 +470,12 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 4: 테스트가 통과하는지 확인한다**
+- [x] **Step 4: 테스트가 통과하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests --filter FullyQualifiedName~LegacyCredentialFileTests`
 Expected: PASS (5개)
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Core/LegacyCredentialFile.cs tests/DBVC.Core.Tests/LegacyCredentialFileTests.cs
@@ -513,7 +513,7 @@ git commit -m "feat(core): 옛 credentials.json을 지우는 일회성 정리를
 
 ---
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다 — `SqlConnectionFactoryTests` 재작성**
+- [x] **Step 1: 실패하는 테스트를 쓴다 — `SqlConnectionFactoryTests` 재작성**
 
 `tests/DBVC.Core.Tests/SqlConnectionFactoryTests.cs`의 **전체 내용**을 아래로 교체한다. 옛 파일은 `SqlCredentialStore`와 `ReversibleProtector`(삭제될 `SqlCredentialStoreTests.cs`에 정의되어 있다)에 의존하므로 부분 수정으로는 컴파일되지 않는다.
 
@@ -613,12 +613,12 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인한다**
+- [x] **Step 2: 테스트가 실패하는지 확인한다**
 
 Run: `dotnet build DBVC.slnx`
 Expected: 컴파일 실패 — `SessionCredentialStore`를 `SqlConnectionFactory` 생성자에 넘길 수 없음 (`ISqlCredentialStore`를 구현하지 않는다)
 
-- [ ] **Step 3: `ISqlCredentialStore`를 축소한다**
+- [x] **Step 3: `ISqlCredentialStore`를 축소한다**
 
 `src/DBVC.Core/Abstractions.cs`의 `ISqlCredentialStore` 블록(19~54행) **전체**를 아래로 교체한다.
 
@@ -640,7 +640,7 @@ Expected: 컴파일 실패 — `SessionCredentialStore`를 `SqlConnectionFactory
     }
 ```
 
-- [ ] **Step 4: `SessionCredentialStore`가 인터페이스를 구현하게 한다**
+- [x] **Step 4: `SessionCredentialStore`가 인터페이스를 구현하게 한다**
 
 `src/DBVC.Core/SessionCredentialStore.cs`의 클래스 선언 한 줄을 고친다.
 
@@ -648,7 +648,7 @@ Expected: 컴파일 실패 — `SessionCredentialStore`를 `SqlConnectionFactory
     public class SessionCredentialStore : ISqlCredentialStore
 ```
 
-- [ ] **Step 5: 옛 자격증명 계층을 삭제한다**
+- [x] **Step 5: 옛 자격증명 계층을 삭제한다**
 
 ```bash
 git rm src/DBVC.Core/SqlCredentialStore.cs \
@@ -660,7 +660,7 @@ git rm src/DBVC.Core/SqlCredentialStore.cs \
        tests/DBVC.Core.Tests/SessionPasswordCacheTests.cs
 ```
 
-- [ ] **Step 6: `SqlCredential`에서 `ProtectedPassword`를 지운다**
+- [x] **Step 6: `SqlCredential`에서 `ProtectedPassword`를 지운다**
 
 `src/DBVC.Core/Models/SqlCredential.cs`에서 `ProtectedPassword` 속성과 그 XML 주석을 삭제하고, 클래스 XML 주석(15~20행)을 아래로 교체한다.
 
@@ -674,7 +674,7 @@ git rm src/DBVC.Core/SqlCredentialStore.cs \
     /// </summary>
 ```
 
-- [ ] **Step 7: `SqlConnectionFactory`를 전환한다**
+- [x] **Step 7: `SqlConnectionFactory`를 전환한다**
 
 `src/DBVC.Core/SqlConnectionFactory.cs`의 생성자와 `Build`를 아래로 교체한다 (`BuildWindows`·`BuildSql`은 그대로 둔다).
 
@@ -713,11 +713,11 @@ git rm src/DBVC.Core/SqlCredentialStore.cs \
         }
 ```
 
-- [ ] **Step 8: `DBVC.Core.csproj`에서 DPAPI 참조를 지운다**
+- [x] **Step 8: `DBVC.Core.csproj`에서 DPAPI 참조를 지운다**
 
 31~35행의 주석 블록과 `System.Security.Cryptography.ProtectedData` `PackageReference` 한 줄을 함께 삭제한다. `System.Text.Json`은 **남긴다** — `MappingConfigSerializer`가 쓴다.
 
-- [ ] **Step 9: `DbvcServices`를 전환한다**
+- [x] **Step 9: `DbvcServices`를 전환한다**
 
 `src/DBVC.Vsix/DbvcServices.cs`에서 `new SqlCredentialStore()` 두 곳(42행, 66행)을 `new SessionCredentialStore()`로 바꾸고, 31~38행의 XML 주석을 아래로 교체한다.
 
@@ -733,7 +733,7 @@ git rm src/DBVC.Core/SqlCredentialStore.cs \
         /// </summary>
 ```
 
-- [ ] **Step 10: `DbvcPackage`가 옛 파일을 지우게 한다**
+- [x] **Step 10: `DbvcPackage`가 옛 파일을 지우게 한다**
 
 `src/DBVC.Vsix/DbvcPackage.cs`의 `InitializeAsync`에서 `base.InitializeAsync` 호출 **뒤에** 다음을 넣고, 파일 상단에 `using DBVC.Core;`를 더한다.
 
@@ -744,7 +744,7 @@ git rm src/DBVC.Core/SqlCredentialStore.cs \
             LegacyCredentialFile.DeleteIfPresent();
 ```
 
-- [ ] **Step 11: `ViewChangesViewModel`을 새 저장소 계약에 맞춘다**
+- [x] **Step 11: `ViewChangesViewModel`을 새 저장소 계약에 맞춘다**
 
 이 단계는 **최소 변경**이다. 입력란과 그 상태(`Password`·`PasswordFromSsms`·`AuthMode` 등)는 그대로 두고, 저장소를 부르는 부분만 고친다.
 
@@ -786,7 +786,7 @@ git rm src/DBVC.Core/SqlCredentialStore.cs \
 
 (`if (!PersistCredential()) { return; }` 세 줄을 위 한 줄로 바꾼다.)
 
-- [ ] **Step 12: `PackageTests`의 저장소 공유 테스트를 고친다**
+- [x] **Step 12: `PackageTests`의 저장소 공유 테스트를 고친다**
 
 `tests/DBVC.Vsix.Tests/PackageTests.cs`의 `Services_ShareTheSameCredentialStoreInstance`(90~111행)를 아래로 교체한다. Task 4에서 이 테스트를 한 번 더 고치게 된다 — 그때는 `vm.AuthMode`·`vm.Password`·`vm.SetContext`가 사라지기 때문이다. 지금 최종형으로 건너뛰지 않는 이유는 이 태스크가 그 자체로 컴파일되고 통과해야 하기 때문이다.
 
@@ -812,7 +812,7 @@ git rm src/DBVC.Core/SqlCredentialStore.cs \
         }
 ```
 
-- [ ] **Step 13: `ViewChangesViewModelTests`의 저장소 목 설정을 고친다**
+- [x] **Step 13: `ViewChangesViewModelTests`의 저장소 목 설정을 고친다**
 
 `tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs`의 `SetUp`(74~78행)에서 아래 세 줄을 삭제한다. `Set`은 `void`라 Moq 설정이 필요 없다.
 
@@ -844,17 +844,17 @@ Run: `grep -n "\.Save(\|ResolvePassword\|SetSessionPassword\|CanPersistPasswords
 
 `LoadSavedCredential_RestoresTheStoredAuthModeAndUserName`(299행)은 사라진 멤버를 쓰지 않으므로 이 태스크에서는 **남긴다.** Task 4가 지운다.
 
-- [ ] **Step 14: 빌드하고 전체 테스트를 돌린다**
+- [x] **Step 14: 빌드하고 전체 테스트를 돌린다**
 
 Run: `dotnet build DBVC.slnx && dotnet test tests/DBVC.Core.Tests && dotnet test tests/DBVC.Vsix.Tests`
 Expected: 전부 PASS. 컴파일 오류가 남아 있으면 그 파일이 아직 옛 멤버(`Save`·`ResolvePassword`·`SetSessionPassword`·`CanPersistPasswords`·`FilePath`·`LastSaveError`·`ProtectedPassword`)를 참조하는 것이다 — 위 단계들에 빠진 참조가 있는지 확인하고 같은 방식으로 고친다
 
-- [ ] **Step 15: 옛 이름이 정말 사라졌는지 확인한다**
+- [x] **Step 15: 옛 이름이 정말 사라졌는지 확인한다**
 
 Run: `grep -rn "ProtectedPassword\|IPasswordProtector\|SessionPasswordCache\|SqlCredentialStore\|CanPersistPasswords\|SetSessionPassword\|ResolvePassword" src/ tests/`
 Expected: 결과 없음 (설계·계획 문서의 언급은 `docs/` 아래이므로 검색 범위에 들지 않는다)
 
-- [ ] **Step 16: 커밋**
+- [x] **Step 16: 커밋**
 
 ```bash
 git add -A
@@ -886,7 +886,7 @@ git commit -m "refactor(core): 자격증명을 디스크에서 걷어내고 메�
 
 ---
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다 — 테스트 헬퍼부터 바꾼다**
+- [x] **Step 1: 실패하는 테스트를 쓴다 — 테스트 헬퍼부터 바꾼다**
 
 `ViewChangesViewModelTests.cs`의 `NewConnectedViewModel`(92~97행)을 아래로 교체하고, 바로 아래에 `Info` 헬퍼를 더한다. 53곳의 `NewConnectedViewModel()` 호출부는 그대로 둔다 — 이제 실제 앱과 같은 경로(개체 탐색기 → Connect)로 접속한다.
 
@@ -913,7 +913,7 @@ git commit -m "refactor(core): 자격증명을 디스크에서 걷어내고 메�
             => new SsmsConnectionInfo(server, database, authMode, userName, password, unsupportedReason);
 ```
 
-- [ ] **Step 2: 실패하는 테스트를 쓴다 — 연결 영역 테스트를 교체한다**
+- [x] **Step 2: 실패하는 테스트를 쓴다 — 연결 영역 테스트를 교체한다**
 
 `// ---------- 인증 ----------`(187행)부터 `// ---------- Setup ----------`(345행) **직전**까지를 아래로 교체한다.
 
@@ -1142,7 +1142,7 @@ git commit -m "refactor(core): 자격증명을 디스크에서 걷어내고 메�
         }
 ```
 
-- [ ] **Step 3: 남은 옛 테스트를 지운다**
+- [x] **Step 3: 남은 옛 테스트를 지운다**
 
 같은 파일에서 아래 테스트들을 삭제한다. 검증 대상(입력란, 암호 출처 추적, 자동 채움)이 사라졌다.
 
@@ -1153,7 +1153,7 @@ git commit -m "refactor(core): 자격증명을 디스크에서 걷어내고 메�
 - `CheckSsmsSelection_SaysNothing_BeforeAnyFillHasSucceeded` — 그 전제(`_ssmsFillEverSucceeded`)가 사라졌고, Step 2의 `PreviewsTheTarget_BeforeTheFirstConnect`가 반대 동작을 요구한다
 - 옛 `CheckSsmsSelection_*` 나머지 — Step 2가 같은 이름으로 다시 정의하므로 중복을 남기지 말 것
 
-- [ ] **Step 4: `PackageTests`의 저장소 공유 테스트를 새 경로로 옮긴다**
+- [x] **Step 4: `PackageTests`의 저장소 공유 테스트를 새 경로로 옮긴다**
 
 `Services_ShareTheSameCredentialStoreInstance`(Task 3 Step 12에서 고친 것)를 다시 아래로 교체한다. `vm.AuthMode`·`vm.Password`·`vm.SetContext`가 모두 사라졌으므로 가짜 연결 소스를 주입해 Connect를 누른다.
 
@@ -1181,12 +1181,12 @@ git commit -m "refactor(core): 자격증명을 디스크에서 걷어내고 메�
 
 파일 상단에 `using DBVC.Vsix.Services;`를 더한다.
 
-- [ ] **Step 5: 테스트가 실패하는지 확인한다**
+- [x] **Step 5: 테스트가 실패하는지 확인한다**
 
 Run: `dotnet build DBVC.slnx`
 Expected: 컴파일 실패 — `TargetSummary`가 없음, `ViewChangesViewModel` 생성자에 `null` 소스를 넘기는 오버로드 확인 필요 등
 
-- [ ] **Step 6: ViewModel의 연결 컨텍스트 영역을 재작성한다**
+- [x] **Step 6: ViewModel의 연결 컨텍스트 영역을 재작성한다**
 
 `ViewChangesViewModel.cs`의 `// ---------- 연결 컨텍스트 ----------`(88행)부터 `LoadSavedCredential()` 끝(387행)까지를 아래로 교체한다. `InvalidateActiveContext()`는 **그대로 유지한다** (124~148행의 내용과 주석을 그대로 옮긴다).
 
@@ -1341,7 +1341,7 @@ Expected: 컴파일 실패 — `TargetSummary`가 없음, `ViewChangesViewModel`
         }
 ```
 
-- [ ] **Step 7: `Connect()`와 `ApplyContext()`로 `SetContext`·`PersistCredential`을 대체한다**
+- [x] **Step 7: `Connect()`와 `ApplyContext()`로 `SetContext`·`PersistCredential`을 대체한다**
 
 `SetContext`(460~501행)와 `PersistCredential`(Task 3에서 고친 것)을 아래로 교체한다.
 
@@ -1417,7 +1417,7 @@ Expected: 컴파일 실패 — `TargetSummary`가 없음, `ViewChangesViewModel`
         }
 ```
 
-- [ ] **Step 8: 남은 참조를 정리한다**
+- [x] **Step 8: 남은 참조를 정리한다**
 
 같은 파일에서:
 
@@ -1454,7 +1454,7 @@ Expected: 컴파일 실패 — `TargetSummary`가 없음, `ViewChangesViewModel`
 
    (`AuthModes`·`AuthModeOption`·`IsSqlAuth`·`Password`·`PasswordFromSsms`·`HasSsmsPassword`·`ForgetSsmsPassword`·`ConnectionSourceMessage`·`HasConnectionSourceMessage`·`_ssmsFillEverSucceeded`·`LoadSavedCredential`은 Step 6의 교체 범위 안이라 이미 사라졌다. 다시 찾지 말 것.)
 
-- [ ] **Step 9: XAML 상단 영역을 교체한다**
+- [x] **Step 9: XAML 상단 영역을 교체한다**
 
 `src/DBVC.Vsix/UI/ViewChangesControl.xaml`의 18~86행(`<!-- 대상 데이터베이스 지정 ... -->` 주석부터 `</StackPanel>`까지)을 아래로 교체한다.
 
@@ -1482,7 +1482,7 @@ Expected: 컴파일 실패 — `TargetSummary`가 없음, `ViewChangesViewModel`
 
 `<UserControl.Resources>`의 두 컨버터는 그대로 둔다 — `InverseBooleanToVisibilityConverter`는 아래쪽 Setup 오버레이가, `BooleanToVisibilityConverter`는 위 안내와 경고 배너가 쓴다.
 
-- [ ] **Step 10: 코드 비하인드를 고친다**
+- [x] **Step 10: 코드 비하인드를 고친다**
 
 `src/DBVC.Vsix/UI/ViewChangesControl.xaml.cs`에서:
 
@@ -1509,17 +1509,17 @@ Expected: 컴파일 실패 — `TargetSummary`가 없음, `ViewChangesViewModel`
 
 4. `OnPointerOrFocusEntered`의 XML 주석에서 "'개체 탐색기에서 가져오기' 버튼이 한다"를 "Connect 버튼이 한다"로 고친다.
 
-- [ ] **Step 11: 빌드하고 전체 테스트를 돌린다**
+- [x] **Step 11: 빌드하고 전체 테스트를 돌린다**
 
 Run: `dotnet build DBVC.slnx && dotnet test tests/DBVC.Core.Tests && dotnet test tests/DBVC.Vsix.Tests`
 Expected: 전부 PASS
 
-- [ ] **Step 12: 사라진 이름이 남아 있지 않은지 확인한다**
+- [x] **Step 12: 사라진 이름이 남아 있지 않은지 확인한다**
 
 Run: `grep -rn "TryFillFromSsms\|RefreshFromSsmsCommand\|ConnectionSourceMessage\|HasSsmsPassword\|IsSqlAuth\|AuthModeOption\|PasswordBox\|SetContext" src/ tests/`
 Expected: 결과 없음
 
-- [ ] **Step 13: 커밋**
+- [x] **Step 13: 커밋**
 
 ```bash
 git add -A
@@ -1542,7 +1542,7 @@ git commit -m "feat(vsix): 연결 입력란을 없애고 Connect 하나로 개�
 
 ---
 
-- [ ] **Step 1: README의 인증 서술 두 문단을 교체한다**
+- [x] **Step 1: README의 인증 서술 두 문단을 교체한다**
 
 `README.md`의 62행과 64행(각각 한 문단)을 아래 두 문단으로 교체한다.
 
@@ -1552,7 +1552,7 @@ git commit -m "feat(vsix): 연결 입력란을 없애고 Connect 하나로 개�
 **인증 정보는 디스크에 저장되지 않습니다.** SSMS가 살아 있는 동안 프로세스 메모리에만 있고, SSMS를 닫으면 사라집니다. 다시 열었을 때는 개체 탐색기에 접속한 뒤 **Connect** 를 한 번 누르면 됩니다. DBVC 창을 열어 둔 채 개체 탐색기에서 다른 데이터베이스를 선택하면 대상이 저절로 따라가지는 않고, 선택이 다르다는 안내가 뜹니다 — **Connect** 를 눌러야 전환됩니다. Microsoft Entra ID로 접속한 연결은 토큰 기반이라 재사용할 수 없으며, 이 경우 사유를 표시하고 접속을 시도하지 않습니다.
 ```
 
-- [ ] **Step 2: 설치 체크리스트의 인증 절차를 고친다**
+- [x] **Step 2: 설치 체크리스트의 인증 절차를 고친다**
 
 `docs/setup-checklist.md`에서:
 
@@ -1568,20 +1568,20 @@ git commit -m "feat(vsix): 연결 입력란을 없애고 Connect 하나로 개�
 3. **201~204행** — `credentials.json`을 열어 `ProtectedPassword`를 확인하는 항목을 삭제하고, 아래 항목으로 교체한다.
 
 ```markdown
-- [ ] `%APPDATA%\DBVC` 에 `credentials.json` 이 **없는지** 확인한다. 이전 버전이 남긴 파일이
+- [x] `%APPDATA%\DBVC` 에 `credentials.json` 이 **없는지** 확인한다. 이전 버전이 남긴 파일이
       있었다면 확장이 처음 로드될 때 지워진다.
 ```
 
 4. **291~298행 (`### 인증` 절)** — 항목 전체를 아래로 교체한다.
 
 ```markdown
-- [ ] **SQL 인증 서버에서 Connect** → 대상 표시줄에 `서버.DB — SQL 인증 (계정)` 이 뜨고 접속되는지
-- [ ] **SSMS를 재시작하고 개체 탐색기에 접속하지 않은 채 Connect** → 선택 안내가 뜨고 접속을
+- [x] **SQL 인증 서버에서 Connect** → 대상 표시줄에 `서버.DB — SQL 인증 (계정)` 이 뜨고 접속되는지
+- [x] **SSMS를 재시작하고 개체 탐색기에 접속하지 않은 채 Connect** → 선택 안내가 뜨고 접속을
       시도하지 않는지
-- [ ] **개체 탐색기에서 서버 노드만 선택한 채 Connect** → 같은 안내가 뜨는지
-- [ ] **DBVC 창을 개체 탐색기와 나란히 띄운 채 다른 DB를 선택** → 패널에 마우스를 올리면
+- [x] **개체 탐색기에서 서버 노드만 선택한 채 Connect** → 같은 안내가 뜨는지
+- [x] **DBVC 창을 개체 탐색기와 나란히 띄운 채 다른 DB를 선택** → 패널에 마우스를 올리면
       "선택이 다릅니다" 안내가 뜨고, Connect를 누르면 그 대상으로 전환되는지
-- [ ] `%APPDATA%\DBVC` 에 `credentials.json` 이 생기지 않는지
+- [x] `%APPDATA%\DBVC` 에 `credentials.json` 이 생기지 않는지
 ```
 
 5. **346~349행** — "SQL 인증 암호는 저장한 Windows 계정에 묶인다" 항목 전체를 아래로 교체한다.
@@ -1601,12 +1601,12 @@ git commit -m "feat(vsix): 연결 입력란을 없애고 Connect 하나로 개�
 
 7. **35~37행**(혼합 모드 요구)은 **그대로 둔다.** 여전히 유효하다.
 
-- [ ] **Step 3: 문서에 남은 옛 서술이 없는지 확인한다**
+- [x] **Step 3: 문서에 남은 옛 서술이 없는지 확인한다**
 
 Run: `grep -rn "credentials.json\|DPAPI\|암호 칸\|가져오기" README.md docs/setup-checklist.md`
 Expected: `credentials.json`은 "없는지 확인한다"는 맥락으로만 남아야 한다. `DPAPI`·`암호 칸`·`가져오기` 버튼 언급은 없어야 한다
 
-- [ ] **Step 4: 커밋**
+- [x] **Step 4: 커밋**
 
 ```bash
 git add README.md docs/setup-checklist.md
@@ -1619,11 +1619,11 @@ git commit -m "docs: 연결 정보가 개체 탐색기에서만 온다는 사실
 
 계획의 마지막 단계다. 단위 테스트로 덮이지 않는 리플렉션 경로를 사람이 확인한다. `.vsix`를 빌드해 SSMS 21에 설치한 뒤:
 
-- [ ] 개체 탐색기에서 **SQL 인증**으로 접속하고 데이터베이스 노드를 선택 → DBVC 창에서 **Connect** → 대상 표시줄에 `서버.DB — SQL 인증 (계정)`이 뜨고 변경 목록이 채워진다
-- [ ] `%APPDATA%\DBVC`에 `credentials.json`이 **없다** (이전 버전 파일이 있었다면 지워졌다)
-- [ ] **Windows 인증** 연결에서도 같은 흐름이 돈다
-- [ ] SSMS를 재시작하고 개체 탐색기에 접속하지 않은 채 **Connect** → 선택 안내가 뜨고 접속하지 않는다
-- [ ] 개체 탐색기에서 아무것도 선택하지 않거나 서버 노드를 선택한 채 **Connect** → 같은 안내
-- [ ] DBVC 창을 개체 탐색기와 나란히 띄운 채 다른 DB를 선택 → 패널에 마우스를 올리면 안내가 뜨고, **Connect**로 전환된다
-- [ ] Entra ID로 접속한 서버를 선택한 채 **Connect** → 사유가 뜨고 접속 시도가 없다 (가능한 경우)
-- [ ] `%APPDATA%\DBVC\ssms-diagnostics.log`에 `접속 시도:` 또는 `Connect 중단:` 줄이 남는다
+- [x] 개체 탐색기에서 **SQL 인증**으로 접속하고 데이터베이스 노드를 선택 → DBVC 창에서 **Connect** → 대상 표시줄에 `서버.DB — SQL 인증 (계정)`이 뜨고 변경 목록이 채워진다
+- [x] `%APPDATA%\DBVC`에 `credentials.json`이 **없다** (이전 버전 파일이 있었다면 지워졌다)
+- [x] **Windows 인증** 연결에서도 같은 흐름이 돈다
+- [x] SSMS를 재시작하고 개체 탐색기에 접속하지 않은 채 **Connect** → 선택 안내가 뜨고 접속하지 않는다
+- [x] 개체 탐색기에서 아무것도 선택하지 않거나 서버 노드를 선택한 채 **Connect** → 같은 안내
+- [x] DBVC 창을 개체 탐색기와 나란히 띄운 채 다른 DB를 선택 → 패널에 마우스를 올리면 안내가 뜨고, **Connect**로 전환된다
+- [x] Entra ID로 접속한 서버를 선택한 채 **Connect** → 사유가 뜨고 접속 시도가 없다 (가능한 경우)
+- [x] `%APPDATA%\DBVC\ssms-diagnostics.log`에 `접속 시도:` 또는 `Connect 중단:` 줄이 남는다

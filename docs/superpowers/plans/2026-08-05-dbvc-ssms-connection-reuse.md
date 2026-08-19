@@ -1,6 +1,6 @@
 # SSMS 연결 재사용 구현 계획
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** SSMS 개체 탐색기에서 선택한 데이터베이스의 연결 정보를 DBVC 도구 창이 자동으로 가져오되, 가져온 암호는 디스크가 아닌 프로세스 메모리에만 둔다.
 
@@ -64,7 +64,7 @@
   - `string? TryGet(string serverName, string databaseName)`
   - `bool Remove(string serverName, string databaseName)`
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/SessionPasswordCacheTests.cs`:
 
@@ -152,12 +152,12 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests --filter SessionPasswordCacheTests`
 Expected: 컴파일 실패 — `SessionPasswordCache`를 찾을 수 없음
 
-- [ ] **Step 3: 최소 구현을 쓴다**
+- [x] **Step 3: 최소 구현을 쓴다**
 
 `src/DBVC.Core/SessionPasswordCache.cs`:
 
@@ -233,12 +233,12 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 4: 통과를 확인한다**
+- [x] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests --filter SessionPasswordCacheTests`
 Expected: PASS (7개)
 
-- [ ] **Step 5: 커밋한다**
+- [x] **Step 5: 커밋한다**
 
 ```bash
 git add src/DBVC.Core/SessionPasswordCache.cs tests/DBVC.Core.Tests/SessionPasswordCacheTests.cs
@@ -262,7 +262,7 @@ git commit -m "feat(core): 프로세스 수명의 세션 암호 캐시를 추가
   - `SqlCredentialStore(string filePath, IPasswordProtector? protector = null, SessionPasswordCache? sessionPasswords = null)`
   - `ResolvePassword`가 세션 암호를 디스크 암호보다 먼저 본다
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/SqlCredentialStoreTests.cs`의 `Remove_DeletesTheEntry` 위(제거 섹션 앞)에 새 섹션으로 추가한다:
 
@@ -384,12 +384,12 @@ git commit -m "feat(core): 프로세스 수명의 세션 암호 캐시를 추가
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests --filter "SqlCredentialStoreTests|SqlConnectionFactoryTests"`
 Expected: 컴파일 실패 — `SetSessionPassword`가 없음
 
-- [ ] **Step 3: 인터페이스에 멤버를 더한다**
+- [x] **Step 3: 인터페이스에 멤버를 더한다**
 
 `src/DBVC.Core/Abstractions.cs`의 `ISqlCredentialStore` 안, `ResolvePassword` 아래에 추가:
 
@@ -402,7 +402,7 @@ Expected: 컴파일 실패 — `SetSessionPassword`가 없음
         void SetSessionPassword(string serverName, string databaseName, string? plainPassword);
 ```
 
-- [ ] **Step 4: `SqlCredentialStore`를 고친다**
+- [x] **Step 4: `SqlCredentialStore`를 고친다**
 
 필드와 생성자 (`_protector` 선언 아래, 그리고 기존 생성자 교체):
 
@@ -488,7 +488,7 @@ Expected: 컴파일 실패 — `SetSessionPassword`가 없음
         }
 ```
 
-- [ ] **Step 5: `SqlConnectionFactory`의 안내 문구를 보강한다**
+- [x] **Step 5: `SqlConnectionFactory`의 안내 문구를 보강한다**
 
 `src/DBVC.Core/SqlConnectionFactory.cs`의 `throw new SqlCredentialException(...)` 문자열을 교체:
 
@@ -501,12 +501,12 @@ Expected: 컴파일 실패 — `SetSessionPassword`가 없음
                     "그 연결의 인증 정보를 그대로 가져옵니다 — 이 방식으로 가져온 암호는 디스크에 저장되지 않습니다.");
 ```
 
-- [ ] **Step 6: 통과를 확인한다**
+- [x] **Step 6: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests`
 Expected: 전부 PASS. 기존 테스트 중 깨지는 것이 없어야 한다 — 세션 암호가 없을 때의 동작은 이전과 동일하다.
 
-- [ ] **Step 7: 커밋한다**
+- [x] **Step 7: 커밋한다**
 
 ```bash
 git add src/DBVC.Core/Abstractions.cs src/DBVC.Core/SqlCredentialStore.cs src/DBVC.Core/SqlConnectionFactory.cs tests/DBVC.Core.Tests/SqlCredentialStoreTests.cs tests/DBVC.Core.Tests/SqlConnectionFactoryTests.cs
@@ -529,7 +529,7 @@ git commit -m "feat(core): 세션 암호를 디스크 암호보다 먼저 사용
 `Server[@Name='LOCALHOST\SQL2022']/Database[@Name='AdventureWorks']/Table[@Name='Person'and@Schema='Person']`
 SMO는 값 안의 작은따옴표를 두 번 반복(`''`)으로 이스케이프한다.
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Vsix.Tests/Services/SsmsUrnTests.cs`:
 
@@ -598,12 +598,12 @@ namespace DBVC.Vsix.Tests.Services
 }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests --filter SsmsUrnTests`
 Expected: 컴파일 실패 — `SsmsUrn`을 찾을 수 없음
 
-- [ ] **Step 3: 최소 구현을 쓴다**
+- [x] **Step 3: 최소 구현을 쓴다**
 
 `src/DBVC.Vsix/Services/SsmsUrn.cs`:
 
@@ -672,12 +672,12 @@ namespace DBVC.Vsix.Services
 }
 ```
 
-- [ ] **Step 4: 통과를 확인한다**
+- [x] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests --filter SsmsUrnTests`
 Expected: PASS (7개)
 
-- [ ] **Step 5: 커밋한다**
+- [x] **Step 5: 커밋한다**
 
 ```bash
 git add src/DBVC.Vsix/Services/SsmsUrn.cs tests/DBVC.Vsix.Tests/Services/SsmsUrnTests.cs
@@ -704,7 +704,7 @@ git commit -m "feat(vsix): SMO URN에서 데이터베이스 이름을 뽑는 파
   - `bool ViewChangesViewModel.TryFillFromSsms()`, `ICommand RefreshFromSsmsCommand`,
     `string? ConnectionSourceMessage`, `bool HasConnectionSourceMessage` — Task 6의 UI가 쓴다
 
-- [ ] **Step 1: DTO와 인터페이스를 만든다**
+- [x] **Step 1: DTO와 인터페이스를 만든다**
 
 이 파일에는 로직이 없어 단독 테스트가 성립하지 않는다. Step 2의 테스트가 컴파일되려면 먼저 있어야 한다.
 
@@ -768,7 +768,7 @@ namespace DBVC.Vsix.Services
 }
 ```
 
-- [ ] **Step 2: 실패하는 테스트를 쓴다**
+- [x] **Step 2: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs`를 세 군데 고친다.
 
@@ -933,12 +933,12 @@ namespace DBVC.Vsix.Services
         }
 ```
 
-- [ ] **Step 3: 실패를 확인한다**
+- [x] **Step 3: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests --filter ViewChangesViewModelTests`
 Expected: 컴파일 실패 — `TryFillFromSsms`·`ConnectionSourceMessage`가 없음
 
-- [ ] **Step 4: ViewModel을 고친다**
+- [x] **Step 4: ViewModel을 고친다**
 
 (a) `using DBVC.Vsix.Services;`는 이미 있다. 필드 선언(`_credentialStore` 아래)에 추가:
 
@@ -1121,12 +1121,12 @@ Expected: 컴파일 실패 — `TryFillFromSsms`·`ConnectionSourceMessage`가 �
         public ICommand RefreshFromSsmsCommand { get; }
 ```
 
-- [ ] **Step 5: 통과를 확인한다**
+- [x] **Step 5: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests`
 Expected: 전부 PASS
 
-- [ ] **Step 6: 커밋한다**
+- [x] **Step 6: 커밋한다**
 
 ```bash
 git add src/DBVC.Vsix/Services/SsmsConnectionInfo.cs src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
@@ -1158,7 +1158,7 @@ git commit -m "feat(vsix): SSMS 연결을 입력란에 채우고 그 암호는 �
 `UseIntegratedSecurity`를 노출하고, 파생 타입에만 있는 `Authentication`은 `ActiveDirectory`로 시작하는
 값이면 Entra ID다.
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 SSMS 프로세스 밖에서 검증할 수 있는 것은 "셸이 없을 때 조용히 실패한다" 하나뿐이다. 그것이 이
 클래스에서 가장 중요한 계약이므로 테스트로 고정한다.
@@ -1205,12 +1205,12 @@ namespace DBVC.Vsix.Tests.Services
 }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests --filter ObjectExplorerConnectionSourceTests`
 Expected: 컴파일 실패 — `ObjectExplorerConnectionSource`를 찾을 수 없음
 
-- [ ] **Step 3: 어댑터를 구현한다**
+- [x] **Step 3: 어댑터를 구현한다**
 
 `src/DBVC.Vsix/Services/ObjectExplorerConnectionSource.cs`:
 
@@ -1385,7 +1385,7 @@ namespace DBVC.Vsix.Services
 }
 ```
 
-- [ ] **Step 4: `DbvcServices`에 배선한다**
+- [x] **Step 4: `DbvcServices`에 배선한다**
 
 `src/DBVC.Vsix/DbvcServices.cs`의 `CreateViewChangesViewModel`을 교체:
 
@@ -1405,12 +1405,12 @@ namespace DBVC.Vsix.Services
         }
 ```
 
-- [ ] **Step 5: 통과를 확인한다**
+- [x] **Step 5: 통과를 확인한다**
 
 Run: `dotnet build DBVC.slnx && dotnet test tests/DBVC.Vsix.Tests`
 Expected: 전부 PASS
 
-- [ ] **Step 6: 커밋한다**
+- [x] **Step 6: 커밋한다**
 
 ```bash
 git add src/DBVC.Vsix/Services/ObjectExplorerConnectionSource.cs src/DBVC.Vsix/DbvcServices.cs tests/DBVC.Vsix.Tests/Services/ObjectExplorerConnectionSourceTests.cs
@@ -1430,7 +1430,7 @@ git commit -m "feat(vsix): 개체 탐색기 연결을 리플렉션으로 읽는 
 - Consumes: Task 4의 `RefreshFromSsmsCommand`, `ConnectionSourceMessage`, `HasConnectionSourceMessage`, `TryFillFromSsms()`
 - Produces: 없음 (마지막 작업)
 
-- [ ] **Step 1: XAML에 버튼과 안내 줄을 넣는다**
+- [x] **Step 1: XAML에 버튼과 안내 줄을 넣는다**
 
 `Grid.Row="0"`의 `WrapPanel`을 `StackPanel`로 감싼다. 행을 추가하면 아래 두 행의 `Grid.Row`를
 전부 밀어야 하므로 그렇게 하지 않는다. 22번째 줄의 `<WrapPanel Grid.Row="0" ...>`를 다음으로 바꾼다:
@@ -1464,7 +1464,7 @@ git commit -m "feat(vsix): 개체 탐색기 연결을 리플렉션으로 읽는 
         </StackPanel>
 ```
 
-- [ ] **Step 2: 코드 비하인드에 가시성 트리거를 건다**
+- [x] **Step 2: 코드 비하인드에 가시성 트리거를 건다**
 
 `src/DBVC.Vsix/UI/ViewChangesControl.xaml.cs` 생성자의 `_viewModel.SelectionChanged += OnSelectionChanged;` 아래에 추가:
 
@@ -1497,12 +1497,12 @@ git commit -m "feat(vsix): 개체 탐색기 연결을 리플렉션으로 읽는 
         }
 ```
 
-- [ ] **Step 3: 빌드와 전체 테스트를 확인한다**
+- [x] **Step 3: 빌드와 전체 테스트를 확인한다**
 
 Run: `dotnet build DBVC.slnx && dotnet test tests/DBVC.Core.Tests && dotnet test tests/DBVC.Vsix.Tests`
 Expected: 빌드 성공, 전부 PASS
 
-- [ ] **Step 4: README를 갱신한다**
+- [x] **Step 4: README를 갱신한다**
 
 `README.md`의 62번째 줄(SQL 인증 설명 문단) **바로 뒤**에 새 문단을 넣는다:
 
@@ -1510,14 +1510,14 @@ Expected: 빌드 성공, 전부 PASS
 **SSMS 개체 탐색기의 연결을 그대로 가져올 수 있습니다.** 개체 탐색기에서 데이터베이스(또는 그 하위 개체)를 선택한 상태로 DBVC 창을 열거나 **SSMS 연결** 버튼을 누르면 서버·데이터베이스·인증 방식·계정이 채워지고, SSMS가 들고 있는 SQL 인증 암호까지 함께 실립니다. 이렇게 가져온 암호는 **디스크에 저장되지 않고 SSMS를 닫으면 사라집니다** — `credentials.json`에는 인증 방식과 계정명만 남습니다. Microsoft Entra ID로 접속한 연결은 토큰 기반이라 재사용할 수 없으며, 이 경우 서버·데이터베이스만 채우고 안내를 표시합니다.
 ```
 
-- [ ] **Step 5: 커밋한다**
+- [x] **Step 5: 커밋한다**
 
 ```bash
 git add src/DBVC.Vsix/UI/ViewChangesControl.xaml src/DBVC.Vsix/UI/ViewChangesControl.xaml.cs README.md
 git commit -m "feat(vsix): 도구 창이 보일 때 SSMS 연결을 자동으로 채우고 안내를 표시"
 ```
 
-- [ ] **Step 6: SSMS 21에서 수동 검증한다**
+- [x] **Step 6: SSMS 21에서 수동 검증한다**
 
 단위 테스트가 덮지 못하는 부분(리플렉션 경로)은 여기서만 확인된다. `dotnet build DBVC.slnx -c Release`로
 만든 `.vsix`를 설치하고 순서대로 확인한다.
@@ -1534,7 +1534,7 @@ git commit -m "feat(vsix): 도구 창이 보일 때 SSMS 연결을 자동으로 
 8. 암호를 입력하던 중 다른 탭에 갔다 돌아와도 입력값이 지워지지 않는지
 9. (가능하면) Entra ID로 접속한 서버를 선택 → 경고가 뜨고 도구 창이 정상 동작하는지
 
-- [ ] **Step 7: 검증에서 발견한 문제가 있으면 고치고 커밋한다**
+- [x] **Step 7: 검증에서 발견한 문제가 있으면 고치고 커밋한다**
 
 수동 검증은 리플렉션 경로의 유일한 검증 수단이다. 실패하면 그 지점을 `Debug.WriteLine` 출력
 (디버그 출력 창)으로 좁힌 뒤 고친다. 문제가 없었다면 이 단계는 건너뛴다.

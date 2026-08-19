@@ -1,6 +1,6 @@
 # DBVC Git Push 구현 계획
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** View Changes 도구 창의 Push 버튼 하나로 로컬 커밋을 원격 저장소에 올린다.
 
@@ -64,14 +64,14 @@ Push가 그대로 복제할 코드를 먼저 한 곳으로 모은다. **동작�
 - Consumes: 없음
 - Produces: `private static string? ValidateRemoteAndBuildGuidance(Repository repo, string repoPath, string operationName)` — 원격 미설정/추적 브랜치 없음이면 `InvalidOperationException` 을 던지고, 아니면 `RemoteDiagnostics.Explain` 의 결과(안내가 없으면 `null`)를 돌려준다. `operationName` 은 `"Pull"` 또는 `"Push"` 로 메시지에 그대로 박힌다.
 
-- [ ] **Step 1: 기존 Pull 테스트가 지금 통과하는지 먼저 확인한다**
+- [x] **Step 1: 기존 Pull 테스트가 지금 통과하는지 먼저 확인한다**
 
 리팩터링의 기준선을 잡는 단계다. 여기서 실패하는 것이 있으면 리팩터링을 시작하지 말고 보고한다.
 
 Run: `dotnet test tests/DBVC.Core.Tests --filter "FullyQualifiedName~PullChanges"`
 Expected: PASS (`[Explicit]` 표시된 것은 실행되지 않는다)
 
-- [ ] **Step 2: 헬퍼를 추가한다**
+- [x] **Step 2: 헬퍼를 추가한다**
 
 `GitManager.cs` 의 `BuildPullOptions` 바로 위에 넣는다.
 
@@ -120,7 +120,7 @@ Expected: PASS (`[Explicit]` 표시된 것은 실행되지 않는다)
         }
 ```
 
-- [ ] **Step 3: `PullChanges` 가 헬퍼를 쓰게 바꾼다**
+- [x] **Step 3: `PullChanges` 가 헬퍼를 쓰게 바꾼다**
 
 `PullChanges` 안에서 `if (!repo.Network.Remotes.Any())` 부터 `var guidance = RemoteDiagnostics.Explain(remoteUrl, sshAvailable);` 까지(주석 포함 전부)를 지우고 한 줄로 바꾼다.
 
@@ -130,12 +130,12 @@ Expected: PASS (`[Explicit]` 표시된 것은 실행되지 않는다)
 
 `var headBefore = repo.Head.Tip;` 이하는 건드리지 않는다.
 
-- [ ] **Step 4: 테스트가 그대로 통과하는지 확인한다**
+- [x] **Step 4: 테스트가 그대로 통과하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests`
 Expected: PASS. 실패가 하나라도 있으면 문구가 바뀐 것이다 — 헬퍼의 문자열을 원본과 글자 단위로 대조한다.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Core/GitManager.cs
@@ -161,7 +161,7 @@ git commit -m "refactor(core): Pull의 원격 검증부를 Push와 나눠 쓸 �
   - `class DBVC.Core.GitPushRejectedException : Exception` — `(string message)`, `(string message, Exception innerException)`
   - `internal static PushOptions GitManager.BuildPushOptions(Action onUserCredentialsRequired, Action<PushStatusError> onPushStatusError)`
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/GitManagerTests.cs` 의 `// ---------- BuildPullOptions (자격 증명 배선) ----------` 섹션 **아래**에 새 섹션으로 넣는다.
 
@@ -219,12 +219,12 @@ git commit -m "refactor(core): Pull의 원격 검증부를 Push와 나눠 쓸 �
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests --filter "FullyQualifiedName~BuildPushOptions|FullyQualifiedName~GitPushRejectedException"`
 Expected: 컴파일 실패 — `BuildPushOptions` 와 `GitPushRejectedException` 이 없다.
 
-- [ ] **Step 3: `PushResult` 를 만든다**
+- [x] **Step 3: `PushResult` 를 만든다**
 
 `src/DBVC.Core/Models/PushResult.cs`
 
@@ -249,7 +249,7 @@ namespace DBVC.Core.Models
 }
 ```
 
-- [ ] **Step 4: `GitPushRejectedException` 을 만든다**
+- [x] **Step 4: `GitPushRejectedException` 을 만든다**
 
 `src/DBVC.Core/GitPushRejectedException.cs`
 
@@ -278,7 +278,7 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 5: `BuildPushOptions` 를 더한다**
+- [x] **Step 5: `BuildPushOptions` 를 더한다**
 
 `GitManager.cs` 의 `BuildPullOptions` 바로 아래에 넣는다.
 
@@ -310,12 +310,12 @@ namespace DBVC.Core
         }
 ```
 
-- [ ] **Step 6: 통과를 확인한다**
+- [x] **Step 6: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests --filter "FullyQualifiedName~BuildPushOptions|FullyQualifiedName~GitPushRejectedException"`
 Expected: PASS (4개)
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add src/DBVC.Core/Models/PushResult.cs src/DBVC.Core/GitPushRejectedException.cs src/DBVC.Core/GitManager.cs tests/DBVC.Core.Tests/GitManagerTests.cs
@@ -335,7 +335,7 @@ git commit -m "feat(core): Push가 쓸 결과 타입·거부 예외·옵션 빌�
 - Consumes: `ValidateRemoteAndBuildGuidance`(Task 1), `PushResult`·`GitPushRejectedException`·`BuildPushOptions`(Task 2)
 - Produces: `PushResult IGitManager.PushChanges(string serverName, string databaseName)`
 
-- [ ] **Step 1: 테스트 헬퍼를 더한다**
+- [x] **Step 1: 테스트 헬퍼를 더한다**
 
 `GitManagerTests.cs` 의 `NewRepoWithCommit` 바로 아래에 넣는다. **원격은 bare여야 한다** — 체크아웃된 브랜치를 가진 저장소로는 push가 거부된다.
 
@@ -366,7 +366,7 @@ git commit -m "feat(core): Push가 쓸 결과 타입·거부 예외·옵션 빌�
         }
 ```
 
-- [ ] **Step 2: 실패하는 테스트를 쓴다**
+- [x] **Step 2: 실패하는 테스트를 쓴다**
 
 `// ---------- BuildPushOptions (콜백 배선) ----------` 섹션 **위**에, `PullChanges` 섹션 다음에 새 섹션으로 넣는다.
 
@@ -525,12 +525,12 @@ git commit -m "feat(core): Push가 쓸 결과 타입·거부 예외·옵션 빌�
 > `NonFastForwardException` 이 아닌 다른 방식으로 낸다는 뜻이다. 그 경우 실제 예외 타입을
 > 확인해 Step 4의 catch에 더한다 — **문자열 매칭으로 우회하지 말 것.**
 
-- [ ] **Step 3: 실패를 확인한다**
+- [x] **Step 3: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests --filter "FullyQualifiedName~PushChanges"`
 Expected: 컴파일 실패 — `PushChanges` 가 없다.
 
-- [ ] **Step 4: `IGitManager` 에 선언하고 `GitManager` 에 구현한다**
+- [x] **Step 4: `IGitManager` 에 선언하고 `GitManager` 에 구현한다**
 
 `src/DBVC.Core/Abstractions.cs` 의 `IGitManager` 에서 `PullChanges` 아래에 한 줄 더한다.
 
@@ -631,12 +631,12 @@ Expected: 컴파일 실패 — `PushChanges` 가 없다.
         }
 ```
 
-- [ ] **Step 5: 통과를 확인한다**
+- [x] **Step 5: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests`
 Expected: PASS. 기존 테스트도 전부 통과해야 한다 — Task 1의 헬퍼가 Pull에서 그대로 쓰이고 있다.
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add src/DBVC.Core/Abstractions.cs src/DBVC.Core/GitManager.cs tests/DBVC.Core.Tests/GitManagerTests.cs
@@ -656,7 +656,7 @@ git commit -m "feat(core): 커밋을 원격에 올리는 PushChanges를 더한�
 - Consumes: `IGitManager.PushChanges` → `PushResult` (Task 3)
 - Produces: `ICommand ViewChangesViewModel.PushCommand`
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `ViewChangesViewModelTests.cs` 의 `// ---------- Commit ----------` 섹션 **위**(Pull 섹션 바로 다음)에 넣는다.
 
@@ -778,12 +778,12 @@ git commit -m "feat(core): 커밋을 원격에 올리는 PushChanges를 더한�
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests --filter "FullyQualifiedName~PushCommand"`
 Expected: 컴파일 실패 — `PushCommand` 가 없다.
 
-- [ ] **Step 3: `PushCommand` 를 구현한다**
+- [x] **Step 3: `PushCommand` 를 구현한다**
 
 `ViewChangesViewModel.cs` 생성자에서 `PullCommand = new RelayCommand(Pull, CanPull);` 아래에 한 줄 더한다.
 
@@ -851,12 +851,12 @@ Expected: 컴파일 실패 — `PushCommand` 가 없다.
 
 `using DBVC.Core.Models;` 는 이 파일에 **이미 있다**(10행). 더할 것이 없다.
 
-- [ ] **Step 4: 통과를 확인한다**
+- [x] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests`
 Expected: PASS
 
-- [ ] **Step 5: XAML에 버튼을 더한다**
+- [x] **Step 5: XAML에 버튼을 더한다**
 
 `src/DBVC.Vsix/UI/ViewChangesControl.xaml` 의 Pull 버튼을 이렇게 바꾼다. **Pull이 갖고 있던 오른쪽 여백 16을 Push로 옮긴다** — Pull·Push가 원격 연산 한 덩어리가 되고 스크립트 버튼과의 구분은 유지된다.
 
@@ -867,12 +867,12 @@ Expected: PASS
                         ToolTip="로컬 저장소의 커밋을 원격 저장소에 올립니다." />
 ```
 
-- [ ] **Step 6: 전체 빌드와 테스트를 확인한다**
+- [x] **Step 6: 전체 빌드와 테스트를 확인한다**
 
 Run: `dotnet build DBVC.slnx && dotnet test tests/DBVC.Core.Tests && dotnet test tests/DBVC.Vsix.Tests`
 Expected: 빌드 성공, 모든 테스트 PASS
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs src/DBVC.Vsix/UI/ViewChangesControl.xaml tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
@@ -890,7 +890,7 @@ Push가 없다는 전제로 쓰인 곳이 여러 문서에 흩어져 있다. 하
 - Modify: `docs/setup-checklist.md` (295, 297, 345, 434, 460행 부근)
 - Modify: `docs/superpowers/specs/2026-08-03-dbvc-ssh-first-git-auth-design.md` (32행)
 
-- [ ] **Step 1: 남아 있는 언급을 전부 찾는다**
+- [x] **Step 1: 남아 있는 언급을 전부 찾는다**
 
 ```bash
 grep -rn "Push\|push" README.md docs/setup-checklist.md docs/superpowers/specs/2026-08-03-dbvc-ssh-first-git-auth-design.md
@@ -898,7 +898,7 @@ grep -rn "Push\|push" README.md docs/setup-checklist.md docs/superpowers/specs/2
 
 아래 편집을 마친 뒤 이 명령을 다시 돌려, 남은 것이 CI 트리거(`push:`)와 추적 브랜치 안내(`git push -u`)뿐인지 확인한다. 그 둘은 **바꾸지 않는다** — 전자는 GitHub Actions 설정이고 후자는 DBVC가 추적을 대신 설정하지 않기로 한 결정의 결과다.
 
-- [ ] **Step 2: `README.md` 를 고친다**
+- [x] **Step 2: `README.md` 를 고친다**
 
 8행의 Git 통합 설명에 push를 더한다.
 
@@ -918,12 +918,12 @@ grep -rn "Push\|push" README.md docs/setup-checklist.md docs/superpowers/specs/2
 - **원격에 올리기:** **Push** 는 로컬 저장소의 커밋을 원격에 올립니다. 로컬 저장소와 작업 트리는 건드리지 않으므로 실패해도 잃을 것이 없습니다. 원격에 먼저 올라간 커밋이 있으면 거부되며, 이때는 **Pull** 로 받아 병합한 뒤 다시 누르면 됩니다.
 ```
 
-- [ ] **Step 3: `docs/setup-checklist.md` 를 고친다**
+- [x] **Step 3: `docs/setup-checklist.md` 를 고친다**
 
 295-297행의 체크 항목을 바꾼다.
 
 ```markdown
-- [ ] 원격에 올린다. DBVC의 **Push** 버튼을 누른다.
+- [x] 원격에 올린다. DBVC의 **Push** 버튼을 누른다.
 ```
 
 바로 아래 `git -C ... push` 코드 블록은 지운다.
@@ -931,7 +931,7 @@ grep -rn "Push\|push" README.md docs/setup-checklist.md docs/superpowers/specs/2
 345행을 바꾼다.
 
 ```markdown
-- [ ] **5단계를 운영 PC에서 반복한다** (Setup DBVC → Refresh → Commit → Push → Pull).
+- [x] **5단계를 운영 PC에서 반복한다** (Setup DBVC → Refresh → Commit → Push → Pull).
 ```
 
 434행의 "알아둘 것" 항목을 바꾼다.
@@ -953,7 +953,7 @@ grep -rn "Push\|push" README.md docs/setup-checklist.md docs/superpowers/specs/2
 | Push가 거부된다 | 원격에 먼저 올라간 커밋이 있다. **Pull** 로 받아 병합한 뒤 다시 Push. 그래도 거부되면 브랜치 보호·권한을 확인 |
 ```
 
-- [ ] **Step 4: 이전 설계 문서에 후속 표기를 남긴다**
+- [x] **Step 4: 이전 설계 문서에 후속 표기를 남긴다**
 
 `docs/superpowers/specs/2026-08-03-dbvc-ssh-first-git-auth-design.md` 32행을 바꾼다.
 
@@ -963,12 +963,12 @@ grep -rn "Push\|push" README.md docs/setup-checklist.md docs/superpowers/specs/2
   인증 경로는 이 문서가 정한 그대로이며, `RemoteDiagnostics`·`SshExecutableLocator`를 그대로 재사용한다.)
 ```
 
-- [ ] **Step 5: 남은 언급을 확인한다**
+- [x] **Step 5: 남은 언급을 확인한다**
 
 Step 1의 `grep` 을 다시 돌린다.
 Expected: `push:`(CI 트리거)와 `git push -u origin`(추적 설정 안내)만 남는다.
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add README.md docs/setup-checklist.md docs/superpowers/specs/2026-08-03-dbvc-ssh-first-git-auth-design.md
@@ -981,8 +981,8 @@ git commit -m "docs: Push가 생긴 사실을 README와 도입 체크리스트�
 
 단위 테스트가 닿지 못하는 것들이다. CI는 WPF 렌더링·VS 패키지 로딩·실제 원격 통신을 검증하지 않는다.
 
-- [ ] `.vsix` 를 빌드해 SSMS 21에 설치하고 View Changes 창에 **Push 버튼이 보이는지** 확인한다. 창을 좁게 도킹했을 때 `WrapPanel` 이 줄바꿈하며 버튼이 잘리지 않는지도 함께 본다.
-- [ ] 커밋 후 Push → GitHub(SSH 원격)에 반영됐는지 확인한다. **이것이 `OnPushStatusError` 배선을 지나는 유일한 검증이다** — 단위 테스트는 파일 전송(`NonFastForwardException`) 경로만 덮는다.
-- [ ] 원격에 다른 곳에서 먼저 커밋을 올린 뒤 Push → 거부 안내가 뜨는지, 로컬 커밋이 그대로 남아 있는지.
-- [ ] 올릴 것이 없는 상태에서 Push → 오류 대화상자가 아니라 정보 안내인지.
-- [ ] 폐쇄망 PC에서 SSH로 GitLab에 Push.
+- [x] `.vsix` 를 빌드해 SSMS 21에 설치하고 View Changes 창에 **Push 버튼이 보이는지** 확인한다. 창을 좁게 도킹했을 때 `WrapPanel` 이 줄바꿈하며 버튼이 잘리지 않는지도 함께 본다.
+- [x] 커밋 후 Push → GitHub(SSH 원격)에 반영됐는지 확인한다. **이것이 `OnPushStatusError` 배선을 지나는 유일한 검증이다** — 단위 테스트는 파일 전송(`NonFastForwardException`) 경로만 덮는다.
+- [x] 원격에 다른 곳에서 먼저 커밋을 올린 뒤 Push → 거부 안내가 뜨는지, 로컬 커밋이 그대로 남아 있는지.
+- [x] 올릴 것이 없는 상태에서 Push → 오류 대화상자가 아니라 정보 안내인지.
+- [x] 폐쇄망 PC에서 SSH로 GitLab에 Push.

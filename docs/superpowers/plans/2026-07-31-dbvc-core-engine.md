@@ -1,6 +1,6 @@
 # DBVC Core Engine Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Implement the DBVC Core Engine managers (SmoManager, GitManager, StateTracker) with their actual business logic (SMO, LibGit2Sharp, ADO.NET).
 
@@ -32,7 +32,7 @@
 **Interfaces:**
 - Produces: Correct NuGet references to `Microsoft.SqlServer.SqlManagementObjects`, `LibGit2Sharp`, and `Microsoft.Data.SqlClient`.
 
-- [ ] **Step 1: Add NuGet packages to DBVC.Core**
+- [x] **Step 1: Add NuGet packages to DBVC.Core**
 
 ```bash
 dotnet add src/DBVC.Core/DBVC.Core.csproj package Microsoft.SqlServer.SqlManagementObjects
@@ -40,7 +40,7 @@ dotnet add src/DBVC.Core/DBVC.Core.csproj package LibGit2Sharp
 dotnet add src/DBVC.Core/DBVC.Core.csproj package Microsoft.Data.SqlClient
 ```
 
-- [ ] **Step 2: Add same packages to Tests for Integration**
+- [x] **Step 2: Add same packages to Tests for Integration**
 
 ```bash
 dotnet add tests/DBVC.Core.Tests/DBVC.Core.Tests.csproj package Microsoft.SqlServer.SqlManagementObjects
@@ -48,12 +48,12 @@ dotnet add tests/DBVC.Core.Tests/DBVC.Core.Tests.csproj package LibGit2Sharp
 dotnet add tests/DBVC.Core.Tests/DBVC.Core.Tests.csproj package Microsoft.Data.SqlClient
 ```
 
-- [ ] **Step 3: Run build to verify package resolution**
+- [x] **Step 3: Run build to verify package resolution**
 
 Run: `dotnet build src/DBVC.Core/DBVC.Core.csproj`
 Expected: PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/DBVC.Core/DBVC.Core.csproj tests/DBVC.Core.Tests/DBVC.Core.Tests.csproj
@@ -70,7 +70,7 @@ git commit -m "build: add SMO, LibGit2Sharp, and SqlClient dependencies"
 - Consumes: `ConfigManager.GetMapping`
 - Produces: `bool ScriptObjects(string serverName, string databaseName, List<string> objectNames = null)`
 
-- [ ] **Step 1: Write the failing test (Integration)**
+- [x] **Step 1: Write the failing test (Integration)**
 
 ```csharp
 // In tests/DBVC.Core.Tests/SmoManagerTests.cs
@@ -97,12 +97,12 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails/compiles**
+- [x] **Step 2: Run test to verify it fails/compiles**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter SmoManagerTests`
 Expected: If stub throws NotImplementedException, it fails. If stub returns true, it passes but doesn't write files.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```csharp
 // In src/DBVC.Core/SmoManager.cs
@@ -173,12 +173,12 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter SmoManagerTests`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/DBVC.Core/SmoManager.cs tests/DBVC.Core.Tests/SmoManagerTests.cs
@@ -195,7 +195,7 @@ git commit -m "feat: implement basic SMO scripting for tables"
 - Consumes: `ConfigManager.GetMapping`
 - Produces: `bool CommitChanges(string serverName, string databaseName, string message)`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```csharp
 // In tests/DBVC.Core.Tests/GitManagerTests.cs
@@ -223,11 +223,11 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter GitManagerTests`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```csharp
 // In src/DBVC.Core/GitManager.cs
@@ -268,12 +268,12 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter GitManagerTests`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/DBVC.Core/GitManager.cs tests/DBVC.Core.Tests/GitManagerTests.cs
@@ -290,7 +290,7 @@ git commit -m "feat: implement LibGit2Sharp commit logic"
 - Consumes: `ConfigManager.GetMapping`
 - Produces: `void RefreshState(string serverName, string databaseName)`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```csharp
 // In tests/DBVC.Core.Tests/StateTrackerTests.cs
@@ -315,11 +315,11 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter StateTrackerTests`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```csharp
 // In src/DBVC.Core/StateTracker.cs
@@ -377,12 +377,12 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter StateTrackerTests`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/DBVC.Core/StateTracker.cs tests/DBVC.Core.Tests/StateTrackerTests.cs

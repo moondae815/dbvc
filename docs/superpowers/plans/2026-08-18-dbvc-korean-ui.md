@@ -1,6 +1,6 @@
 # DBVC UI 문구 한국어 통일 구현 계획
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** DBVC 화면에 영어로 남아 있는 버튼·컬럼·탭·문장·메뉴·확장 정보를 한국어로 통일한다.
 
@@ -69,7 +69,7 @@ Core의 `State` 는 데이터로 그대로 두고, 화면에 뿌릴 때만 옮�
 - Consumes: 없음
 - Produces: `string ChangeItemViewModel.StateText { get; }` — `State` 가 `"Added"`/`"Modified"`/`"Deleted"` 면 각각 `"추가"`/`"수정"`/`"삭제"`, 그 외 값이면 **그 값 그대로**, `null` 이면 빈 문자열.
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `ChangeItemViewModelTests.cs` 의 마지막 테스트(`IsSelected_RaisesPropertyChanged`) 아래에 넣는다.
 
@@ -103,12 +103,12 @@ Core의 `State` 는 데이터로 그대로 두고, 화면에 뿌릴 때만 옮�
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests --filter "FullyQualifiedName~StateText"`
 Expected: 컴파일 실패 — `StateText` 가 없다.
 
-- [ ] **Step 3: `StateText` 를 더한다**
+- [x] **Step 3: `StateText` 를 더한다**
 
 `ChangeItemViewModel.cs` 의 `State` 속성 **바로 아래**에 넣는다. 기존 `State` 줄의 꼬리 주석(`// "Modified", "Added", "Deleted"`)은 그대로 둔다 — Core가 주는 값이 무엇인지 말하고 있고 여전히 참이다.
 
@@ -129,12 +129,12 @@ Expected: 컴파일 실패 — `StateText` 가 없다.
         };
 ```
 
-- [ ] **Step 4: 통과를 확인한다**
+- [x] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests --filter "FullyQualifiedName~StateText"`
 Expected: PASS (5개 — `TestCase` 3 + 개별 2)
 
-- [ ] **Step 5: XAML 바인딩을 옮긴다**
+- [x] **Step 5: XAML 바인딩을 옮긴다**
 
 `ViewChangesControl.xaml` 93행. **헤더는 이 태스크에서 바꾸지 않는다**(태스크 2 소관). 바인딩만 옮긴다.
 
@@ -142,12 +142,12 @@ Expected: PASS (5개 — `TestCase` 3 + 개별 2)
                         <GridViewColumn Header="State" DisplayMemberBinding="{Binding StateText}"/>
 ```
 
-- [ ] **Step 6: 전체 테스트가 그대로 통과하는지 확인한다**
+- [x] **Step 6: 전체 테스트가 그대로 통과하는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests && dotnet test tests/DBVC.Core.Tests`
 Expected: Vsix 156 passing, Core 261 passing, 0 failing
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/ViewModels/ChangeItemViewModel.cs src/DBVC.Vsix/UI/ViewChangesControl.xaml tests/DBVC.Vsix.Tests/ViewModels/ChangeItemViewModelTests.cs
@@ -169,7 +169,7 @@ git commit -m "feat(vsix): 변경 상태를 화면에서만 한국어로 옮긴�
 
 **툴팁은 손대지 않는다.** 이미 전부 한국어다. `Connect`·`Refresh`·`Setup DBVC` 세 버튼에는 툴팁이 아예 없는데, **채우지 않는다** — 문구 통일과 별개의 일이고 이 계획의 범위 밖이다.
 
-- [ ] **Step 1: 버튼 라벨과 폭을 바꾼다**
+- [x] **Step 1: 버튼 라벨과 폭을 바꾼다**
 
 `ViewChangesControl.xaml`. **`Commit`·`Pull`·`Push` 는 건드리지 않는다.**
 
@@ -199,7 +199,7 @@ git commit -m "feat(vsix): 변경 상태를 화면에서만 한국어로 옮긴�
 
 `저장소 연결...`(46행)은 **이미 한국어이므로 그대로 둔다.**
 
-- [ ] **Step 2: 컬럼과 탭 헤더를 바꾼다**
+- [x] **Step 2: 컬럼과 탭 헤더를 바꾼다**
 
 86행·93행·94행 (변경 목록 컬럼). 93행의 `DisplayMemberBinding` 은 태스크 1에서 이미 `StateText` 로 바뀌어 있다 — 되돌리지 말 것:
 ```xml
@@ -226,14 +226,14 @@ git commit -m "feat(vsix): 변경 상태를 화면에서만 한국어로 옮긴�
                                     <GridViewColumn Header="SHA" Width="80" DisplayMemberBinding="{Binding ShortSha}"/>
 ```
 
-- [ ] **Step 3: 초기화 안내문을 바꾼다**
+- [x] **Step 3: 초기화 안내문을 바꾼다**
 
 141행:
 ```xml
                 <TextBlock Text="이 데이터베이스는 아직 DBVC로 초기화되지 않았습니다." FontSize="16" Margin="0,0,0,20" Foreground="#333333"/>
 ```
 
-- [ ] **Step 4: 경고 배너 문구를 바꾼다**
+- [x] **Step 4: 경고 배너 문구를 바꾼다**
 
 `ViewChangesViewModel.cs:22`:
 
@@ -243,7 +243,7 @@ git commit -m "feat(vsix): 변경 상태를 화면에서만 한국어로 옮긴�
         private const string NotMappedWarning = "현재 데이터베이스에 연결된 Git 저장소가 없습니다.";
 ```
 
-- [ ] **Step 5: 테스트의 주석을 문구에 맞춘다**
+- [x] **Step 5: 테스트의 주석을 문구에 맞춘다**
 
 `ViewChangesViewModelTests.cs:180`. 이 줄은 주석이며 검증하는 코드가 아니다:
 
@@ -251,14 +251,14 @@ git commit -m "feat(vsix): 변경 상태를 화면에서만 한국어로 옮긴�
             // 설계: "현재 데이터베이스에 연결된 Git 저장소가 없습니다." 경고 표시 + 커밋 비활성화
 ```
 
-- [ ] **Step 6: 빌드와 테스트를 확인한다**
+- [x] **Step 6: 빌드와 테스트를 확인한다**
 
 Run: `dotnet build DBVC.slnx && dotnet test tests/DBVC.Vsix.Tests`
 Expected: 빌드 0 errors, Vsix 156 passing, 0 failing
 
 테스트가 실패하면 영어 문구를 검증하는 테스트가 남아 있다는 뜻이다. 그 테스트를 새 문구로 갱신하고 무엇이었는지 보고한다.
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/UI/ViewChangesControl.xaml src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
@@ -280,7 +280,7 @@ git commit -m "feat(vsix): 도구 창의 버튼·컬럼·탭·안내문을 한�
 - Consumes: 없음
 - Produces: 알림·대화상자 제목이 `DBVC 배포 스크립트` / `DBVC 롤백 스크립트`. 기본 파일명은 `DBVC_Deployment_<DB>.sql` / `DBVC_Rollback_<DB>.sql` **로 유지**.
 
-- [ ] **Step 1: 기존 테스트를 새 제목으로 고친다 (먼저 실패시킨다)**
+- [x] **Step 1: 기존 테스트를 새 제목으로 고친다 (먼저 실패시킨다)**
 
 `ViewChangesViewModelTests.cs:1401`:
 
@@ -288,14 +288,14 @@ git commit -m "feat(vsix): 도구 창의 버튼·컬럼·탭·안내문을 한�
             Assert.That(_notifier.InfoCalls[0].Title, Is.EqualTo("DBVC 배포 스크립트"));
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests --filter "FullyQualifiedName~GenerateDeploymentScript"`
 Expected: FAIL — 실제 값이 아직 `"DBVC Deployment Script"` 다.
 
 > **주의:** 같은 파일 1334·1362행과 `ScriptGeneratorTests.cs` 30·43행도 `"DBVC Deployment Script"` / `"DBVC Rollback Script"` 를 검사하지만, 그것들은 **생성된 스크립트 본문의 헤더**를 보는 것이다. 그 헤더는 영어로 남기기로 했으므로 **건드리지 말 것.** 문자열이 같아서 헷갈리기 쉬운데, 이 태스크가 그 둘을 갈라놓는다 — 알림 제목만 바뀐다.
 
-- [ ] **Step 3: 제목과 파일명을 가른다**
+- [x] **Step 3: 제목과 파일명을 가른다**
 
 `ViewChangesViewModel.GenerateScript` 의 첫 두 줄을 바꾼다.
 
@@ -317,7 +317,7 @@ Expected: FAIL — 실제 값이 아직 `"DBVC Deployment Script"` 다.
 
 `title` 은 이 메서드 안에서 "내보낼 내용이 없습니다" 알림과 성공 알림의 제목으로도 쓰인다. 한 번 바꾸면 그 셋이 함께 한국어가 된다 — 추가 편집이 필요 없다.
 
-- [ ] **Step 4: 파일 저장 필터를 바꾼다**
+- [x] **Step 4: 파일 저장 필터를 바꾼다**
 
 `IFileSaveDialog.cs:21`:
 
@@ -325,19 +325,19 @@ Expected: FAIL — 실제 값이 아직 `"DBVC Deployment Script"` 다.
                 Filter = "SQL 스크립트 (*.sql)|*.sql|모든 파일 (*.*)|*.*",
 ```
 
-- [ ] **Step 5: 통과를 확인한다**
+- [x] **Step 5: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests && dotnet test tests/DBVC.Core.Tests`
 Expected: Vsix 156 passing, Core 261 passing, 0 failing
 
 Core가 그대로 통과해야 한다 — `ScriptGenerator` 를 건드리지 않았다는 증거다.
 
-- [ ] **Step 6: 기본 파일명이 ASCII로 남았는지 눈으로 확인한다**
+- [x] **Step 6: 기본 파일명이 ASCII로 남았는지 눈으로 확인한다**
 
 Run: `grep -n 'DBVC_' src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs`
 Expected: `$"DBVC_{kindSlug}_{DatabaseName}.sql"` 한 줄. `kindText` 가 파일명 쪽에 들어가 있으면 잘못된 것이다.
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs src/DBVC.Vsix/Services/IFileSaveDialog.cs tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
@@ -357,7 +357,7 @@ git commit -m "feat(vsix): 스크립트 대화상자 제목과 파일 필터를 
 - Consumes: 없음
 - Produces: 없음
 
-- [ ] **Step 1: 컨텍스트 메뉴 문구를 바꾼다**
+- [x] **Step 1: 컨텍스트 메뉴 문구를 바꾼다**
 
 `DbvcPackage.vsct` 의 `CompareWithRepositoryCommandId` 버튼. `ToolTipText` 는 이미 한국어이므로 그대로 둔다.
 
@@ -371,7 +371,7 @@ git commit -m "feat(vsix): 스크립트 대화상자 제목과 파일 필터를 
 
 **위쪽 `ViewChangesCommandId` 버튼의 `DBVC` 는 제품 이름이므로 바꾸지 않는다.**
 
-- [ ] **Step 2: 확장 이름과 설명을 바꾼다**
+- [x] **Step 2: 확장 이름과 설명을 바꾼다**
 
 `source.extension.vsixmanifest`. **`Identity` 줄(`Version`·`Language` 포함)과 `<Tags>` 는 건드리지 않는다.**
 
@@ -380,7 +380,7 @@ git commit -m "feat(vsix): 스크립트 대화상자 제목과 파일 필터를 
     <Description xml:space="preserve">SQL Server Management Studio 21용 데이터베이스 형상 관리(Database Version Control) 확장입니다.</Description>
 ```
 
-- [ ] **Step 3: 코드 주석의 메뉴 이름을 맞춘다**
+- [x] **Step 3: 코드 주석의 메뉴 이름을 맞춘다**
 
 `CompareWithRepositoryCommand.cs:16`. 화면에 뜨지는 않지만 다음 사람이 코드에서 메뉴를 찾을 때 쓰는 이름이다.
 
@@ -388,19 +388,19 @@ git commit -m "feat(vsix): 스크립트 대화상자 제목과 파일 필터를 
     /// SQL 에디터 컨텍스트 메뉴의 "DBVC: 저장소 버전과 비교" 명령. (Feature 11, 12)
 ```
 
-- [ ] **Step 4: 빌드가 되는지 확인한다**
+- [x] **Step 4: 빌드가 되는지 확인한다**
 
 Run: `dotnet build DBVC.slnx`
 Expected: 0 errors
 
 `.vsct` 는 XML이므로 오타가 나면 빌드가 깨진다. 빌드 통과가 이 태스크의 유일한 자동 검증이다 — 메뉴가 실제로 그렇게 뜨는지는 SSMS에서만 확인된다.
 
-- [ ] **Step 5: 바꾸지 말아야 할 것이 그대로인지 확인한다**
+- [x] **Step 5: 바꾸지 말아야 할 것이 그대로인지 확인한다**
 
 Run: `grep -n 'Language=\|<Tags>\|Version=' src/DBVC.Vsix/source.extension.vsixmanifest`
 Expected: `Language="en-US"`, `Version="1.2.0"`, `<Tags>SQL, SSMS, Git, Version Control, Database</Tags>` 가 그대로.
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/DbvcPackage.vsct src/DBVC.Vsix/source.extension.vsixmanifest src/DBVC.Vsix/Commands/CompareWithRepositoryCommand.cs
@@ -421,7 +421,7 @@ git commit -m "feat(vsix): 컨텍스트 메뉴와 확장 이름·설명을 한�
 - Consumes: 태스크 1~4가 확정한 화면 문구
 - Produces: 없음
 
-- [ ] **Step 1: 바꿀 곳을 센다**
+- [x] **Step 1: 바꿀 곳을 센다**
 
 ```bash
 for t in "Setup DBVC" "Refresh" "Connect" "Deployment Script" "Rollback Script" "Diff" "History" "View Changes"; do
@@ -431,7 +431,7 @@ done
 
 착수 시점의 근사치: `Setup DBVC` 1/3, `Refresh` 3/8, `Connect` 3/15, `Deployment Script` 0/2, `Rollback Script` 0/1, `Diff` 3/5, `History` 2/2, `View Changes` 2/1.
 
-- [ ] **Step 2: 라벨 참조를 바꾼다**
+- [x] **Step 2: 라벨 참조를 바꾼다**
 
 번역표:
 
@@ -453,7 +453,7 @@ done
 * **버튼을 가리킬 때만 바꾼다.** 굵게 표시된 `**Refresh**` 는 버튼이다. `Refresh·Connect·Setup·Commit 직후에만` 처럼 동작을 나열하는 문장도 버튼 이름을 부르는 것이므로 함께 바꾼다.
 * `History 탭` → `이력 탭`. `docs/superpowers/` 아래의 설계·계획 문서는 **건드리지 않는다** — 당시 상태의 기록이다.
 
-- [ ] **Step 3: "View Changes" 명칭을 정리한다**
+- [x] **Step 3: "View Changes" 명칭을 정리한다**
 
 UI는 이 이름을 한 번도 말하지 않는다. 창 제목은 `DBVC` 이고, 그것을 여는 보기 메뉴 항목도 `DBVC` 다. **문서를 UI에 맞춘다.**
 
@@ -472,19 +472,19 @@ UI는 이 이름을 한 번도 말하지 않는다. 창 제목은 `DBVC` 이고,
   변경 상태는 DBVC 창에서 확인한다.
 ```
 
-- [ ] **Step 4: 남은 것을 확인한다**
+- [x] **Step 4: 남은 것을 확인한다**
 
 Step 1의 명령을 다시 돌린다.
 Expected: `View Changes` 0/0. 나머지 항목에 남은 것이 있으면 그것이 일반 명사·제품명(`DiffPlex`, `diff`)인지 확인하고, 무엇을 왜 남겼는지 보고한다.
 
-- [ ] **Step 5: 문서에 남은 영어 버튼 이름을 훑는다**
+- [x] **Step 5: 문서에 남은 영어 버튼 이름을 훑는다**
 
 ```bash
 grep -nE '\*\*(Connect|Refresh|Setup DBVC|Deployment Script|Rollback Script|Diff|History)\*\*' README.md docs/setup-checklist.md
 ```
 Expected: 결과 없음. 나오면 Step 2에서 놓친 것이다.
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add README.md docs/setup-checklist.md
@@ -497,12 +497,12 @@ git commit -m "docs: 한국어로 바뀐 화면 문구에 문서를 맞춘다"
 
 CI가 검증하지 않는 것들이다 — WPF 렌더링, `.vsct` 메뉴 등록, 확장 관리자 표시.
 
-- [ ] `.vsix` 를 빌드해 SSMS 21에 설치한다. **확장 관리자에 `DBVC — SSMS 데이터베이스 형상 관리` 로 뜨는지** 확인한다.
-- [ ] 보기 메뉴에서 DBVC 창을 연다. **버튼 라벨이 전부 한국어인지**(단 `Commit`·`Pull`·`Push` 는 영어), 컬럼·탭 헤더가 한국어인지 확인한다.
-- [ ] **창을 좁게 도킹해 `WrapPanel` 줄바꿈을 본다.** 버튼 폭을 줄였으므로 이전보다 덜 접혀야 한다. 잘리는 버튼이 없어야 한다.
-- [ ] 매핑되지 않은 데이터베이스에 접속해 **노란 경고 배너와 그 옆 `저장소 연결...` 버튼이 같은 말을 쓰는지** 확인한다.
-- [ ] 초기화되지 않은 데이터베이스에서 **안내문과 `DBVC 초기화` 버튼이 같은 말을 쓰는지** 확인한다.
-- [ ] 객체를 변경하고 새로고침해 **상태 컬럼에 `추가`·`수정`·`삭제` 가 뜨는지** 확인한다.
-- [ ] SQL 에디터에서 객체 이름을 선택하고 우클릭해 **`DBVC: 저장소 버전과 비교`** 가 뜨는지 확인한다.
-- [ ] 배포 스크립트를 생성한다. **대화상자 제목이 `DBVC 배포 스크립트 저장`, 필터가 `SQL 스크립트 (*.sql)`, 기본 파일명이 `DBVC_Deployment_<DB>.sql`(ASCII)** 인지 확인한다.
-- [ ] 생성된 `.sql` 파일을 연다. **헤더는 영어(`DBVC Deployment Script`, `Generated:`)로 남아 있어야 한다.**
+- [x] `.vsix` 를 빌드해 SSMS 21에 설치한다. **확장 관리자에 `DBVC — SSMS 데이터베이스 형상 관리` 로 뜨는지** 확인한다.
+- [x] 보기 메뉴에서 DBVC 창을 연다. **버튼 라벨이 전부 한국어인지**(단 `Commit`·`Pull`·`Push` 는 영어), 컬럼·탭 헤더가 한국어인지 확인한다.
+- [x] **창을 좁게 도킹해 `WrapPanel` 줄바꿈을 본다.** 버튼 폭을 줄였으므로 이전보다 덜 접혀야 한다. 잘리는 버튼이 없어야 한다.
+- [x] 매핑되지 않은 데이터베이스에 접속해 **노란 경고 배너와 그 옆 `저장소 연결...` 버튼이 같은 말을 쓰는지** 확인한다.
+- [x] 초기화되지 않은 데이터베이스에서 **안내문과 `DBVC 초기화` 버튼이 같은 말을 쓰는지** 확인한다.
+- [x] 객체를 변경하고 새로고침해 **상태 컬럼에 `추가`·`수정`·`삭제` 가 뜨는지** 확인한다.
+- [x] SQL 에디터에서 객체 이름을 선택하고 우클릭해 **`DBVC: 저장소 버전과 비교`** 가 뜨는지 확인한다.
+- [x] 배포 스크립트를 생성한다. **대화상자 제목이 `DBVC 배포 스크립트 저장`, 필터가 `SQL 스크립트 (*.sql)`, 기본 파일명이 `DBVC_Deployment_<DB>.sql`(ASCII)** 인지 확인한다.
+- [x] 생성된 `.sql` 파일을 연다. **헤더는 영어(`DBVC Deployment Script`, `Generated:`)로 남아 있어야 한다.**

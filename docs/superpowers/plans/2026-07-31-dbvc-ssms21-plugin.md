@@ -1,6 +1,6 @@
 # DBVC SSMS Plugin Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Create a lightweight SSMS 21 plugin for Git version control of database objects.
 
@@ -29,7 +29,7 @@
 - Consumes: None
 - Produces: `ConfigManager.GetMapping(serverName, dbName)` returning local git path string.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```csharp
 using NUnit.Framework;
@@ -48,12 +48,12 @@ public class ConfigManagerTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/DBVC.Core.Tests`
 Expected: FAIL with compilation error or NotImplementedException
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```csharp
 namespace DBVC.Core
@@ -69,12 +69,12 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/DBVC.Core.Tests`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/DBVC.Core tests/DBVC.Core.Tests
@@ -91,7 +91,7 @@ git commit -m "feat: add ConfigManager for mapping resolution"
 - Consumes: `ConfigManager.GetMapping`
 - Produces: `GitManager.Commit(repoPath, filePath, message)`, `GitManager.GetStatus(repoPath)`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```csharp
 using NUnit.Framework;
@@ -110,12 +110,12 @@ public class GitManagerTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/DBVC.Core.Tests`
 Expected: FAIL
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```csharp
 namespace DBVC.Core
@@ -130,12 +130,12 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/DBVC.Core.Tests`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/DBVC.Core tests/DBVC.Core.Tests
@@ -152,7 +152,7 @@ git commit -m "feat: add GitManager stub for LibGit2Sharp wrapping"
 - Consumes: None
 - Produces: `SmoManager.ScriptObjects(connectionString, objectUrns, outputPath)`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```csharp
 using NUnit.Framework;
@@ -171,12 +171,12 @@ public class SmoManagerTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/DBVC.Core.Tests`
 Expected: FAIL
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```csharp
 namespace DBVC.Core
@@ -191,12 +191,12 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/DBVC.Core.Tests`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/DBVC.Core tests/DBVC.Core.Tests
@@ -214,7 +214,7 @@ git commit -m "feat: add SmoManager stub for scripting objects"
 - Consumes: Database connection
 - Produces: `StateTracker.GetPendingChanges(connectionString)`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```csharp
 using NUnit.Framework;
@@ -233,12 +233,12 @@ public class StateTrackerTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/DBVC.Core.Tests`
 Expected: FAIL
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```csharp
 using System.Collections.Generic;
@@ -254,12 +254,12 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/DBVC.Core.Tests`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/DBVC.Core tests/DBVC.Core.Tests
@@ -277,7 +277,7 @@ git commit -m "feat: add StateTracker for DDL change polling"
 - Consumes: `ConfigManager`, `GitManager`, `SmoManager`, `StateTracker`
 - Produces: Visual Studio Extension loaded into SSMS
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 (VSIX initialization is tested via manual integration in Experimental Instance. For TDD completeness, we test the package class instantiates).
 
 ```csharp
@@ -296,12 +296,12 @@ public class PackageTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests`
 Expected: FAIL
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```csharp
 namespace DBVC.Vsix
@@ -313,12 +313,12 @@ namespace DBVC.Vsix
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/DBVC.Vsix tests/DBVC.Vsix.Tests

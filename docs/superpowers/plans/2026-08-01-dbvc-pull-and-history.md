@@ -1,6 +1,6 @@
 # DBVC Pull·Object History UI Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 코어에만 존재하던 Feature 6(Git Pull)과 Feature 7(Object History)을 View Changes 도구 창에 연결한다.
 
@@ -49,7 +49,7 @@
 
 **배경:** `GitManager.PullChanges`는 충돌을 감지하면 `Reset(ResetMode.Hard)`로 병합을 되돌린다. 이때 추적 중인 파일의 미커밋 변경도 함께 사라진다. DBVC에서는 Refresh가 SMO로 모든 객체를 덮어쓰므로 이 상태가 오히려 일반적이라, 사전 고지 없이 사라지면 사용자는 원인을 알 수 없다.
 
-- [ ] **Step 1: `IUserNotifier`를 확장**
+- [x] **Step 1: `IUserNotifier`를 확장**
 
 `src/DBVC.Vsix/Services/IUserNotifier.cs` 전체를 다음으로 바꾼다.
 
@@ -97,7 +97,7 @@ namespace DBVC.Vsix.Services
 }
 ```
 
-- [ ] **Step 2: 테스트 더블을 확장하고 기본 스텁을 추가**
+- [x] **Step 2: 테스트 더블을 확장하고 기본 스텁을 추가**
 
 `tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs` 파일 하단의 `RecordingNotifier` 클래스를 다음으로 바꾼다.
 
@@ -129,7 +129,7 @@ namespace DBVC.Vsix.Services
             _git.Setup(g => g.GetChangedFiles(It.IsAny<string>())).Returns(new List<string>());
 ```
 
-- [ ] **Step 3: 실패하는 테스트를 작성**
+- [x] **Step 3: 실패하는 테스트를 작성**
 
 같은 파일에서 `// ---------- Commit ----------` 주석 바로 앞에 추가한다.
 
@@ -243,7 +243,7 @@ namespace DBVC.Vsix.Services
         }
 ```
 
-- [ ] **Step 4: 테스트가 실패하는지 확인**
+- [x] **Step 4: 테스트가 실패하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewChangesViewModelTests"
@@ -251,7 +251,7 @@ dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewCh
 
 Expected: 컴파일 실패 — `PullCommand` 정의 없음(CS1061)
 
-- [ ] **Step 5: `PullCommand`를 구현**
+- [x] **Step 5: `PullCommand`를 구현**
 
 `src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs`에서 네 곳을 고친다.
 
@@ -332,7 +332,7 @@ Expected: 컴파일 실패 — `PullCommand` 정의 없음(CS1061)
             (PullCommand as RelayCommand)?.RaiseCanExecuteChanged();
 ```
 
-- [ ] **Step 6: 테스트가 통과하는지 확인**
+- [x] **Step 6: 테스트가 통과하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewChangesViewModelTests"
@@ -340,7 +340,7 @@ dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewCh
 
 Expected: PASS (신규 9개 포함, 기존 테스트 회귀 없음)
 
-- [ ] **Step 7: 전체 테스트로 회귀 확인**
+- [x] **Step 7: 전체 테스트로 회귀 확인**
 
 ```bash
 dotnet build DBVC.slnx && dotnet test DBVC.slnx -f net10.0
@@ -348,7 +348,7 @@ dotnet build DBVC.slnx && dotnet test DBVC.slnx -f net10.0
 
 Expected: 빌드 성공, Core 179 + Vsix 86 통과
 
-- [ ] **Step 8: 커밋**
+- [x] **Step 8: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/Services/IUserNotifier.cs src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
@@ -372,7 +372,7 @@ git commit -m "feat(vsix): 원격 변경을 가져오는 PullCommand (Feature 6)
   - `ObjectHistoryViewModel(IGitManager gitManager)`, `Entries` (`ObservableCollection<HistoryEntryViewModel>`), `IsEmpty` (`bool`), `Load(string?, string?, string?)`
   - `HistoryEntryViewModel` (`ShortSha`, `Message`, `Author`, `Date` — 모두 `string`)
 
-- [ ] **Step 1: 실패하는 테스트를 작성**
+- [x] **Step 1: 실패하는 테스트를 작성**
 
 `tests/DBVC.Vsix.Tests/ViewModels/ObjectHistoryViewModelTests.cs`를 새로 만든다.
 
@@ -561,7 +561,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 }
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인**
+- [x] **Step 2: 테스트가 실패하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ObjectHistoryViewModelTests"
@@ -569,7 +569,7 @@ dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~Object
 
 Expected: 컴파일 실패 — `ObjectHistoryViewModel` 형식을 찾을 수 없음(CS0246)
 
-- [ ] **Step 3: `ObjectHistoryViewModel`을 구현**
+- [x] **Step 3: `ObjectHistoryViewModel`을 구현**
 
 `src/DBVC.Vsix/ViewModels/ObjectHistoryViewModel.cs`를 새로 만든다.
 
@@ -679,7 +679,7 @@ namespace DBVC.Vsix.ViewModels
 }
 ```
 
-- [ ] **Step 4: 테스트가 통과하는지 확인**
+- [x] **Step 4: 테스트가 통과하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ObjectHistoryViewModelTests"
@@ -687,7 +687,7 @@ dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~Object
 
 Expected: PASS (14개)
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/ViewModels/ObjectHistoryViewModel.cs tests/DBVC.Vsix.Tests/ViewModels/ObjectHistoryViewModelTests.cs
@@ -711,7 +711,7 @@ SHA 축약과 날짜 서식은 화면 관심사이므로 Core 모델이 아니�
 
 **배경:** 지금은 목록을 비워도 `SelectedChange`가 그대로 남는다. 목록에 없는 객체가 선택된 상태로 남으면 Diff와 이력이 실재하지 않는 대상을 가리킨다.
 
-- [ ] **Step 1: 실패하는 테스트를 작성**
+- [x] **Step 1: 실패하는 테스트를 작성**
 
 `tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs`의 `// ---------- Pull ----------` 주석 바로 앞에 추가한다.
 
@@ -785,7 +785,7 @@ SHA 축약과 날짜 서식은 화면 관심사이므로 Core 모델이 아니�
                 .Returns(new List<CommitInfo>());
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인**
+- [x] **Step 2: 테스트가 실패하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewChangesViewModelTests"
@@ -793,7 +793,7 @@ dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewCh
 
 Expected: 컴파일 실패 — `History` 정의 없음(CS1061)
 
-- [ ] **Step 3: `History` 속성을 추가하고 선택 변경에 연결**
+- [x] **Step 3: `History` 속성을 추가하고 선택 변경에 연결**
 
 `src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs`에서 네 곳을 고친다.
 
@@ -836,7 +836,7 @@ Expected: 컴파일 실패 — `History` 정의 없음(CS1061)
             SelectedChange = null;
 ```
 
-- [ ] **Step 4: 테스트가 통과하는지 확인**
+- [x] **Step 4: 테스트가 통과하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewChangesViewModelTests"
@@ -844,7 +844,7 @@ dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewCh
 
 Expected: PASS (신규 4개 포함, 기존 테스트 회귀 없음)
 
-- [ ] **Step 5: 전체 테스트로 회귀 확인**
+- [x] **Step 5: 전체 테스트로 회귀 확인**
 
 ```bash
 dotnet build DBVC.slnx && dotnet test DBVC.slnx -f net10.0
@@ -852,7 +852,7 @@ dotnet build DBVC.slnx && dotnet test DBVC.slnx -f net10.0
 
 Expected: 빌드 성공, 전부 통과
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
@@ -874,7 +874,7 @@ git commit -m "feat(vsix): 선택된 객체의 이력을 ViewChangesViewModel에
 
 이 태스크에는 자동화 테스트가 없다. WPF 레이아웃은 CI에서 검증할 수 없으며, README가 이미 "CI로 검증되지 않는 것"으로 분류한 범주다.
 
-- [ ] **Step 1: XAML을 교체**
+- [x] **Step 1: XAML을 교체**
 
 `src/DBVC.Vsix/UI/ViewChangesControl.xaml` 전체를 다음으로 바꾼다.
 
@@ -1014,7 +1014,7 @@ git commit -m "feat(vsix): 선택된 객체의 이력을 ViewChangesViewModel에
 </UserControl>
 ```
 
-- [ ] **Step 2: 빌드가 통과하는지 확인**
+- [x] **Step 2: 빌드가 통과하는지 확인**
 
 ```bash
 dotnet build DBVC.slnx
@@ -1022,7 +1022,7 @@ dotnet build DBVC.slnx
 
 Expected: 빌드 성공. `x:Name="OldTextEditor"`와 `x:Name="NewTextEditor"`가 유지되어야 코드비하인드가 컴파일된다.
 
-- [ ] **Step 3: 두 이름이 살아 있는지 확인**
+- [x] **Step 3: 두 이름이 살아 있는지 확인**
 
 ```bash
 grep -c 'x:Name="OldTextEditor"\|x:Name="NewTextEditor"' src/DBVC.Vsix/UI/ViewChangesControl.xaml
@@ -1030,7 +1030,7 @@ grep -c 'x:Name="OldTextEditor"\|x:Name="NewTextEditor"' src/DBVC.Vsix/UI/ViewCh
 
 Expected: `2`
 
-- [ ] **Step 4: 전체 테스트로 회귀 확인**
+- [x] **Step 4: 전체 테스트로 회귀 확인**
 
 ```bash
 dotnet test DBVC.slnx -f net10.0
@@ -1038,7 +1038,7 @@ dotnet test DBVC.slnx -f net10.0
 
 Expected: 전부 통과
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/UI/ViewChangesControl.xaml
@@ -1058,7 +1058,7 @@ git commit -m "feat(vsix): Pull 버튼과 History 탭 배치
 **Interfaces:**
 - Consumes: Task 1~4의 최종 동작
 
-- [ ] **Step 1: 주요 기능 목록에 두 항목을 추가**
+- [x] **Step 1: 주요 기능 목록에 두 항목을 추가**
 
 `README.md`의 "SQL 에디터 컨텍스트 메뉴" 항목(주요 기능 목록의 마지막) 다음에 두 줄을 추가한다.
 
@@ -1067,7 +1067,7 @@ git commit -m "feat(vsix): Pull 버튼과 History 탭 배치
 - **객체 이력:** 선택한 객체의 커밋 이력(날짜·작성자·메시지·SHA)을 하단 History 탭에서 확인할 수 있습니다.
 ```
 
-- [ ] **Step 2: 기능 커버리지 문구를 갱신**
+- [x] **Step 2: 기능 커버리지 문구를 갱신**
 
 `README.md`의 "### 기능 커버리지" 절 첫 문장을 다음으로 바꾼다.
 
@@ -1075,7 +1075,7 @@ git commit -m "feat(vsix): Pull 버튼과 History 탭 배치
 14개 MVP 기능 중 13개가 구현되어 있습니다. **Object Explorer 상태 아이콘 오버레이(Feature 10)는 미구현**입니다.
 ```
 
-- [ ] **Step 3: 사용법에 Pull과 이력 확인을 추가**
+- [x] **Step 3: 사용법에 Pull과 이력 확인을 추가**
 
 `README.md`의 "6. **Git 커밋:**" 항목 다음에 두 항목을 추가한다.
 
@@ -1084,7 +1084,7 @@ git commit -m "feat(vsix): Pull 버튼과 History 탭 배치
 8. **객체 이력 확인:** 목록에서 객체를 선택하고 하단의 **History** 탭을 열면 그 객체의 `.sql` 파일을 변경한 커밋들이 최신순으로 표시됩니다.
 ```
 
-- [ ] **Step 4: 문서가 실제 동작과 맞는지 확인**
+- [x] **Step 4: 문서가 실제 동작과 맞는지 확인**
 
 `README.md`를 처음부터 끝까지 읽고 다음을 확인한다.
 
@@ -1097,7 +1097,7 @@ dotnet test DBVC.slnx -f net10.0
 
 Expected: 전부 통과 (문서 변경이 테스트에 영향을 주지 않음을 확인)
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add README.md
@@ -1112,14 +1112,14 @@ MVP 14개 중 13개 구현 상태를 반영한다."
 
 CI가 검증하지 못하는 항목이다. Windows + SSMS 21 환경에서 확인한다.
 
-- [ ] 작업 트리가 깨끗한 상태에서 Pull → 확인 없이 실행되고 완료 알림이 뜬다
-- [ ] Refresh 후(추출물이 남은 상태) Pull → 무엇이 사라질 수 있는지 확인 대화상자가 뜬다
-- [ ] 그 대화상자에서 취소 → 아무 일도 일어나지 않는다
-- [ ] 작업 트리가 더러운 상태에서, 그 변경이 원격의 들어오는 변경과 **같은 파일**을 건드릴 때 Pull → 확인 대화상자에서 계속 → 실제로 무슨 일이 일어나는지(성공/거부/충돌 후 되돌림)와 그 결과 메시지가 이해할 수 있는 내용인지 확인한다
-- [ ] 원격이 없는 저장소에서 Pull → 오류 메시지가 뜨고 아무것도 바뀌지 않는다
-- [ ] Pull 성공 직후 목록이 자동으로 새로고침되지 **않는다** (받은 변경이 유지된다)
-- [ ] 확인·완료 대화상자가 SSMS 창 뒤로 숨지 않는다
-- [ ] 객체를 선택하고 History 탭 → 커밋 목록이 최신순으로 보인다
-- [ ] 이력이 없는 신규 객체를 선택 → "이력이 없습니다."가 보인다
-- [ ] History 탭에서 Diff 탭으로 돌아가면 배경색 강조가 그대로 보인다 (`TabControl`이 비활성 탭 콘텐츠를 시각 트리에서 분리하므로 확인이 필요하다)
-- [ ] 도구 창을 좁게 도킹 → 액션 영역 버튼이 잘리지 않고 줄바꿈된다
+- [x] 작업 트리가 깨끗한 상태에서 Pull → 확인 없이 실행되고 완료 알림이 뜬다
+- [x] Refresh 후(추출물이 남은 상태) Pull → 무엇이 사라질 수 있는지 확인 대화상자가 뜬다
+- [x] 그 대화상자에서 취소 → 아무 일도 일어나지 않는다
+- [x] 작업 트리가 더러운 상태에서, 그 변경이 원격의 들어오는 변경과 **같은 파일**을 건드릴 때 Pull → 확인 대화상자에서 계속 → 실제로 무슨 일이 일어나는지(성공/거부/충돌 후 되돌림)와 그 결과 메시지가 이해할 수 있는 내용인지 확인한다
+- [x] 원격이 없는 저장소에서 Pull → 오류 메시지가 뜨고 아무것도 바뀌지 않는다
+- [x] Pull 성공 직후 목록이 자동으로 새로고침되지 **않는다** (받은 변경이 유지된다)
+- [x] 확인·완료 대화상자가 SSMS 창 뒤로 숨지 않는다
+- [x] 객체를 선택하고 History 탭 → 커밋 목록이 최신순으로 보인다
+- [x] 이력이 없는 신규 객체를 선택 → "이력이 없습니다."가 보인다
+- [x] History 탭에서 Diff 탭으로 돌아가면 배경색 강조가 그대로 보인다 (`TabControl`이 비활성 탭 콘텐츠를 시각 트리에서 분리하므로 확인이 필요하다)
+- [x] 도구 창을 좁게 도킹 → 액션 영역 버튼이 잘리지 않고 줄바꿈된다

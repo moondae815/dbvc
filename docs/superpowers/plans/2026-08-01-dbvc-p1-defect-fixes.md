@@ -1,6 +1,6 @@
 # DBVC P1 결함 수정 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 설계에는 명시되어 있으나 실제로 동작하지 않는 결함 3건(삭제 객체 파일 정리, 매핑 등록 UI, Diff 하이라이팅)을 구현한다.
 
@@ -53,7 +53,7 @@
 
 **배경:** `SmoManager`는 현재 존재하는 객체만 파일로 쓰고, 사라진 객체의 파일은 그대로 둔다. 그래서 `DROP TABLE dbo.Users` 이후에도 `dbo/Tables/Users.sql`이 작업 트리에 남아 Git이 삭제를 감지하지 못하고, 커밋이 "변경사항 없음"으로 끝난다.
 
-- [ ] **Step 1: 인터페이스를 `Abstractions.cs`에 추가**
+- [x] **Step 1: 인터페이스를 `Abstractions.cs`에 추가**
 
 `src/DBVC.Core/Abstractions.cs`의 `ISmoManager` 선언 아래(파일 끝 `}` 두 개 직전)에 추가한다.
 
@@ -68,7 +68,7 @@
     }
 ```
 
-- [ ] **Step 2: 실패하는 테스트를 작성**
+- [x] **Step 2: 실패하는 테스트를 작성**
 
 `tests/DBVC.Core.Tests/WorkingTreeCleanerTests.cs`를 새로 만든다.
 
@@ -292,7 +292,7 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 3: 테스트가 실패하는지 확인**
+- [x] **Step 3: 테스트가 실패하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~WorkingTreeCleanerTests"
@@ -300,7 +300,7 @@ dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~Workin
 
 Expected: 컴파일 실패 — `WorkingTreeCleaner` 형식을 찾을 수 없음(CS0246)
 
-- [ ] **Step 4: `WorkingTreeCleaner`를 구현**
+- [x] **Step 4: `WorkingTreeCleaner`를 구현**
 
 `src/DBVC.Core/WorkingTreeCleaner.cs`를 새로 만든다.
 
@@ -395,7 +395,7 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 5: 테스트가 통과하는지 확인**
+- [x] **Step 5: 테스트가 통과하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~WorkingTreeCleanerTests"
@@ -403,7 +403,7 @@ dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~Workin
 
 Expected: PASS. macOS·Linux에서는 `IsolatesAFailure` 테스트가 `[Platform("Win")]`로 건너뛰어진다(Skipped 1).
 
-- [ ] **Step 6: 전체 테스트로 회귀 확인**
+- [x] **Step 6: 전체 테스트로 회귀 확인**
 
 ```bash
 dotnet test DBVC.slnx -f net10.0
@@ -411,7 +411,7 @@ dotnet test DBVC.slnx -f net10.0
 
 Expected: 기존 219개 + 신규 테스트 전부 통과, 실패 0
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add src/DBVC.Core/WorkingTreeCleaner.cs src/DBVC.Core/Abstractions.cs tests/DBVC.Core.Tests/WorkingTreeCleanerTests.cs
@@ -433,7 +433,7 @@ DDL 로그에 DROP이 기록된 객체만, 경로 규약과 저장소 루트 검
 - Consumes: Task 1의 `IWorkingTreeCleaner.RemoveDeletedObjectFiles(string, IEnumerable<ChangeRecord>)`, `CleanupResult.FailedPaths`, `CleanupResult.HasFailures`
 - Produces: `ViewChangesViewModel` 생성자의 7번째 매개변수 `IWorkingTreeCleaner? cleaner = null`. Task 4가 그 뒤에 8번째 매개변수를 추가한다.
 
-- [ ] **Step 1: 테스트 픽스처에 Mock을 추가**
+- [x] **Step 1: 테스트 픽스처에 Mock을 추가**
 
 `tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs`의 필드 선언부(`private RecordingSaveDialog _saveDialog = null!;` 다음 줄)에 추가한다.
 
@@ -459,7 +459,7 @@ DDL 로그에 DROP이 기록된 객체만, 경로 규약과 저장소 루트 검
         }
 ```
 
-- [ ] **Step 2: 실패하는 테스트를 작성**
+- [x] **Step 2: 실패하는 테스트를 작성**
 
 같은 파일에서 `// ---------- Commit ----------` 주석 바로 앞에 추가한다.
 
@@ -504,7 +504,7 @@ DDL 로그에 DROP이 기록된 객체만, 경로 규약과 저장소 루트 검
         }
 ```
 
-- [ ] **Step 3: 테스트가 실패하는지 확인**
+- [x] **Step 3: 테스트가 실패하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewChangesViewModelTests"
@@ -512,7 +512,7 @@ dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewCh
 
 Expected: 컴파일 실패 — `ViewChangesViewModel` 생성자가 7개 인수를 받지 않음(CS1729)
 
-- [ ] **Step 4: ViewModel에 정리 단계를 추가**
+- [x] **Step 4: ViewModel에 정리 단계를 추가**
 
 `src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs`에서 세 곳을 고친다.
 
@@ -566,7 +566,7 @@ Expected: 컴파일 실패 — `ViewChangesViewModel` 생성자가 7개 인수�
                 foreach (var record in _lastChangeRecords)
 ```
 
-- [ ] **Step 5: 테스트가 통과하는지 확인**
+- [x] **Step 5: 테스트가 통과하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewChangesViewModelTests"
@@ -574,7 +574,7 @@ dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewCh
 
 Expected: PASS (신규 3개 포함, 기존 테스트 회귀 없음)
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
@@ -596,7 +596,7 @@ git commit -m "fix(vsix): Refresh가 DROP된 객체의 작업 트리 파일을 �
 **Interfaces:**
 - Produces: `bool IGitManager.IsRepository(string path)` — Task 4의 매핑 등록이 저장할 폴더를 검증할 때 쓴다.
 
-- [ ] **Step 1: 실패하는 테스트를 작성**
+- [x] **Step 1: 실패하는 테스트를 작성**
 
 `tests/DBVC.Core.Tests/GitManagerTests.cs`에서 `// ---------- GetChangedFiles ----------` 주석 바로 앞에 추가한다.
 
@@ -628,7 +628,7 @@ git commit -m "fix(vsix): Refresh가 DROP된 객체의 작업 트리 파일을 �
         }
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인**
+- [x] **Step 2: 테스트가 실패하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~GitManagerTests.IsRepository"
@@ -636,7 +636,7 @@ dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~GitMan
 
 Expected: 컴파일 실패 — `GitManager`에 `IsRepository` 정의가 없음(CS1061)
 
-- [ ] **Step 3: 인터페이스와 구현을 추가**
+- [x] **Step 3: 인터페이스와 구현을 추가**
 
 `src/DBVC.Core/Abstractions.cs`의 `IGitManager` 안, `string GetStatus(string repoPath);` 앞에 추가:
 
@@ -653,7 +653,7 @@ Expected: 컴파일 실패 — `GitManager`에 `IsRepository` 정의가 없음(C
         public bool IsRepository(string path) => IsValidRepository(path);
 ```
 
-- [ ] **Step 4: 테스트가 통과하는지 확인**
+- [x] **Step 4: 테스트가 통과하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~GitManagerTests"
@@ -661,7 +661,7 @@ dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~GitMan
 
 Expected: PASS
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Core/Abstractions.cs src/DBVC.Core/GitManager.cs tests/DBVC.Core.Tests/GitManagerTests.cs
@@ -690,7 +690,7 @@ git commit -m "feat(core): IGitManager에 IsRepository 노출
 
 **배경:** `AddMapping`/`RemoveMapping`은 코어와 테스트에서만 호출된다. UI에 등록 경로가 없어 사용자는 `%APPDATA%\DBVC\mappings.json`을 손으로 만들어야 하고, 그전까지 플러그인은 아무 일도 하지 못한다.
 
-- [ ] **Step 1: 폴더 선택 추상화를 작성**
+- [x] **Step 1: 폴더 선택 추상화를 작성**
 
 `src/DBVC.Vsix/Services/IFolderBrowseDialog.cs`를 새로 만든다.
 
@@ -726,7 +726,7 @@ namespace DBVC.Vsix.Services
 }
 ```
 
-- [ ] **Step 2: csproj에 `System.Windows.Forms` 참조를 추가**
+- [x] **Step 2: csproj에 `System.Windows.Forms` 참조를 추가**
 
 `src/DBVC.Vsix/DBVC.Vsix.csproj`의 프레임워크 어셈블리 `ItemGroup`에 한 줄 추가한다.
 
@@ -740,7 +740,7 @@ namespace DBVC.Vsix.Services
   </ItemGroup>
 ```
 
-- [ ] **Step 3: 실패하는 테스트를 작성**
+- [x] **Step 3: 실패하는 테스트를 작성**
 
 `tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs`의 필드 선언부에 추가:
 
@@ -841,7 +841,7 @@ namespace DBVC.Vsix.Services
         }
 ```
 
-- [ ] **Step 4: 테스트가 실패하는지 확인**
+- [x] **Step 4: 테스트가 실패하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewChangesViewModelTests"
@@ -849,7 +849,7 @@ dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewCh
 
 Expected: 컴파일 실패 — `ConnectRepositoryCommand` 정의 없음(CS1061), 생성자 인수 개수 불일치(CS1729)
 
-- [ ] **Step 5: ViewModel에 명령을 구현**
+- [x] **Step 5: ViewModel에 명령을 구현**
 
 `src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs`에서 다섯 곳을 고친다.
 
@@ -919,7 +919,7 @@ Expected: 컴파일 실패 — `ConnectRepositoryCommand` 정의 없음(CS1061),
         }
 ```
 
-- [ ] **Step 6: `CanExecute` 재평가에 새 명령을 포함**
+- [x] **Step 6: `CanExecute` 재평가에 새 명령을 포함**
 
 같은 파일 하단의 `RaiseCommitCanExecuteChanged`를 이름과 내용 모두 바꾼다. 커밋 전용이 아니게 되었으므로 이름을 맞춘다.
 
@@ -942,7 +942,7 @@ grep -n "RaiseCommitCanExecuteChanged" src/DBVC.Vsix/ViewModels/ViewChangesViewM
 `IsMapped` setter, `CommitMessage` setter, `Refresh()`의 시작과 끝, `RaiseConnectCanExecuteChanged()` — 총 5곳이 나온다.
 전부 `RaiseActionCanExecuteChanged()`로 바꾼 뒤 같은 grep을 다시 돌려 결과가 비었는지 확인한다.
 
-- [ ] **Step 7: 테스트가 통과하는지 확인**
+- [x] **Step 7: 테스트가 통과하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewChangesViewModelTests"
@@ -950,7 +950,7 @@ dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~ViewCh
 
 Expected: PASS (신규 4개 포함)
 
-- [ ] **Step 8: 전체 빌드와 테스트로 회귀 확인**
+- [x] **Step 8: 전체 빌드와 테스트로 회귀 확인**
 
 ```bash
 dotnet build DBVC.slnx && dotnet test DBVC.slnx -f net10.0
@@ -958,7 +958,7 @@ dotnet build DBVC.slnx && dotnet test DBVC.slnx -f net10.0
 
 Expected: 빌드 성공, 테스트 전부 통과
 
-- [ ] **Step 9: 커밋**
+- [x] **Step 9: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/Services/IFolderBrowseDialog.cs src/DBVC.Vsix/DBVC.Vsix.csproj src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
@@ -982,7 +982,7 @@ git commit -m "feat(vsix): DB에 Git 저장소를 매핑하는 ConnectRepository
 
 이 태스크에는 자동화 테스트가 없다. WPF 레이아웃은 CI에서 검증할 수 없으며, README가 이미 "CI로 검증되지 않는 것"으로 분류한 범주다.
 
-- [ ] **Step 1: XAML을 교체**
+- [x] **Step 1: XAML을 교체**
 
 `src/DBVC.Vsix/UI/ViewChangesControl.xaml` 전체를 다음으로 바꾼다.
 
@@ -1095,7 +1095,7 @@ git commit -m "feat(vsix): DB에 Git 저장소를 매핑하는 ConnectRepository
 </UserControl>
 ```
 
-- [ ] **Step 2: 빌드가 통과하는지 확인**
+- [x] **Step 2: 빌드가 통과하는지 확인**
 
 ```bash
 dotnet build DBVC.slnx
@@ -1103,7 +1103,7 @@ dotnet build DBVC.slnx
 
 Expected: 빌드 성공. `x:Name` 두 개(`OldTextEditor`, `NewTextEditor`)가 유지되어야 코드비하인드가 컴파일된다.
 
-- [ ] **Step 3: 전체 테스트로 회귀 확인**
+- [x] **Step 3: 전체 테스트로 회귀 확인**
 
 ```bash
 dotnet test DBVC.slnx -f net10.0
@@ -1111,7 +1111,7 @@ dotnet test DBVC.slnx -f net10.0
 
 Expected: 전부 통과
 
-- [ ] **Step 4: 커밋**
+- [x] **Step 4: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/UI/ViewChangesControl.xaml
@@ -1136,7 +1136,7 @@ git commit -m "feat(vsix): 경고 배너를 최상위로 올리고 저장소 연
   - `class DiffPane { string Text; IReadOnlyList<DiffLineKind> LineKinds; }`
   - `static DiffPane DiffTextBuilder.Build(IEnumerable<DiffPiece>? lines)`
 
-- [ ] **Step 1: 실패하는 테스트를 작성**
+- [x] **Step 1: 실패하는 테스트를 작성**
 
 `tests/DBVC.Vsix.Tests/Services/DiffTextBuilderTests.cs`를 새로 만든다.
 
@@ -1222,7 +1222,7 @@ namespace DBVC.Vsix.Tests.Services
 }
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인**
+- [x] **Step 2: 테스트가 실패하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~DiffTextBuilderTests"
@@ -1230,7 +1230,7 @@ dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~DiffTe
 
 Expected: 컴파일 실패 — `DiffTextBuilder`, `DiffPane`, `DiffLineKind` 형식을 찾을 수 없음(CS0246)
 
-- [ ] **Step 3: `DiffTextBuilder`를 구현**
+- [x] **Step 3: `DiffTextBuilder`를 구현**
 
 `src/DBVC.Vsix/Services/DiffTextBuilder.cs`를 새로 만든다.
 
@@ -1304,7 +1304,7 @@ namespace DBVC.Vsix.Services
 }
 ```
 
-- [ ] **Step 4: 테스트가 통과하는지 확인**
+- [x] **Step 4: 테스트가 통과하는지 확인**
 
 ```bash
 dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~DiffTextBuilderTests"
@@ -1312,7 +1312,7 @@ dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~DiffTe
 
 Expected: PASS
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/Services/DiffTextBuilder.cs tests/DBVC.Vsix.Tests/Services/DiffTextBuilderTests.cs
@@ -1338,7 +1338,7 @@ Imaginary 줄을 빈 줄로 만들어 좌우를 정렬한다.
 
 이 태스크의 렌더링·스크롤 동기화는 WPF 런타임이 필요해 자동화 테스트 대상이 아니다. 빌드 통과와 기존 테스트 회귀 없음까지 확인한 뒤, SSMS 21에서 수동 검증한다.
 
-- [ ] **Step 1: 배경 렌더러를 작성**
+- [x] **Step 1: 배경 렌더러를 작성**
 
 `src/DBVC.Vsix/UI/DiffLineBackgroundRenderer.cs`를 새로 만든다.
 
@@ -1430,7 +1430,7 @@ namespace DBVC.Vsix.UI
 }
 ```
 
-- [ ] **Step 2: 컨트롤을 Diff 모델에 연결하고 스크롤을 동기화**
+- [x] **Step 2: 컨트롤을 Diff 모델에 연결하고 스크롤을 동기화**
 
 `src/DBVC.Vsix/UI/ViewChangesControl.xaml.cs` 전체를 다음으로 바꾼다.
 
@@ -1535,7 +1535,7 @@ namespace DBVC.Vsix.UI
 }
 ```
 
-- [ ] **Step 3: 빌드가 통과하는지 확인**
+- [x] **Step 3: 빌드가 통과하는지 확인**
 
 ```bash
 dotnet build DBVC.slnx
@@ -1543,7 +1543,7 @@ dotnet build DBVC.slnx
 
 Expected: 빌드 성공
 
-- [ ] **Step 4: 전체 테스트로 회귀 확인**
+- [x] **Step 4: 전체 테스트로 회귀 확인**
 
 ```bash
 dotnet test DBVC.slnx -f net10.0
@@ -1551,7 +1551,7 @@ dotnet test DBVC.slnx -f net10.0
 
 Expected: 전부 통과. `DiffServiceTests`가 여전히 통과해야 한다 — `GetDiffModel`의 계약은 바뀌지 않았고 호출자만 늘었다.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/UI/DiffLineBackgroundRenderer.cs src/DBVC.Vsix/UI/ViewChangesControl.xaml.cs
@@ -1573,7 +1573,7 @@ git commit -m "feat(vsix): Diff 줄 배경 강조와 좌우 스크롤 동기화
 **Interfaces:**
 - Consumes: Task 1~7의 최종 동작
 
-- [ ] **Step 1: README의 Diff 설명을 실제 동작에 맞춤**
+- [x] **Step 1: README의 Diff 설명을 실제 동작에 맞춤**
 
 `README.md` 11행의 `AvalonEdit`/`DiffPlex` 항목을 다음으로 바꾼다.
 
@@ -1581,7 +1581,7 @@ git commit -m "feat(vsix): Diff 줄 배경 강조와 좌우 스크롤 동기화
   - `AvalonEdit` 및 `DiffPlex`를 활용하여 변경 전(Old)과 변경 후(New)의 SQL 코드를 T-SQL 문법 하이라이팅이 적용된 좌우 분할(Side-by-Side) 뷰로 비교할 수 있습니다. 추가·삭제·수정된 줄은 배경색으로 구분되며, 좌우 줄이 정렬되고 스크롤이 함께 움직입니다.
 ```
 
-- [ ] **Step 2: README 사용법에 매핑 등록 단계를 추가**
+- [x] **Step 2: README 사용법에 매핑 등록 단계를 추가**
 
 `README.md`의 "2. **대상 데이터베이스 지정:**" 항목 전체를 다음 두 항목으로 바꾼다. 이후 항목 번호(3~5)를 4~6으로 하나씩 올린다.
 
@@ -1590,7 +1590,7 @@ git commit -m "feat(vsix): Diff 줄 배경 강조와 좌우 스크롤 동기화
 3. **Git 저장소 연결:** 해당 데이터베이스가 Git 저장소에 매핑되어 있지 않으면 경고 배너가 나타나고 커밋이 비활성화됩니다. 배너의 **"저장소 연결..."** 버튼을 눌러 스크립트를 보관할 폴더를 지정하세요. 이미 `git init`된 폴더여야 하며, 아니면 오류가 표시되고 매핑되지 않습니다. 매핑은 `%APPDATA%\DBVC\mappings.json`에 저장됩니다.
 ```
 
-- [ ] **Step 3: README에 삭제 객체 처리를 명시**
+- [x] **Step 3: README에 삭제 객체 처리를 명시**
 
 `README.md`의 "5. **Git 커밋:**"(Step 2에서 번호가 6이 된 항목) 뒤에 문장을 덧붙인다.
 
@@ -1598,7 +1598,7 @@ git commit -m "feat(vsix): Diff 줄 배경 강조와 좌우 스크롤 동기화
    데이터베이스에서 삭제(DROP)된 객체는 새로고침 시 해당 `.sql` 파일이 저장소에서 함께 제거되므로, 커밋하면 삭제가 그대로 형상 관리에 반영됩니다.
 ```
 
-- [ ] **Step 4: view-changes 설계에 매핑 등록 흐름과 배너 위치를 반영**
+- [x] **Step 4: view-changes 설계에 매핑 등록 흐름과 배너 위치를 반영**
 
 `docs/superpowers/specs/2026-07-31-dbvc-view-changes-design.md`의 `## Error Handling` 절 마지막 항목(`If ConfigManager cannot resolve a mapping...`)을 다음으로 바꾼다.
 
@@ -1606,7 +1606,7 @@ git commit -m "feat(vsix): Diff 줄 배경 강조와 좌우 스크롤 동기화
 - If `ConfigManager` cannot resolve a mapping for the active database, a warning banner is shown above the content area ("Active Database is not mapped to a Git repository.") and commit actions are disabled. The banner also carries a **"저장소 연결..."** button that prompts for a folder, verifies it is a valid Git repository via `IGitManager.IsRepository`, and registers the mapping through `ConfigManager.AddMapping`. The banner sits outside the initialization overlay so that an uninitialized database can still be mapped.
 ```
 
-- [ ] **Step 5: core-engine 설계에 작업 트리 정리 규칙을 추가**
+- [x] **Step 5: core-engine 설계에 작업 트리 정리 규칙을 추가**
 
 `docs/superpowers/specs/2026-07-31-dbvc-core-engine-design.md`의 `### 3.1. SmoManager (객체 스크립팅)` 절 바로 뒤, `### 3.2. GitManager (Git 제어)` 앞에 절을 삽입한다.
 
@@ -1630,7 +1630,7 @@ git commit -m "feat(vsix): Diff 줄 배경 강조와 좌우 스크롤 동기화
 트리거 설치 이전에 삭제된 객체는 로그에 근거가 없어 자동 정리 대상이 아니다.
 ```
 
-- [ ] **Step 6: 문서가 실제 동작과 맞는지 확인**
+- [x] **Step 6: 문서가 실제 동작과 맞는지 확인**
 
 ```bash
 dotnet test DBVC.slnx -f net10.0
@@ -1638,7 +1638,7 @@ dotnet test DBVC.slnx -f net10.0
 
 Expected: 전부 통과. 그리고 README·설계 문서에 남은 진술 중 코드와 어긋나는 것이 없는지 눈으로 확인한다.
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add README.md docs/superpowers/specs/2026-07-31-dbvc-view-changes-design.md docs/superpowers/specs/2026-07-31-dbvc-core-engine-design.md
@@ -1653,11 +1653,11 @@ Diff 강조 동작, 저장소 매핑 등록 절차, 삭제된 객체의 작업 �
 
 CI가 검증하지 못하는 항목이다. Windows + SSMS 21 환경에서 확인한다.
 
-- [ ] 매핑되지 않은 DB를 Connect → 경고 배너와 "저장소 연결..." 버튼이 보인다
-- [ ] 버튼 → 폴더 선택 → git init된 폴더를 고르면 매핑되고 목록이 채워진다
-- [ ] git init되지 않은 폴더를 고르면 오류가 뜨고 매핑되지 않는다
-- [ ] 초기화되지 않은 DB에서도 배너와 버튼이 보인다 (Setup 오버레이가 가리지 않는다)
-- [ ] 객체를 수정하고 Refresh → 항목 선택 시 변경 줄이 색으로 구분되고 좌우가 정렬된다
-- [ ] 한쪽을 스크롤하면 반대쪽이 함께 움직인다
-- [ ] `DROP TABLE`한 뒤 Refresh → 목록에 `Deleted`로 뜨고 저장소의 `.sql` 파일이 사라진다
-- [ ] 그 항목을 체크하고 Commit → 삭제가 커밋되고 목록에서 사라진다
+- [x] 매핑되지 않은 DB를 Connect → 경고 배너와 "저장소 연결..." 버튼이 보인다
+- [x] 버튼 → 폴더 선택 → git init된 폴더를 고르면 매핑되고 목록이 채워진다
+- [x] git init되지 않은 폴더를 고르면 오류가 뜨고 매핑되지 않는다
+- [x] 초기화되지 않은 DB에서도 배너와 버튼이 보인다 (Setup 오버레이가 가리지 않는다)
+- [x] 객체를 수정하고 Refresh → 항목 선택 시 변경 줄이 색으로 구분되고 좌우가 정렬된다
+- [x] 한쪽을 스크롤하면 반대쪽이 함께 움직인다
+- [x] `DROP TABLE`한 뒤 Refresh → 목록에 `Deleted`로 뜨고 저장소의 `.sql` 파일이 사라진다
+- [x] 그 항목을 체크하고 Commit → 삭제가 커밋되고 목록에서 사라진다

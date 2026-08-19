@@ -1,6 +1,6 @@
 # Push 버튼 활성화 로직 개선 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 로컬 저장소에 원격으로 보낼 커밋이 있을 때만 Push 버튼을 활성화한다.
 
@@ -29,7 +29,7 @@
 **Interfaces:**
 - Produces: `bool HasCommitsToPush(string serverName, string databaseName)` in `IGitManager`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `tests/DBVC.Core.Tests/GitManagerTests.cs` 파일에 `PushChanges_` 테스트 근처에 다음 테스트를 추가합니다.
 
@@ -62,12 +62,12 @@
         }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/DBVC.Core.Tests --filter "FullyQualifiedName~HasCommitsToPush"`
 Expected: FAIL (Cannot resolve symbol 'HasCommitsToPush')
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 `src/DBVC.Core/Abstractions.cs`의 `IGitManager`에 인터페이스 추가:
 ```csharp
@@ -98,12 +98,12 @@ Expected: FAIL (Cannot resolve symbol 'HasCommitsToPush')
         }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/DBVC.Core.Tests --filter "FullyQualifiedName~HasCommitsToPush"`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/DBVC.Core/Abstractions.cs src/DBVC.Core/GitManager.cs tests/DBVC.Core.Tests/GitManagerTests.cs
@@ -121,7 +121,7 @@ git commit -m "feat(core): HasCommitsToPush 메서드 추가"
 **Interfaces:**
 - Consumes: `_gitManager.HasCommitsToPush(...)`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs`에 `Push` 명령의 `CanExecute`를 검증하는 테스트 추가:
 
@@ -155,12 +155,12 @@ git commit -m "feat(core): HasCommitsToPush 메서드 추가"
 
 *참고: 위 테스트 코드는 현재 코드베이스의 비동기 헬퍼 동작을 고려하여 다듬어 적용해야 할 수도 있습니다.* 보다 안정적인 테스트를 위해 `vm.PushCommand.CanExecute(null)` 상태를 확인합니다.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests --filter "FullyQualifiedName~PushCommand_CanExecute_OnlyWhenHasCommitsToPushIsTrue"`
 Expected: FAIL (기존 로직은 HasCommitsToPush를 보지 않고 항상 True를 반환하므로 첫 번째 Assert에서 실패)
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 `src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs`의 `CanPush` 메서드를 수정:
 
@@ -168,12 +168,12 @@ Expected: FAIL (기존 로직은 HasCommitsToPush를 보지 않고 항상 True�
         private bool CanPush() => HasContext && IsMapped && _gitManager.HasCommitsToPush(ServerName!, DatabaseName!);
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests --filter "FullyQualifiedName~PushCommand_CanExecute_OnlyWhenHasCommitsToPushIsTrue"`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
