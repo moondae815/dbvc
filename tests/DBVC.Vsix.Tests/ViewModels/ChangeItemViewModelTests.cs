@@ -66,5 +66,31 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(item.StateText, Is.EqualTo(string.Empty));
         }
+
+        [TestCase("PROCEDURE", "SP")]
+        [TestCase("FUNCTION", "UDF")]
+        [TestCase("TABLE", "Table")]
+        [TestCase("VIEW", "View")]
+        [TestCase("TRIGGER", "Trigger")]
+        [TestCase("procedure", "SP")]
+        public void ObjectTypeText_TranslatesTheCoreObjectType(string type, string expected)
+        {
+            var item = new ChangeItemViewModel { ObjectType = type };
+            Assert.That(item.ObjectTypeText, Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void ObjectTypeText_PassesThroughAnUnknownType_TitleCased()
+        {
+            var item = new ChangeItemViewModel { ObjectType = "SYNONYM" };
+            Assert.That(item.ObjectTypeText, Is.EqualTo("Synonym"));
+        }
+
+        [Test]
+        public void ObjectTypeText_IsEmpty_WhenObjectTypeIsNull()
+        {
+            var item = new ChangeItemViewModel { ObjectType = null };
+            Assert.That(item.ObjectTypeText, Is.EqualTo(string.Empty));
+        }
     }
 }

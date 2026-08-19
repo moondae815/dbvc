@@ -20,6 +20,28 @@ namespace DBVC.Vsix.ViewModels
         }
 
         public string? ObjectName { get; set; }
+        public string? ObjectType { get; set; }
+
+        public string ObjectTypeText
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(ObjectType))
+                    return string.Empty;
+
+                var upperType = ObjectType!.Trim().ToUpperInvariant();
+                return upperType switch
+                {
+                    "PROCEDURE" => "SP",
+                    "FUNCTION" => "UDF",
+                    "TABLE" => "Table",
+                    "VIEW" => "View",
+                    "TRIGGER" => "Trigger",
+                    _ => char.ToUpper(upperType[0]) + upperType.Substring(1).ToLowerInvariant()
+                };
+            }
+        }
+
         public string? State { get; set; } // "Modified", "Added", "Deleted"
 
         /// <summary>
