@@ -60,5 +60,20 @@ namespace DBVC.Core.Tests
                 "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'LowPrivTable'");
             Assert.That(Convert.ToInt32(logged), Is.EqualTo(1), "DDL은 성공했는데 로그가 남지 않았습니다");
         }
+
+        [Test]
+        public void Trigger_DoesNotLogEvents_ForObjectTypesDbvcCannotScript()
+        {
+            // 사용자·권한 이벤트는 파일이 만들어질 수 없어 목록에 대응하는 .sql이 없는 항목으로 남는다.
+            // 그 항목만 체크해 커밋하면 "커밋할 변경사항이 없습니다"만 나오고 영원히 사라지지 않는다.
+            _db!.ExecuteInOneSession(
+                "CREATE USER dbvc_ghost_t2 WITHOUT LOGIN",
+                "GRANT SELECT TO dbvc_ghost_t2");
+
+            var ghosts = _db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE ObjectType IN (N'USER', N'DATABASE')");
+
+            Assert.That(Convert.ToInt32(ghosts), Is.Zero);
+        }
     }
 }

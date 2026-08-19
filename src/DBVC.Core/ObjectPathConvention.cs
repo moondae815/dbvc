@@ -13,9 +13,9 @@ namespace DBVC.Core
         public const string DefaultSchema = "dbo";
         public const string UnknownFolder = "Other";
 
-        private static readonly Dictionary<string, string> FolderByObjectType = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        /// <summary>SMO가 내놓는 타입명. 추출 경로가 쓴다.</summary>
+        private static readonly Dictionary<string, string> SmoFolderByObjectType = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            // SMO 타입명
             ["Table"] = "Tables",
             ["View"] = "Views",
             ["StoredProcedure"] = "StoredProcedures",
@@ -25,9 +25,16 @@ namespace DBVC.Core
             ["UserDefinedDataType"] = "Types",
             ["UserDefinedTableType"] = "TableTypes",
             ["Sequence"] = "Sequences",
-            ["Synonym"] = "Synonyms",
+            ["Synonym"] = "Synonyms"
+        };
 
-            // DDL 트리거 EVENTDATA의 ObjectType 값
+        /// <summary>
+        /// DDL 트리거 EVENTDATA의 ObjectType 값. <b>설치 스크립트의 DBVC_TRACKED_TYPES와 같은 목록이어야
+        /// 하며</b>, 어긋나면 InstallScriptSyncTests가 죽는다 — 트리거가 기록하지 않는 타입을 여기 두면
+        /// 화면 코드가 영원히 오지 않는 값을 기다리고, 반대면 파일이 없는 항목이 목록에 뜬다.
+        /// </summary>
+        private static readonly Dictionary<string, string> DdlFolderByObjectType = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
             ["TABLE"] = "Tables",
             ["VIEW"] = "Views",
             ["PROCEDURE"] = "StoredProcedures",
@@ -46,10 +53,15 @@ namespace DBVC.Core
             ["SYNONYM"] = "Synonyms"
         };
 
+        /// <summary>설치 스크립트의 화이트리스트와 대조되는 목록. INDEX는 여기 없다 — 독립 객체로 저장되지 않고 부모 테이블로 정규화된다.</summary>
+        internal static IReadOnlyCollection<string> DdlEventObjectTypes => DdlFolderByObjectType.Keys.ToList();
+
         public static string GetFolderName(string? objectType)
         {
             if (string.IsNullOrWhiteSpace(objectType)) return UnknownFolder;
-            return FolderByObjectType.TryGetValue(objectType!.Trim(), out var folder) ? folder : UnknownFolder;
+            var key = objectType!.Trim();
+            if (SmoFolderByObjectType.TryGetValue(key, out var smoFolder)) return smoFolder;
+            return DdlFolderByObjectType.TryGetValue(key, out var ddlFolder) ? ddlFolder : UnknownFolder;
         }
 
         /// <summary>
