@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Collections.Generic;
 using System.IO;
@@ -1776,6 +1776,153 @@ namespace DBVC.Vsix.Tests.ViewModels
             scheduler.RunPending();
 
             _git.Verify(g => g.CommitChanges(Server, Database, "첫 커밋", It.IsAny<IEnumerable<string>>()), Times.Once);
+        }
+
+        // ---------- Pull·Push도 UI 스레드 밖에서 ----------
+        //
+        // 이 둘은 네트워크와 ssh 프로세스가 걸리는 구간이다. 원격이 응답하지 않으면 그동안
+        // SSMS 전체가 멈춘다. 새로고침·커밋과 같은 이유로 스케줄러를 타야 한다.
+
+        [Test]
+        public void Pull_HandsTheNetworkWorkToTheScheduler()
+        {
+            var scheduler = new DeferredScheduler();
+            var vm = NewConnectedViewModel(scheduler);
+            _git.Invocations.Clear();
+
+            vm.PullCommand.Execute(null);
+
+            _git.Verify(g => g.PullChanges(It.IsAny<string>(), It.IsAny<string>()), Times.Never,
+                "Pull은 호출자(UI) 스레드가 아니라 스케줄러에 넘겨야 한다");
+
+            scheduler.RunPending();
+
+            _git.Verify(g => g.PullChanges(Server, Database), Times.Once);
+        }
+
+        [Test]
+        public void IsBusy_IsTrueWhilePullWorkIsOutstanding()
+        {
+            var scheduler = new DeferredScheduler();
+            var vm = NewConnectedViewModel(scheduler);
+
+            vm.PullCommand.Execute(null);
+            Assert.That(vm.IsBusy, Is.True);
+
+            scheduler.RunPending();
+            Assert.That(vm.IsBusy, Is.False);
+        }
+
+        [Test]
+        public void PullCommand_CannotExecute_WhileWorkIsOutstanding()
+        {
+            var scheduler = new DeferredScheduler();
+            var vm = NewConnectedViewModel(scheduler);
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(vm.PullCommand.CanExecute(null), Is.False,
+                "병합과 추출이 같은 작업 트리를 동시에 건드리면 안 된다");
+
+            scheduler.RunPending();
+            Assert.That(vm.PullCommand.CanExecute(null), Is.True);
+        }
+
+        [Test]
+        public void Pull_ReleasesBusyAndReportsError_WhenBackgroundWorkThrows()
+        {
+            var scheduler = new DeferredScheduler();
+            var vm = NewConnectedViewModel(scheduler);
+            _git.Setup(g => g.PullChanges(Server, Database)).Throws(new InvalidOperationException("원격이 폭발"));
+
+            vm.PullCommand.Execute(null);
+            scheduler.RunPending();
+
+            Assert.That(_notifier.ErrorCalls, Has.Some.Matches<(string Title, string Message)>(
+                c => c.Title == "DBVC Pull 실패" && c.Message.Contains("원격이 폭발")));
+            Assert.That(vm.IsBusy, Is.False, "실패해도 잠금이 풀려야 다시 시도할 수 있다");
+        }
+
+        [Test]
+        public void Pull_KeepsTheInterruptionWording_WhenTheBackgroundMergeConflicts()
+        {
+            // 갈래별 제목이 스케줄러를 거치면서 뭉개지면 사용자는 '중단'과 '실패'를 구분하지 못한다.
+            var scheduler = new DeferredScheduler();
+            var vm = NewConnectedViewModel(scheduler);
+            _git.Setup(g => g.PullChanges(Server, Database)).Throws(new MergeConflictException("충돌이 나서 되돌렸습니다"));
+
+            vm.PullCommand.Execute(null);
+            scheduler.RunPending();
+
+            Assert.That(_notifier.ErrorCalls, Has.Some.Matches<(string Title, string Message)>(
+                c => c.Title == "DBVC Pull 중단" && c.Message.Contains("충돌이 나서 되돌렸습니다")));
+            Assert.That(vm.IsBusy, Is.False);
+        }
+
+        [Test]
+        public void Push_HandsTheNetworkWorkToTheScheduler()
+        {
+            var scheduler = new DeferredScheduler();
+            _git.Setup(g => g.HasCommitsToPush(Server, Database)).Returns(true);
+            var vm = NewConnectedViewModel(scheduler);
+            _git.Invocations.Clear();
+
+            vm.PushCommand.Execute(null);
+
+            _git.Verify(g => g.PushChanges(It.IsAny<string>(), It.IsAny<string>()), Times.Never,
+                "Push는 호출자(UI) 스레드가 아니라 스케줄러에 넘겨야 한다");
+
+            scheduler.RunPending();
+
+            _git.Verify(g => g.PushChanges(Server, Database), Times.Once);
+        }
+
+        [Test]
+        public void PushCommand_CannotExecute_WhileWorkIsOutstanding()
+        {
+            var scheduler = new DeferredScheduler();
+            _git.Setup(g => g.HasCommitsToPush(Server, Database)).Returns(true);
+            var vm = NewConnectedViewModel(scheduler);
+
+            vm.PushCommand.Execute(null);
+
+            Assert.That(vm.PushCommand.CanExecute(null), Is.False);
+
+            scheduler.RunPending();
+            Assert.That(vm.PushCommand.CanExecute(null), Is.True);
+        }
+
+        [Test]
+        public void Push_ReleasesBusyAndReportsError_WhenBackgroundWorkThrows()
+        {
+            var scheduler = new DeferredScheduler();
+            _git.Setup(g => g.HasCommitsToPush(Server, Database)).Returns(true);
+            var vm = NewConnectedViewModel(scheduler);
+            _git.Setup(g => g.PushChanges(Server, Database)).Throws(new InvalidOperationException("원격이 거부"));
+
+            vm.PushCommand.Execute(null);
+            scheduler.RunPending();
+
+            Assert.That(_notifier.ErrorCalls, Has.Some.Matches<(string Title, string Message)>(
+                c => c.Title == "DBVC Push 실패" && c.Message.Contains("원격이 거부")));
+            Assert.That(vm.IsBusy, Is.False);
+        }
+
+        [Test]
+        public void CancelCommand_IsUnavailable_WhenTheOutstandingWorkCannotBeCancelled()
+        {
+            // Cancel()이 취소하는 것은 추출용 토큰뿐이다. Pull 중에 버튼이 뜨면 눌러도
+            // 아무 일이 없고 "취소하는 중..."만 남는다 — 없는 취소를 있는 척하게 된다.
+            var scheduler = new DeferredScheduler();
+            var vm = NewConnectedViewModel(scheduler);
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(vm.IsBusy, Is.True);
+            Assert.That(vm.CancelCommand.CanExecute(null), Is.False,
+                "취소할 수 없는 작업에 취소 버튼을 보이면 안 된다");
+
+            scheduler.RunPending();
         }
 
         // ---------- 변경분만 추출 ----------

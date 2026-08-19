@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -39,6 +39,15 @@ namespace DBVC.Vsix.ViewModels
 
         /// <summary>진행 중인 추출을 멈추기 위한 것. 작업이 없으면 null이다.</summary>
         private CancellationTokenSource? _extractionCancellation;
+
+        /// <summary>
+        /// 지금 걸려 있는 작업을 <see cref="Cancel"/>이 실제로 멈출 수 있는지.
+        ///
+        /// <see cref="IsBusy"/>만으로 취소 버튼을 띄우면 안 된다. Cancel이 취소하는 것은 추출용
+        /// 토큰뿐인데 연결·커밋·Pull·Push도 IsBusy를 세운다 — 그때 버튼이 뜨면 눌러도 아무 일이
+        /// 없고 "취소하는 중..."만 남는다. 없는 취소를 있는 척하는 버튼보다 없는 편이 정직하다.
+        /// </summary>
+        private bool _cancellableWorkOutstanding;
 
         /// <summary>새로고침 시점의 변경 레코드. 커밋 후 처리 완료 표시에 사용한다.</summary>
         private IReadOnlyList<ChangeRecord> _lastChangeRecords = new List<ChangeRecord>();
@@ -90,7 +99,7 @@ namespace DBVC.Vsix.ViewModels
             // 나중에 끝난 쪽이 먼저 끝난 쪽의 목록을 덮어쓴다.
             RefreshCommand = new RelayCommand(Refresh, () => !IsBusy);
             RefreshAllCommand = new RelayCommand(RefreshAll, () => !IsBusy);
-            CancelCommand = new RelayCommand(Cancel, () => IsBusy);
+            CancelCommand = new RelayCommand(Cancel, () => IsBusy && _cancellableWorkOutstanding);
             SetupCommand = new RelayCommand(Setup, () => !IsBusy);
             CommitCommand = new RelayCommand(Commit, CanCommit);
             ConnectCommand = new RelayCommand(Connect, () => _ssmsConnectionSource != null && !IsBusy);
@@ -517,7 +526,9 @@ namespace DBVC.Vsix.ViewModels
 
         // ---------- Pull ----------
 
-        private bool CanPull() => HasContext && IsMapped;
+        // !IsBusy가 필요하다. 없으면 추출이 도는 중에도 Pull이 눌려 libgit2 병합과 SMO 추출이
+        // 같은 작업 트리를 동시에 건드린다.
+        private bool CanPull() => HasContext && IsMapped && !IsBusy;
 
         private void Pull()
         {
@@ -544,32 +555,44 @@ namespace DBVC.Vsix.ViewModels
                 if (!proceed) return;
             }
 
-            PullResult result;
-            try
-            {
-                result = _gitManager.PullChanges(ServerName!, DatabaseName!);
-            }
-            catch (MergeConflictException ex)
-            {
-                // GitManager가 이미 병합을 되돌렸고 안내 문구도 담고 있다.
-                _notifier.ShowError("DBVC Pull 중단", ex.Message);
-                return;
-            }
-            catch (WorkingTreeConflictException ex)
-            {
-                // 병합이 시작조차 못 했다. 사용자 관점에서 아무 일도 일어나지 않았으므로 '중단'이다.
-                _notifier.ShowError("DBVC Pull 중단", ex.Message);
-                return;
-            }
-            catch (Exception ex)
-            {
-                // 원인이 타입으로 갈렸으므로 흔한 원인을 추측해 덧붙이지 않는다.
-                // GitAuthenticationException은 여기서 잡힌다 - Core가 이미 완전한 한국어
-                // 안내를 메시지에 담아 던지므로, 전용 catch를 두면 이 분기와 완전히
-                // 같은 코드를 중복할 뿐이다. 되살리지 말 것.
-                _notifier.ShowError("DBVC Pull 실패", ex.Message);
-                return;
-            }
+            var server = ServerName!;
+            var database = DatabaseName!;
+            var gitPath = mapping.GitPath;
+
+            // 네트워크와 ssh 프로세스가 걸리는 구간이다. 원격이 응답하지 않으면 그동안 SSMS
+            // 전체가 멈춘다. 확인 대화상자까지는 UI 스레드에 남기고 여기서부터 넘긴다 —
+            // 사용자가 취소하면 백그라운드로 나갈 일 자체가 없다.
+            IsBusy = true;
+            ProgressText = "원격 저장소에서 가져오는 중...";
+
+            _scheduler.Run(
+                () => _gitManager.PullChanges(server, database),
+                result => ApplyPullResult(result, gitPath),
+                ex =>
+                {
+                    IsBusy = false;
+                    ProgressText = null;
+
+                    // 병합이 되돌려졌거나(MergeConflict) 시작조차 못 했다(WorkingTreeConflict).
+                    // 어느 쪽이든 사용자가 잃은 것이 없으므로 '실패'가 아니라 '중단'이다.
+                    //
+                    // 그 밖은 전부 한 갈래다. GitAuthenticationException도 여기서 잡힌다 -
+                    // Core가 이미 완전한 한국어 안내를 메시지에 담아 던지므로, 전용 분기를 두면
+                    // 완전히 같은 코드를 중복할 뿐이다. 되살리지 말 것.
+                    var title = ex is MergeConflictException || ex is WorkingTreeConflictException
+                        ? "DBVC Pull 중단"
+                        : "DBVC Pull 실패";
+                    _notifier.ShowError(title, ex.Message);
+                });
+        }
+
+        /// <summary>
+        /// Pull이 끝난 뒤 화면을 정리한다. 바인딩 대상을 건드리므로 UI 스레드에서만 불린다.
+        /// </summary>
+        private void ApplyPullResult(PullResult result, string gitPath)
+        {
+            IsBusy = false;
+            ProgressText = null;
 
             // 여기서 Refresh를 부르면 안 된다. SMO 추출이 방금 받은 원격 변경을 즉시 덮어쓴다.
             switch (result)
@@ -593,7 +616,7 @@ namespace DBVC.Vsix.ViewModels
                         "DBVC Pull",
                         "원격 저장소의 변경을 가져왔습니다." + Environment.NewLine +
                         "받은 스크립트는 아래 폴더에 있습니다:" + Environment.NewLine + Environment.NewLine +
-                        mapping.GitPath + Environment.NewLine +
+                        gitPath + Environment.NewLine +
                         "(스크립트는 [스키마]/[객체 유형]/[이름].sql 에 있습니다)" + Environment.NewLine + Environment.NewLine +
                         "확인한 뒤 필요하면 데이터베이스에 적용하세요.");
                     break;
@@ -620,7 +643,10 @@ namespace DBVC.Vsix.ViewModels
 
         // ---------- Push ----------
 
-        private bool CanPush() => HasContext && IsMapped && _gitManager.HasCommitsToPush(ServerName!, DatabaseName!);
+        // !IsBusy를 Git 조회보다 앞에 둔다. 뒤에 두면 작업이 도는 동안에도 CanExecute가
+        // 평가될 때마다 저장소를 읽는다.
+        private bool CanPush() => HasContext && IsMapped && !IsBusy
+                                  && _gitManager.HasCommitsToPush(ServerName!, DatabaseName!);
 
         /// <summary>
         /// Pull과 달리 사전 확인이 없다 - Push는 작업 트리도 커밋 이력도 바꾸지 않으므로
@@ -631,19 +657,33 @@ namespace DBVC.Vsix.ViewModels
         {
             if (!CanPush()) return;
 
-            PushResult result;
-            try
-            {
-                result = _gitManager.PushChanges(ServerName!, DatabaseName!);
-            }
-            catch (Exception ex)
-            {
-                // GitPushRejectedException은 여기서 잡힌다 - Core가 이미 완전한 한국어 안내를
-                // 메시지에 담아 던지므로, 전용 catch를 두면 이 분기와 완전히 같은 코드를
-                // 중복할 뿐이다. Pull이 GitAuthenticationException에서 겪은 결함이다. 되살리지 말 것.
-                _notifier.ShowError("DBVC Push 실패", ex.Message);
-                return;
-            }
+            var server = ServerName!;
+            var database = DatabaseName!;
+
+            // Pull과 같은 이유로 UI 스레드에서 하지 않는다.
+            IsBusy = true;
+            ProgressText = "원격 저장소에 올리는 중...";
+
+            _scheduler.Run(
+                () => _gitManager.PushChanges(server, database),
+                ApplyPushResult,
+                ex =>
+                {
+                    IsBusy = false;
+                    ProgressText = null;
+
+                    // GitPushRejectedException은 여기서 잡힌다 - Core가 이미 완전한 한국어 안내를
+                    // 메시지에 담아 던지므로, 전용 분기를 두면 완전히 같은 코드를 중복할 뿐이다.
+                    // Pull이 GitAuthenticationException에서 겪은 결함이다. 되살리지 말 것.
+                    _notifier.ShowError("DBVC Push 실패", ex.Message);
+                });
+        }
+
+        /// <summary>Push가 끝난 뒤 화면을 정리한다. UI 스레드에서만 불린다.</summary>
+        private void ApplyPushResult(PushResult result)
+        {
+            IsBusy = false;
+            ProgressText = null;
 
             switch (result)
             {
@@ -771,6 +811,7 @@ namespace DBVC.Vsix.ViewModels
             _extractionCancellation = new CancellationTokenSource();
             var token = _extractionCancellation.Token;
 
+            _cancellableWorkOutstanding = true;
             IsBusy = true;
             ProgressText = "시작하는 중...";
 
@@ -779,6 +820,7 @@ namespace DBVC.Vsix.ViewModels
                 ApplyRefreshOutcome,
                 ex =>
                 {
+                    _cancellableWorkOutstanding = false;
                     IsBusy = false;
                     ProgressText = null;
                     RaiseActionCanExecuteChanged();
@@ -897,6 +939,7 @@ namespace DBVC.Vsix.ViewModels
             }
 
             WarningMessage = outcome.Warnings.Count > 0 ? string.Join(" / ", outcome.Warnings) : null;
+            _cancellableWorkOutstanding = false;
             ProgressText = null;
             IsBusy = false;
             RaiseActionCanExecuteChanged();
