@@ -66,14 +66,21 @@ namespace DBVC.Core.Tests
         {
             // 사용자·권한 이벤트는 파일이 만들어질 수 없어 목록에 대응하는 .sql이 없는 항목으로 남는다.
             // 그 항목만 체크해 커밋하면 "커밋할 변경사항이 없습니다"만 나오고 영원히 사라지지 않는다.
-            _db!.ExecuteInOneSession(
+            // ObjectType 값은 이벤트마다 다르다(예: CREATE_USER는 'USER'가 아니라 'SQL USER') -
+            // 특정 값으로 필터링하면 그 값 하나만 검증하고 나머지(또는 NULL)가 새는 것은 숨긴다.
+            // 그래서 전체 행수의 증가분(0이어야 한다)으로 검증한다. 픽스처가 DB를 공유하므로
+            // 절대값이 아니라 문장 실행 전후의 차이를 본다.
+            var before = Convert.ToInt32(_db!.QueryScalar("SELECT COUNT(*) FROM dbo.DBVC_ChangeLog"));
+
+            _db.ExecuteInOneSession(
                 "CREATE USER dbvc_ghost_t2 WITHOUT LOGIN",
-                "GRANT SELECT TO dbvc_ghost_t2");
+                "GRANT SELECT TO dbvc_ghost_t2",
+                "CREATE ROLE dbvc_ghost_role_t2",
+                "CREATE SCHEMA dbvc_ghost_schema_t2");
 
-            var ghosts = _db.QueryScalar(
-                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE ObjectType IN (N'USER', N'DATABASE')");
+            var after = Convert.ToInt32(_db.QueryScalar("SELECT COUNT(*) FROM dbo.DBVC_ChangeLog"));
 
-            Assert.That(Convert.ToInt32(ghosts), Is.Zero);
+            Assert.That(after - before, Is.Zero);
         }
     }
 }

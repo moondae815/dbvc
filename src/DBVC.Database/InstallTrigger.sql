@@ -78,7 +78,7 @@ BEGIN
     -- DBVC_TRACKED_TYPES: ObjectPathConvention.DdlEventObjectTypes + INDEX와 같아야 한다.
     -- InstallScriptSyncTests가 이 목록을 읽어 대조하므로 형식(따옴표 붙은 값 나열)을 바꾸지 말 것.
     -- 여기서 거르지 않으면 사용자·권한 이벤트가 파일 없는 항목으로 목록에 남는다.
-    IF @ObjectType NOT IN (N'TABLE', N'VIEW', N'PROCEDURE', N'SQL_STORED_PROCEDURE',
+    IF @ObjectType IS NULL OR @ObjectType NOT IN (N'TABLE', N'VIEW', N'PROCEDURE', N'SQL_STORED_PROCEDURE',
         N'FUNCTION', N'SQL_SCALAR_FUNCTION', N'SQL_TABLE_VALUED_FUNCTION',
         N'SQL_INLINE_TABLE_VALUED_FUNCTION', N'TRIGGER', N'SQL_TRIGGER', N'TYPE',
         N'TABLE_TYPE', N'SEQUENCE OBJECT', N'SEQUENCE_OBJECT', N'SEQUENCE', N'SYNONYM',
