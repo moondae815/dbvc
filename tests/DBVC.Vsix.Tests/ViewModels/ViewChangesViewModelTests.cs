@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Collections.Generic;
 using System.IO;
@@ -572,6 +572,32 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.SetupCommand.Execute(null);
 
             Assert.That(scheduler.RunCount, Is.GreaterThan(before));
+        }
+
+        [Test]
+        public void InstallSchema_RaisesIsBusy_WhileTheScriptRuns()
+        {
+            // IsBusy가 서지 않으면 설치가 도는 동안 새로고침·커밋 버튼이 함께 눌린다.
+            // CountingScheduler가 작업을 인라인으로 돌려주므로 작업 콜백 안에서 그 값을 볼 수 있다.
+            var scheduler = new CountingScheduler();
+            _stateTracker.Setup(s => s.GetInstalledVersion(Server, Database)).Returns(0);
+            var vm = new ViewChangesViewModel(
+                _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
+                _cleaner.Object, _folderDialog, _credentials.Object, _ssms.Object, scheduler);
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info());
+            vm.ConnectCommand.Execute(null);
+
+            bool? busyDuringInstall = null;
+            _stateTracker.Setup(s => s.InitializeDatabase(Server, Database))
+                .Callback(() => busyDuringInstall = vm.IsBusy);
+
+            vm.SetupCommand.Execute(null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(busyDuringInstall, Is.True, "설치가 도는 동안 IsBusy가 서 있어야 한다");
+                Assert.That(vm.IsBusy, Is.False, "끝나면 다시 내려놓아야 한다");
+            });
         }
 
         /// <summary>넘겨받은 작업을 인라인으로 실행하되 횟수를 센다.</summary>

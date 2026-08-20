@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using Microsoft.Data.SqlClient;
 using NUnit.Framework;
 using DBVC.Core;
 using DBVC.Core.Models;

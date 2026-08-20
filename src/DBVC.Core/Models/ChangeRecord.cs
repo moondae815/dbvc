@@ -1,4 +1,4 @@
-namespace DBVC.Core.Models
+﻿namespace DBVC.Core.Models
 {
     /// <summary>
     /// <c>DBVC_ChangeLog</c>에서 읽은 원시 DDL 이벤트 한 건.
@@ -11,9 +11,13 @@ namespace DBVC.Core.Models
         public string ObjectType { get; set; } = string.Empty;
         public string EventType { get; set; } = string.Empty;
 
-        /// <summary>인덱스처럼 다른 객체에 딸린 이벤트의 부모. 없으면 null이다.</summary>
+        /// <summary>인덱스·컬럼처럼 다른 객체에 딸린 이벤트의 부모. 없으면 null이다.</summary>
         public string? TargetObjectName { get; set; }
 
+        /// <summary>
+        /// 부모의 타입(<c>TABLE</c>·<c>VIEW</c> 등). 인덱싱된 뷰의 인덱스는 여기가 <c>VIEW</c>로 오므로
+        /// 정규화가 이 값을 그대로 옮긴다 — <c>TABLE</c>로 못박으면 뷰가 Tables 폴더로 떨어진다.
+        /// </summary>
         public string? TargetObjectType { get; set; }
     }
 
