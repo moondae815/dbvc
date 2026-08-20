@@ -18,31 +18,60 @@ namespace DBVC.Core
     /// </summary>
     public class StateTracker : IStateTracker
     {
+        /// <summary>설치 스크립트가 심는 스키마 버전. 이 값보다 낮으면 도구 창이 업데이트를 안내한다.</summary>
+        public const int RequiredSchemaVersion = 2;
+
         /// <summary>
-        /// 설계상 DBVC가 "초기화됨"이려면 ChangeLog 테이블과 DDL 트리거가 모두 있어야 한다.
+        /// 설치 상태를 한 번의 왕복으로 판정한다.
+        /// 0 = 미설치, 1 = 버전 표식이 없던 시절의 설치, 그 외 = 심어진 값.
         /// </summary>
-        internal const string IsInitializedQuery = @"
-SELECT CASE WHEN EXISTS (
-           SELECT 1 FROM sys.objects
-           WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND type = N'U')
-       AND EXISTS (
-           SELECT 1 FROM sys.triggers
-           WHERE parent_class = 0 AND name = N'trg_DBVC_DDL_Tracker')
-       THEN 1 ELSE 0 END";
+        internal const string InstalledVersionQuery = @"
+SELECT CASE
+    WHEN NOT EXISTS (SELECT 1 FROM sys.objects
+                     WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND type = N'U')
+      OR NOT EXISTS (SELECT 1 FROM sys.triggers
+                     WHERE parent_class = 0 AND name = N'trg_DBVC_DDL_Tracker')
+    THEN 0
+    ELSE ISNULL((SELECT TRY_CAST(CAST(value AS NVARCHAR(50)) AS int)
+                 FROM sys.extended_properties
+                 WHERE class = 1 AND major_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]')
+                   AND minor_id = 0 AND name = N'DBVC_SchemaVersion'), 1)
+END";
 
         /// <summary>
         /// 아직 처리(커밋)되지 않은 DDL 이벤트만 최신순으로 읽는다.
         /// </summary>
         internal const string PendingChangesQuery = @"
-SELECT Id, SchemaName, ObjectName, ObjectType, EventType
+SELECT Id, SchemaName, ObjectName, ObjectType, EventType, TargetObjectName, TargetObjectType
 FROM dbo.DBVC_ChangeLog
 WHERE IsProcessed = 0
 ORDER BY PostTime DESC, Id DESC";
 
-        private const string MarkProcessedCommand = @"
+        /// <summary>
+        /// <see cref="NormalizeRow"/>가 부모 객체의 수정으로 바꿔치우는 자식 이벤트 타입.
+        /// <see cref="MarkProcessedCommand"/>의 조건도 이 목록으로 만든다 — 두 곳이 갈라지면
+        /// 커밋한 적 없는 행이 닫히거나(넓으면) 닫혀야 할 행이 남는다(좁으면).
+        /// </summary>
+        private static readonly string[] ParentPointingObjectTypes = { "INDEX", "COLUMN" };
+
+        private static readonly string ParentPointingTypeList =
+            string.Join(", ", ParentPointingObjectTypes.Select(t => $"N'{t}'"));
+
+        /// <summary>
+        /// 커밋된 객체의 로그 행을 닫는다. TargetObjectName도 보는 이유는 정규화 때문이다 -
+        /// 레코드의 이름은 부모 테이블인데 인덱스 행의 ObjectName은 인덱스 이름이라,
+        /// ObjectName만 보면 그 행이 영원히 열린 채로 남아 매번 다시 올라온다.
+        ///
+        /// 다만 <b>정규화되는 타입으로 좁힌다.</b> TargetObjectName은 인덱스 전용이 아니어서
+        /// DML 트리거 이벤트도 부모 테이블을 거기 남긴다 - 타입을 보지 않으면 테이블만 커밋했는데
+        /// 그 테이블에 딸린 트리거의 로그 행까지 닫혀, 커밋된 적 없는 변경이 조용히 사라진다.
+        /// </summary>
+        internal static readonly string MarkProcessedCommand = $@"
 UPDATE dbo.DBVC_ChangeLog
 SET IsProcessed = 1
-WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
+WHERE IsProcessed = 0 AND Id <= @lastLogId
+  AND (ObjectName = @objectName
+       OR (ObjectType IN ({ParentPointingTypeList}) AND TargetObjectName = @objectName))
   AND (ISNULL(SchemaName, N'dbo') = @schemaName)";
 
         private readonly IConfigManager _configManager;
@@ -76,26 +105,25 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
         // ---------- 초기화 ----------
 
         /// <summary>
-        /// 대상 DB에 DBVC_ChangeLog 테이블과 DDL 트리거가 모두 설치되어 있는지 확인한다.
-        /// 접속 실패(인증 오류 포함)는 "초기화되지 않음"과 구분하지 않고 false로 알린다 —
-        /// 호출자가 배너로 안내할 수 있도록 접속 실패 사유는 <see cref="TestConnection"/>으로 따로 확인한다.
+        /// 설치된 스키마 버전을 반환한다. 접속 실패는 0으로 알린다 — 사유는 <see cref="TestConnection"/>이
+        /// 따로 만들며, 여기서 구분하면 호출자가 같은 배너를 두 곳에서 채우게 된다.
         /// </summary>
-        public bool IsInitialized(string serverName, string databaseName)
+        public int GetInstalledVersion(string serverName, string databaseName)
         {
-            if (string.IsNullOrWhiteSpace(serverName) || string.IsNullOrWhiteSpace(databaseName)) return false;
+            if (string.IsNullOrWhiteSpace(serverName) || string.IsNullOrWhiteSpace(databaseName)) return 0;
             try
             {
                 using var conn = new SqlConnection(_connectionFactory.Build(serverName, databaseName));
                 conn.Open();
                 using var cmd = conn.CreateCommand();
-                cmd.CommandText = IsInitializedQuery;
+                cmd.CommandText = InstalledVersionQuery;
                 var result = cmd.ExecuteScalar();
-                return result != null && Convert.ToInt32(result) > 0;
+                return result == null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"StateTracker.IsInitialized failed: {ex.Message}");
-                return false;
+                Debug.WriteLine($"StateTracker.GetInstalledVersion failed: {ex.Message}");
+                return 0;
             }
         }
 
@@ -162,7 +190,7 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
         /// 실제로 접속을 시도해 본다. 성공하면 <c>null</c>, 실패하면 사용자에게 그대로 보여줄
         /// 한국어 사유를 반환한다.
         ///
-        /// <see cref="IsInitialized"/>는 "접속 실패"와 "초기화 안 됨"을 모두 false로 뭉개므로,
+        /// <see cref="GetInstalledVersion"/>는 "접속 실패"와 "초기화 안 됨"을 모두 0으로 뭉개므로,
         /// SQL 인증 암호가 틀렸을 때 사용자가 원인을 알 방법이 없다. 그 구분을 여기서 만든다.
         /// </summary>
         public string? TestConnection(string serverName, string databaseName)
@@ -262,6 +290,45 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
         }
 
         /// <summary>
+        /// 인덱스·컬럼 이벤트를 부모 객체의 변경으로 바꾼다. 로그를 읽는 입구에서 한 번만 부른다 —
+        /// 추출 대상(<see cref="GetChangedObjectNames"/>)과 화면 목록(<see cref="BuildChangeSet"/>)이
+        /// 각자 해석하면 추출은 테이블을 뽑았는데 목록은 인덱스를 보여주는 식으로 갈라진다.
+        ///
+        /// 둘 다 독립 파일이 되지 않고 부모의 스크립트 안에 담긴다. 특히 컬럼 이름 변경(sp_rename)은
+        /// COLUMN 이벤트 하나만 남기고 테이블 이벤트를 따로 내지 않아, 옮기지 않으면 그 변경이
+        /// 저장소에 영영 반영되지 않는다.
+        ///
+        /// 이벤트 타입도 함께 옮기는 것이 핵심이다. DROP_INDEX를 그대로 두면 상태가 Deleted가 되고
+        /// WorkingTreeCleaner가 테이블의 .sql을 지운다 - 인덱스 하나를 지웠을 뿐인데.
+        /// 자식 객체의 변경은 부모의 수정이지 삭제가 아니다.
+        ///
+        /// 부모를 모르면(v1이 남긴 행) 손대지 않는다. 지어낼 근거가 없다.
+        /// </summary>
+        internal static ChangeLogRow NormalizeRow(ChangeLogRow row)
+        {
+            if (row == null) return row!;
+            var objectType = row.ObjectType?.Trim();
+            if (!ParentPointingObjectTypes.Any(t => string.Equals(objectType, t, StringComparison.OrdinalIgnoreCase))) return row;
+            if (string.IsNullOrWhiteSpace(row.TargetObjectName)) return row;
+
+            return new ChangeLogRow
+            {
+                Id = row.Id,
+                SchemaName = row.SchemaName,
+                ObjectName = row.TargetObjectName!.Trim(),
+                // 부모 타입을 그대로 옮긴다. 인덱싱된 뷰의 인덱스는 여기가 VIEW로 오므로
+                // TABLE로 못박으면 그 뷰를 dbo/Tables/... 로 보내 실제 파일과 다른 경로를 얻는다.
+                // 그럼에도 TABLE을 최후 수단으로 두는 이유는, 부모가 있는데 타입만 비어 있으면
+                // Other 폴더로 떨어져 영원히 커밋되지 않기 때문이다 - 자식을 갖는 객체는
+                // 압도적으로 테이블이라 틀릴 확률이 가장 낮은 추측이다.
+                ObjectType = string.IsNullOrWhiteSpace(row.TargetObjectType) ? "TABLE" : row.TargetObjectType!.Trim(),
+                EventType = "ALTER_TABLE",
+                TargetObjectName = row.TargetObjectName,
+                TargetObjectType = row.TargetObjectType
+            };
+        }
+
+        /// <summary>
         /// 로그 행을 추출 대상 이름으로 바꾼다. 같은 객체를 여러 번 고쳤으면 행도 여러 개지만
         /// 추출은 한 번이면 되므로 중복을 없앤다.
         /// </summary>
@@ -296,14 +363,16 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                rows.Add(new ChangeLogRow
+                rows.Add(NormalizeRow(new ChangeLogRow
                 {
                     Id = reader.GetInt32(0),
                     SchemaName = reader.IsDBNull(1) ? null : reader.GetString(1),
                     ObjectName = reader.GetString(2),
                     ObjectType = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
-                    EventType = reader.IsDBNull(4) ? string.Empty : reader.GetString(4)
-                });
+                    EventType = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                    TargetObjectName = reader.IsDBNull(5) ? null : reader.GetString(5),
+                    TargetObjectType = reader.IsDBNull(6) ? null : reader.GetString(6)
+                }));
             }
 
             return rows;

@@ -51,7 +51,7 @@ namespace DBVC.Vsix.Tests.Services
 
             var stateTracker = new Mock<IStateTracker>();
             stateTracker.Setup(s => s.TestConnection(It.IsAny<string>(), It.IsAny<string>())).Returns((string?)null);
-            stateTracker.Setup(s => s.IsInitialized(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
+            stateTracker.Setup(s => s.GetInstalledVersion(It.IsAny<string>(), It.IsAny<string>())).Returns(StateTracker.RequiredSchemaVersion);
             stateTracker.Setup(s => s.RefreshState(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
             stateTracker.Setup(s => s.GetPendingChanges(It.IsAny<string>(), It.IsAny<string>()))
                 .Returns(new List<ChangeRecord>());

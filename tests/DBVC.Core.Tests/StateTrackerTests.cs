@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using DBVC.Core;
@@ -302,31 +302,39 @@ namespace DBVC.Core.Tests
         // ---------- 초기화 확인 ----------
 
         [Test]
-        public void IsInitialized_ReturnsFalse_WhenTheServerCannotBeReached()
+        public void GetInstalledVersion_ReturnsZero_WhenTheServerCannotBeReached()
         {
-            Assert.That(NewTracker().IsInitialized("no_such_server_hostname", "no_such_db"), Is.False);
+            Assert.That(NewTracker().GetInstalledVersion("no_such_server_hostname", "no_such_db"), Is.Zero);
         }
 
         [Test]
-        public void IsInitialized_ReturnsFalse_WhenServerOrDatabaseIsMissing()
+        public void GetInstalledVersion_ReturnsZero_WhenServerOrDatabaseIsMissing()
         {
             var tracker = NewTracker();
-
-            Assert.That(tracker.IsInitialized("", "db"), Is.False);
-            Assert.That(tracker.IsInitialized("server", ""), Is.False);
+            Assert.That(tracker.GetInstalledVersion("", "db"), Is.Zero);
+            Assert.That(tracker.GetInstalledVersion("server", ""), Is.Zero);
         }
 
         [Test]
-        public void IsInitializedQuery_ChecksBothTheChangeLogTableAndTheDdlTrigger()
+        public void InstalledVersionQuery_ChecksTheChangeLogTableTheTriggerAndTheVersionProperty()
         {
-            // 설계(setup-automation)는 테이블과 트리거가 "둘 다" 있어야 초기화된 것으로 본다.
-            // 테이블만 검사하면 트리거가 삭제된 DB에서 변경 감지가 조용히 멈춘다.
-            var query = StateTracker.IsInitializedQuery;
+            // 셋 중 하나라도 빠지면 구버전을 최신으로 읽거나, 설치된 것을 미설치로 읽는다.
+            var query = StateTracker.InstalledVersionQuery;
 
-            Assert.That(query, Does.Contain("sys.objects"));
-            Assert.That(query, Does.Contain("sys.triggers"));
-            Assert.That(query, Does.Contain("DBVC_ChangeLog"));
-            Assert.That(query, Does.Contain("trg_DBVC_DDL_Tracker"));
+            Assert.Multiple(() =>
+            {
+                Assert.That(query, Does.Contain("DBVC_ChangeLog"));
+                Assert.That(query, Does.Contain("trg_DBVC_DDL_Tracker"));
+                Assert.That(query, Does.Contain("DBVC_SchemaVersion"));
+            });
+        }
+
+        [Test]
+        public void RequiredSchemaVersion_IsTwo()
+        {
+            // 설치 스크립트가 심는 값과 같아야 한다. 어긋나면 모든 사용자에게 업데이트 배너가 계속 뜨거나
+            // 구버전이 최신으로 읽힌다. 스크립트 쪽 값은 InstallScriptSyncTests가 대조한다.
+            Assert.That(StateTracker.RequiredSchemaVersion, Is.EqualTo(2));
         }
 
         [Test]
@@ -470,5 +478,136 @@ namespace DBVC.Core.Tests
             Assert.That(script, Does.Contain("ALTER TABLE").IgnoreCase);
             Assert.That(script, Does.Contain("sys.columns").IgnoreCase);
         }
+
+        // ---------- 인덱스 이벤트 정규화 ----------
+
+        private static ChangeLogRow IndexRow(string eventType, string indexName, string? targetName = "Users")
+            => new ChangeLogRow
+            {
+                Id = 10,
+                SchemaName = "dbo",
+                ObjectName = indexName,
+                ObjectType = "INDEX",
+                EventType = eventType,
+                TargetObjectName = targetName,
+                TargetObjectType = targetName == null ? null : "TABLE"
+            };
+
+        private static ChangeLogRow ColumnRow(string columnName, string? targetName = "Users")
+            => new ChangeLogRow
+            {
+                Id = 11,
+                SchemaName = "dbo",
+                ObjectName = columnName,
+                ObjectType = "COLUMN",
+                EventType = "RENAME",
+                TargetObjectName = targetName,
+                TargetObjectType = targetName == null ? null : "TABLE"
+            };
+
+        [Test]
+        public void NormalizeRow_TreatsADroppedIndexAsAModifiedParentTable_NotADeletedObject()
+        {
+            // 이름만 바꾸고 이벤트를 그대로 두면 상태가 Deleted가 되고, WorkingTreeCleaner가
+            // 그것을 보고 테이블의 .sql을 지운다 - 인덱스를 지웠을 뿐인데 저장소에서 테이블이 사라진다.
+            var normalized = StateTracker.NormalizeRow(IndexRow("DROP_INDEX", "IX_Users_Name"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(normalized.ObjectName, Is.EqualTo("Users"));
+                Assert.That(normalized.ObjectType, Is.EqualTo("TABLE"));
+                Assert.That(StateTracker.MapEventTypeToState(normalized.EventType), Is.EqualTo("Modified"));
+            });
+        }
+
+        [Test]
+        [TestCase("CREATE_INDEX")]
+        [TestCase("ALTER_INDEX")]
+        public void NormalizeRow_PointsIndexEventsAtTheParentTable(string eventType)
+        {
+            var normalized = StateTracker.NormalizeRow(IndexRow(eventType, "IX_Users_Name"));
+
+            Assert.That(normalized.ObjectName, Is.EqualTo("Users"));
+            Assert.That(normalized.ObjectType, Is.EqualTo("TABLE"));
+        }
+
+        [Test]
+        public void NormalizeRow_LeavesTheRowAlone_WhenTheParentIsUnknown()
+        {
+            // v1이 남긴 행이다. 부모를 지어낼 수 없으므로 손대지 않는다.
+            var normalized = StateTracker.NormalizeRow(IndexRow("CREATE_INDEX", "IX_Users_Name", targetName: null));
+
+            Assert.That(normalized.ObjectName, Is.EqualTo("IX_Users_Name"));
+        }
+
+        [Test]
+        public void NormalizeRow_LeavesNonIndexRowsAlone()
+        {
+            var row = Row(1, "dbo", "Users", "TABLE", "ALTER_TABLE");
+
+            var normalized = StateTracker.NormalizeRow(row);
+
+            Assert.That(normalized.ObjectName, Is.EqualTo("Users"));
+            Assert.That(normalized.EventType, Is.EqualTo("ALTER_TABLE"));
+        }
+
+        [Test]
+        public void NormalizeRow_KeepsTheParentType_WhenTheIndexIsOnAnIndexedView()
+        {
+            // 인덱싱된 뷰의 인덱스는 TargetObjectType이 VIEW로 온다(실측). 타입을 TABLE로 못박으면
+            // 그 뷰가 dbo/Tables/... 로 떨어져 저장소의 실제 파일과 다른 경로를 보게 된다.
+            var row = IndexRow("CREATE_INDEX", "IX_vUsers");
+            row.TargetObjectName = "vUsers";
+            row.TargetObjectType = "VIEW";
+
+            var normalized = StateTracker.NormalizeRow(row);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(normalized.ObjectName, Is.EqualTo("vUsers"));
+                Assert.That(normalized.ObjectType, Is.EqualTo("VIEW"));
+            });
+        }
+
+        [Test]
+        public void NormalizeRow_PointsColumnEventsAtTheParentTable()
+        {
+            // sp_rename으로 컬럼 이름을 바꾸면 COLUMN 이벤트 하나만 남고 테이블 이벤트는 생기지 않는다.
+            // 부모로 옮기지 않으면 그 변경은 저장소에 영영 반영되지 않는다.
+            var normalized = StateTracker.NormalizeRow(ColumnRow("Name"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(normalized.ObjectName, Is.EqualTo("Users"));
+                Assert.That(normalized.ObjectType, Is.EqualTo("TABLE"));
+                Assert.That(StateTracker.MapEventTypeToState(normalized.EventType), Is.EqualTo("Modified"));
+            });
+        }
+
+        [Test]
+        public void NormalizeRow_LeavesTheColumnRowAlone_WhenTheParentIsUnknown()
+        {
+            var normalized = StateTracker.NormalizeRow(ColumnRow("Name", targetName: null));
+
+            Assert.That(normalized.ObjectName, Is.EqualTo("Name"));
+        }
+
+        [Test]
+        public void ToQualifiedNames_YieldsTheParentTable_ForNormalizedColumnRows()
+        {
+            var names = StateTracker.ToQualifiedNames(new[] { StateTracker.NormalizeRow(ColumnRow("Name")) });
+
+            Assert.That(names, Is.EqualTo(new[] { "dbo.Users" }));
+        }
+
+        [Test]
+        public void ToQualifiedNames_YieldsTheParentTable_ForNormalizedIndexRows()
+        {
+            // 추출 대상 목록에도 부모가 나와야 새로고침이 테이블을 다시 스크립팅한다.
+            var names = StateTracker.ToQualifiedNames(new[] { StateTracker.NormalizeRow(IndexRow("CREATE_INDEX", "IX_Users_Name")) });
+
+            Assert.That(names, Is.EqualTo(new[] { "dbo.Users" }));
+        }
+
     }
 }

@@ -101,6 +101,7 @@ namespace DBVC.Vsix.ViewModels
             RefreshAllCommand = new RelayCommand(RefreshAll, () => !IsBusy);
             CancelCommand = new RelayCommand(Cancel, () => IsBusy && _cancellableWorkOutstanding);
             SetupCommand = new RelayCommand(Setup, () => !IsBusy);
+            UpdateTrackerCommand = new RelayCommand(UpdateTracker, () => IsTrackerOutdated && !IsBusy);
             CommitCommand = new RelayCommand(Commit, CanCommit);
             ConnectCommand = new RelayCommand(Connect, () => _ssmsConnectionSource != null && !IsBusy);
             ConnectRepositoryCommand = new RelayCommand(ConnectRepository, CanConnectRepository);
@@ -188,6 +189,7 @@ namespace DBVC.Vsix.ViewModels
             _failedCleanupPaths.Clear();
             IsMapped = false;
             IsInitialized = false;
+            IsTrackerOutdated = false;
             WarningMessage = null;
             // 대상이 바뀌면 "개체 탐색기 선택이 다릅니다"의 판정 근거가 사라진다.
             // 여전히 다르다면 다음 CheckSsmsSelection()에서 다시 뜬다.
@@ -333,10 +335,10 @@ namespace DBVC.Vsix.ViewModels
                 IsMapped = _configManager.TryGetMapping(server, database) != null
             };
 
-            // 접속하지 못했으면 초기화 여부는 물어볼 수 없다.
+            // 접속하지 못했으면 설치 버전은 물어볼 수 없다.
             if (probe.ConnectionError == null)
             {
-                probe.IsInitialized = _stateTracker.IsInitialized(server, database);
+                probe.InstalledVersion = _stateTracker.GetInstalledVersion(server, database);
             }
 
             return probe;
@@ -349,13 +351,18 @@ namespace DBVC.Vsix.ViewModels
             if (probe.ConnectionError != null)
             {
                 IsInitialized = false;
+                IsTrackerOutdated = false;
                 WarningMessage = probe.ConnectionError;
                 IsBusy = false;
                 return;
             }
 
             WarningMessage = IsMapped ? null : NotMappedWarning;
-            IsInitialized = probe.IsInitialized;
+            IsInitialized = probe.InstalledVersion > 0;
+
+            // 미설치는 초기화 오버레이가 맡는다. 두 안내를 함께 띄우면 무엇을 눌러야 하는지 흐려진다.
+            IsTrackerOutdated = probe.InstalledVersion > 0
+                && probe.InstalledVersion < StateTracker.RequiredSchemaVersion;
 
             // Refresh가 스스로 다시 IsBusy를 세우므로 먼저 내려놓는다.
             IsBusy = false;
@@ -370,7 +377,7 @@ namespace DBVC.Vsix.ViewModels
         {
             public string? ConnectionError { get; set; }
             public bool IsMapped { get; set; }
-            public bool IsInitialized { get; set; }
+            public int InstalledVersion { get; set; }
         }
 
         // ---------- 바인딩 속성 ----------
@@ -384,6 +391,23 @@ namespace DBVC.Vsix.ViewModels
                 if (_isInitialized == value) return;
                 _isInitialized = value;
                 OnPropertyChanged();
+            }
+        }
+
+        private bool _isTrackerOutdated;
+
+        /// <summary>
+        /// 설치된 추적기가 지금 Core가 요구하는 버전보다 낮은지. 참이면 인덱스 변경이 감지되지 않는다.
+        /// </summary>
+        public bool IsTrackerOutdated
+        {
+            get => _isTrackerOutdated;
+            private set
+            {
+                if (_isTrackerOutdated == value) return;
+                _isTrackerOutdated = value;
+                OnPropertyChanged();
+                RaiseActionCanExecuteChanged();
             }
         }
 
@@ -498,6 +522,10 @@ namespace DBVC.Vsix.ViewModels
         /// <summary>진행 중인 추출을 멈춘다. 이미 추출된 파일은 그대로 남는다.</summary>
         public ICommand CancelCommand { get; }
         public ICommand SetupCommand { get; }
+
+        /// <summary>구버전 추적기를 현재 버전으로 다시 설치한다.</summary>
+        public ICommand UpdateTrackerCommand { get; }
+
         public ICommand CommitCommand { get; }
 
         /// <summary>
@@ -744,22 +772,61 @@ namespace DBVC.Vsix.ViewModels
                 return;
             }
 
-            try
-            {
-                _stateTracker.InitializeDatabase(ServerName!, DatabaseName!);
-            }
-            catch (Exception ex)
-            {
-                // 설치 실패(권한 부족 등)를 초기화 성공으로 위장해서는 안 된다.
-                _notifier.ShowError("DBVC 초기화 실패", ex.Message);
-                return;
-            }
+            InstallSchema(isUpdate: false);
+        }
 
-            IsInitialized = true;
+        /// <summary>구버전 추적기를 다시 설치한다. 스크립트가 멱등이라 초기화와 같은 경로다.</summary>
+        private void UpdateTracker()
+        {
+            if (!HasContext || !IsTrackerOutdated) return;
 
-            // 방금 트리거를 설치했다. 그 이전의 변경은 DDL 로그에 없으므로 전체를 추출해야
-            // 저장소가 DB의 현재 상태를 담는다.
-            RefreshAll();
+            InstallSchema(isUpdate: true);
+        }
+
+        /// <summary>
+        /// 설치 스크립트를 실행한다. DDL 여러 배치를 도는 일이라 응답 없는 서버에서는 수십 초까지
+        /// 걸린다 - UI 스레드에 남기면 그동안 SSMS 전체가 멈춘다.
+        /// </summary>
+        private void InstallSchema(bool isUpdate)
+        {
+            var server = ServerName!;
+            var database = DatabaseName!;
+
+            IsBusy = true;
+            ProgressText = isUpdate ? "변경 추적기를 업데이트하는 중..." : "DBVC를 초기화하는 중...";
+
+            _scheduler.Run<object?>(
+                () => { _stateTracker.InitializeDatabase(server, database); return null; },
+                _ =>
+                {
+                    IsBusy = false;
+                    ProgressText = null;
+                    IsInitialized = true;
+                    IsTrackerOutdated = false;
+
+                    if (isUpdate)
+                    {
+                        // 부모를 모르는 옛 인덱스 로그가 이때 닫힌다. 그 변경은 저장소에 반영된 적이
+                        // 없을 수 있으므로, 되찾는 유일한 경로를 알려 준다.
+                        _notifier.ShowInfo(
+                            "DBVC",
+                            "변경 추적기를 업데이트했습니다." + Environment.NewLine +
+                            "그동안의 인덱스 변경이 저장소에 없을 수 있으니 전체 다시 추출을 한 번 눌러 주세요.");
+                        Refresh();
+                        return;
+                    }
+
+                    // 방금 트리거를 설치했다. 그 이전의 변경은 DDL 로그에 없으므로 전체를 추출해야
+                    // 저장소가 DB의 현재 상태를 담는다.
+                    RefreshAll();
+                },
+                ex =>
+                {
+                    IsBusy = false;
+                    ProgressText = null;
+                    // 설치 실패(권한 부족 등)를 성공으로 위장해서는 안 된다.
+                    _notifier.ShowError(isUpdate ? "DBVC 추적기 업데이트 실패" : "DBVC 초기화 실패", ex.Message);
+                });
         }
 
         // ---------- Refresh ----------
@@ -1147,6 +1214,7 @@ namespace DBVC.Vsix.ViewModels
             (RefreshAllCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CancelCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (SetupCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (UpdateTrackerCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (ConnectCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CommitCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GenerateDeploymentScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();

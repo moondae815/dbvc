@@ -61,6 +61,7 @@ Pull이 거부되고, 폴더가 Git 저장소가 아니면 DBVC가 매핑을 거
   - 테이블 생성 (`DBVC_ChangeLog` 생성용)
   - DDL 트리거 생성 (`CREATE TRIGGER ... ON DATABASE`)
   - 스키마 객체 조회 (스크립트 추출용)
+  - `dbo` 가장 (트리거가 `WITH EXECUTE AS 'dbo'`로 실행되므로 `db_owner`여야 한다)
 
 > **확인 방법:** SSMS에서 대상 DB에 **DBVC에서 쓸 바로 그 계정으로** 접속해
 > `SELECT HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'CREATE TABLE');` 이 `1`이면 통과.
@@ -279,9 +280,13 @@ clone은 그 문제를 애초에 만들지 않는다.
 
 ## 5단계 — 데이터베이스 초기화 (개발 노트북)
 
+- [ ] **초기화하는 계정이 `db_owner`인지 확인한다.** 트리거를 `dbo` 권한으로 실행하도록 만들기 때문에
+      `dbo`를 가장할 수 있어야 한다. 권한이 부족하면 초기화가 실패하고 사유가 그대로 표시된다.
+
 - [ ] 패널 중앙에 **"DBVC 초기화"** 버튼이 보이면 누른다.
       `DBVC_ChangeLog` 테이블과 DDL 트리거가 설치된다. 이 스크립트는 멱등이라 다시 실행해도 안전하다.
-      권한이 부족하면 오류가 뜨고 화면은 초기화 전 상태로 남는다 — 0단계의 권한 확인으로 돌아간다.
+      권한이 부족하면 오류가 뜨고 화면은 초기화 전 상태로 남는다 — 위 `db_owner` 확인과
+      0단계의 권한 확인으로 돌아간다.
 
 - [ ] 설치를 확인한다. SSMS 쿼리 창에서:
   ```sql
@@ -480,6 +485,17 @@ Pull과 같은 이유로, 각 상황을 일부러 만들어 **한국어 안내�
   DBVC는 스크립트를 실행하지 않는다.
 - **변경 감지는 새로고침 시점.** DDL 트리거가 발생 즉시 `DBVC_ChangeLog` 에 기록하지만,
   화면 반영은 새로고침·연결·DBVC 초기화·Commit 직후에만 일어난다. 주기적 폴링은 하지 않는다.
+- **DBVC를 걷어낼 때는 트리거를 먼저 지운다.** `DBVC_ChangeLog` 만 지우고 트리거를 남기면
+  그 데이터베이스의 **이후 모든 DDL이 실패하고 롤백된다** — 트리거가 없는 테이블에 INSERT하려다
+  오류 208을 내고, 그 오류가 배치를 중단시키기 때문이다. `DROP TABLE` 자체는 트리거가 자기 이름과
+  `DBVC_ChangeLog` 를 예외로 두고 있어 성공하므로, 증상은 *다음* 문장에서야 드러난다.
+  순서는 이렇다:
+
+  ```sql
+  DROP TRIGGER [trg_DBVC_DDL_Tracker] ON DATABASE;
+  DROP TABLE [dbo].[DBVC_ChangeLog];
+  ```
+
 - **Object Explorer 상태 아이콘 오버레이는 미구현.** SSMS에 공개 확장점이 없어 보류했다
   (Feature 10, [plans/2026-08-01-dbvc-object-explorer-overlay.md](superpowers/plans/2026-08-01-dbvc-object-explorer-overlay.md)).
   변경 상태는 DBVC 창에서 확인한다.
@@ -494,10 +510,11 @@ Pull과 같은 이유로, 각 상황을 일부러 만들어 **한국어 안내�
 | `.vsix` 설치가 "관리 권한이 있어야 합니다"로 끝난다 | 관리자 권한으로 설치해야 한다. UAC 승인 창을 놓쳤는지 확인 |
 | SSMS가 아니라 Visual Studio에 설치됐다 | 두 제품이 다 있을 때 생길 수 있다. VS에서 제거하고, SSMS의 `VSIXInstaller.exe`에 `/instanceIds:<SSMS 인스턴스ID>` 를 주어 설치한다 (`vswhere.exe -all -products *` 로 ID 확인) |
 | "저장소 연결..."이 오류를 낸다 | 고른 폴더에 `.git` 이 있는지. clone된 최상위 폴더인지 |
-| DBVC 초기화가 실패한다 | 0단계의 권한 확인. `CREATE TABLE`·`CREATE TRIGGER` 권한 |
+| DBVC 초기화가 실패한다 | 0단계의 권한 확인. `CREATE TABLE`·`CREATE TRIGGER` 권한. 트리거가 `dbo`로 실행되므로 계정이 `db_owner`인지도 확인한다 (5단계 첫 항목) |
 | 연결이 "로그인하지 못했습니다"를 낸다 | 개체 탐색기의 그 연결로는 접속되는지, 그리고 서버가 혼합 모드인지 (`SERVERPROPERTY('IsIntegratedSecurityOnly')` 가 `0`) |
 | 연결이 "암호를 사용할 수 없습니다"를 낸다 | 개체 탐색기가 그 연결의 암호를 들고 있지 않다. 개체 탐색기에서 해당 서버에 다시 접속한 뒤 연결을 누른다 |
 | 연결이 "개체 탐색기에서 ... 선택한 뒤"를 낸다 | 선택이 없거나, 여러 개이거나, 서버 노드다. 데이터베이스 노드 하나를 고른다 |
+| 창 위쪽에 "변경 추적기가 구버전입니다"가 뜬다 | 0.2.6 이전에 초기화한 데이터베이스다. **추적기 업데이트** 를 누른 뒤 **전체 다시 추출** 을 한 번 실행한다 |
 | 새로고침해도 목록이 비어 있다 | DDL 트리거 설치 확인. 트리거 설치 **이후에** 변경한 객체만 잡힌다 |
 | Pull이 영문 메시지를 낸다 | 안내가 붙지 않은 경우다. 원격 URL이 SSH도 HTTPS도 아닌 형태인지 확인 |
 | Pull이 `known_hosts` 를 말한다 | Git 클라이언트에서 `ssh -T git@<호스트>` 를 한 번 실행해 `yes` 입력 |
