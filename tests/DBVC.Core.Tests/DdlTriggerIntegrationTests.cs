@@ -161,7 +161,7 @@ namespace DBVC.Core.Tests
             // v1이 남긴 두 종류를 닫는다: 파일이 생길 수 없는 타입(사용자·권한)과,
             // 부모를 모르는 인덱스 행. 그대로 두면 목록에 영원히 남는다.
             using var legacy = SqlServerTestDatabase.TryCreate(out var reason);
-            if (legacy == null) Assert.Ignore(reason);
+            if (legacy == null) Assert.Ignore(reason ?? "SQL Server에 접속할 수 없습니다.");
 
             // v1 모양: Target 컬럼도 버전 표식도 없다.
             legacy.Execute(@"
