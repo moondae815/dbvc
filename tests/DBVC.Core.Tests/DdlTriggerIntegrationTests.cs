@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using Microsoft.Data.SqlClient;
 using NUnit.Framework;
 using DBVC.Core;
 
@@ -42,7 +44,7 @@ namespace DBVC.Core.Tests
                 System.IO.Path.GetTempPath(), "dbvc_cfg_" + Guid.NewGuid().ToString("N"), "mappings.json"));
 
         [Test]
-        public void Trigger_LetsALowPrivilegedUserRunDdl_AndStillLogsIt()
+        public void Trigger_LogsTheChange_WhenAnUnprivilegedUserRunsDdl()
         {
             // 트리거가 사용자 권한으로 INSERT하면 ChangeLog에 쓸 수 없는 사용자의 DDL이
             // 오류 3616으로 롤백된다 — DBVC를 쓰지 않는 팀원까지 막는다.
@@ -135,6 +137,43 @@ namespace DBVC.Core.Tests
                 "WHERE IsProcessed = 0 AND ObjectName IN (N'MarkedTable', N'IX_MarkedTable_Name')");
 
             Assert.That(Convert.ToInt32(open), Is.Zero, "테이블을 커밋하면 딸린 인덱스 행도 함께 닫혀야 한다");
+        }
+
+        [Test]
+        public void InstallScript_ThrowsAndKeepsTheExistingTrigger_WhenTheInstallerCannotImpersonateDbo()
+        {
+            // v2 트리거는 WITH EXECUTE AS 'dbo'라 IMPERSONATE 권한이 필요하지만, 기존 트리거를 지우는
+            // DROP TRIGGER ... ON DATABASE는 ALTER ANY DATABASE DDL TRIGGER면 된다. 먼저 지우고 나서
+            // CREATE가 실패하면 그 데이터베이스는 변경 추적이 통째로 꺼진 채 남는다 - 이후의 모든
+            // 스키마 변경이 로그 없이 지나간다. 사전 점검이 없으면 배너의 '추적기 업데이트' 한 번으로 그렇게 된다.
+            using var restricted = SqlServerTestDatabase.TryCreate(out var reason);
+            if (restricted == null) Assert.Ignore(reason ?? "SQL Server에 접속할 수 없습니다.");
+
+            new StateTracker(NewConfig()).InitializeDatabase(SqlServerTestDatabase.ServerName, restricted.Name);
+
+            restricted.ExecuteInOneSession(
+                "CREATE USER dbvc_noimp WITHOUT LOGIN",
+                "GRANT CREATE TABLE TO dbvc_noimp",
+                "GRANT ALTER ANY DATABASE DDL TRIGGER TO dbvc_noimp",
+                "GRANT ALTER ON SCHEMA::dbo TO dbvc_noimp");
+
+            // InitializeDatabase는 자기 연결을 열므로 가장(impersonation)을 걸 자리가 없다.
+            // 같은 배치 분할·같은 스크립트를 쓰되 세션만 저권한 사용자로 바꿔 실제 설치 경로를 재현한다.
+            var batches = new List<string> { "EXECUTE AS USER = 'dbvc_noimp'" };
+            batches.AddRange(StateTracker.SplitSqlBatches(StateTracker.ReadInstallScript()));
+
+            var ex = Assert.Throws<SqlException>(() => restricted.ExecuteInOneUnpooledSession(batches.ToArray()));
+
+            var stillThere = restricted.QueryScalar(
+                "SELECT COUNT(*) FROM sys.triggers WHERE parent_class = 0 AND name = N'trg_DBVC_DDL_Tracker'");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ex!.Message, Does.Contain("db_owner"),
+                    "사용자가 사유를 알 수 있어야 한다 - ViewChangesViewModel이 이 메시지를 그대로 보여준다");
+                Assert.That(Convert.ToInt32(stillThere), Is.EqualTo(1),
+                    "설치가 실패했으면 기존 추적기는 그대로 남아 있어야 한다");
+            });
         }
 
         [Test]

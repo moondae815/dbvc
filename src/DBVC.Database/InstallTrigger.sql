@@ -1,7 +1,21 @@
--- DBVC (DB Version Control) DDL Trigger & ChangeLog Setup Script
+﻿-- DBVC (DB Version Control) DDL Trigger & ChangeLog Setup Script
 -- Target: Microsoft SQL Server
 -- 이 스크립트는 멱등(idempotent)하다. 이미 설치된 데이터베이스에 다시 실행해도 안전하며,
 -- 구버전 스키마에는 누락된 컬럼만 추가한다.
+
+-- 아무것도 지우거나 고치기 전에 dbo 가장 권한부터 확인한다.
+-- 트리거를 지우는 DROP TRIGGER ... ON DATABASE는 ALTER ANY DATABASE DDL TRIGGER면 되지만
+-- 새 트리거의 WITH EXECUTE AS 'dbo'는 dbo에 대한 IMPERSONATE를 요구한다. 확인 없이 진행하면
+-- 기존 트리거를 지운 뒤 CREATE가 실패해 변경 추적이 통째로 꺼진 채 남는다 — 그 뒤의 모든
+-- 스키마 변경이 로그 없이 지나가고, 화면은 미설치로 보여 다시 눌러도 같은 자리에서 실패한다.
+BEGIN TRY
+    EXECUTE AS USER = N'dbo';
+    REVERT;
+END TRY
+BEGIN CATCH
+    THROW 51000, N'DBVC 설치에는 dbo를 가장할 수 있는 권한(db_owner)이 필요합니다. 변경 추적기는 그대로 둡니다.', 1;
+END CATCH
+GO
 
 -- 트리거는 이 두 옵션을 생성 시점 값으로 저장하고, 본문의 EVENTDATA().value()가 그것이 ON이어야
 -- 동작한다. QUOTED_IDENTIFIER가 기본 OFF인 클라이언트(sqlcmd)로 설치하면 이 데이터베이스의

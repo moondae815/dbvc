@@ -91,6 +91,27 @@ namespace DBVC.Core.Tests
             }
         }
 
+        /// <summary>
+        /// 여러 문장을 한 세션에서 실행하되 그 연결을 풀에 돌려보내지 않는다. <c>EXECUTE AS</c>로
+        /// 가장한 세션이 오류로 끊기면 가장 상태 그대로 풀에 돌아가고, 다음에 그 연결을 꺼내 쓰는
+        /// 쪽이 오류 596("세션이 중지 상태")으로 죽는다 — 실패를 검증하는 테스트가 뒤따르는
+        /// 테스트를 깨뜨리게 된다.
+        /// </summary>
+        public void ExecuteInOneUnpooledSession(params string[] statements)
+        {
+            var connString = new SqlConnectionStringBuilder(
+                SqlConnectionFactory.BuildWindows(ServerName, Name)) { Pooling = false }.ToString();
+
+            using var conn = new SqlConnection(connString);
+            conn.Open();
+            foreach (var sql in statements)
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = sql;
+                cmd.ExecuteNonQuery();
+            }
+        }
+
         public object? QueryScalar(string sql)
         {
             using var conn = Open();
