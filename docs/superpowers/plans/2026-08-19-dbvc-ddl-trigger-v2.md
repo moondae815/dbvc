@@ -61,7 +61,7 @@
 - Consumes: `StateTracker.InitializeDatabase(server, database)`, `SqlConnectionFactory.BuildWindows(server, database)` (모두 기존 공개 API)
 - Produces: `SqlServerTestDatabase` — `static SqlServerTestDatabase? TryCreate(out string? skipReason)`, 상수 `ServerName`·`Prefix`, 속성 `Name`, 메서드 `Execute(string sql)`, `ExecuteInOneSession(params string[])`, `QueryScalar(string sql)`, `Open()`, `Dispose()`. 이후 모든 통합 테스트 태스크가 쓴다.
 
-- [ ] **Step 1: 임시 DB 헬퍼를 만든다**
+- [x] **Step 1: 임시 DB 헬퍼를 만든다**
 
 `tests/DBVC.Core.Tests/SqlServerTestDatabase.cs`:
 
@@ -209,7 +209,7 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 2: 저권한 사용자 회귀 테스트를 쓴다**
+- [x] **Step 2: 저권한 사용자 회귀 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/DdlTriggerIntegrationTests.cs`:
 
@@ -280,12 +280,12 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 3: 테스트를 돌려 실패를 확인한다**
+- [x] **Step 3: 테스트를 돌려 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~DdlTriggerIntegrationTests"`
 Expected: FAIL — `SqlException: 트리거를 실행하는 동안 오류가 발생했습니다` (오류 3616). 로컬에 SQL Server가 없으면 Skip으로 뜨며, 그때는 이 태스크를 검증할 수 없으므로 SQL Server를 켠 뒤 진행한다.
 
-- [ ] **Step 4: 스크립트 첫머리에 SET 옵션을 박는다**
+- [x] **Step 4: 스크립트 첫머리에 SET 옵션을 박는다**
 
 `src/DBVC.Database/InstallTrigger.sql` 맨 위(주석 다음, 첫 `IF NOT EXISTS` 앞)에 넣는다:
 
@@ -298,7 +298,7 @@ SET ANSI_NULLS ON;
 GO
 ```
 
-- [ ] **Step 5: 트리거를 dbo 권한으로 실행하고 CATCH를 지운다**
+- [x] **Step 5: 트리거를 dbo 권한으로 실행하고 CATCH를 지운다**
 
 같은 파일의 `CREATE TRIGGER` 블록을 통째로 아래로 바꾼다:
 
@@ -347,12 +347,12 @@ END;
 GO
 ```
 
-- [ ] **Step 6: 테스트가 통과하는지 본다**
+- [x] **Step 6: 테스트가 통과하는지 본다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~DdlTriggerIntegrationTests"`
 Expected: PASS
 
-- [ ] **Step 7: 기존 통합 픽스처도 같은 헬퍼를 쓰게 한다**
+- [x] **Step 7: 기존 통합 픽스처도 같은 헬퍼를 쓰게 한다**
 
 `tests/DBVC.Core.Tests/SmoManagerIntegrationTests.cs`가 임시 DB를 직접 만들고 있어 정리에 실패하면 그대로 남는다 — 지금 localhost에 6개가 쌓여 있다. 헬퍼로 옮기면 다음 실행이 남은 것을 치운다.
 
@@ -390,17 +390,17 @@ Expected: PASS
 
 `ServerName` 상수는 그대로 두고(`"localhost"`로 값이 같다), 나머지 테스트 본문은 손대지 않는다. `Execute(SqlConnection, string)` 헬퍼가 더 이상 쓰이지 않으면 지운다.
 
-- [ ] **Step 8: 기존 테스트가 깨지지 않았는지 본다**
+- [x] **Step 8: 기존 테스트가 깨지지 않았는지 본다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 Expected: PASS (전체)
 
-- [ ] **Step 9: 남은 테스트 DB가 정리되는지 확인한다**
+- [x] **Step 9: 남은 테스트 DB가 정리되는지 확인한다**
 
 Run: `sqlcmd -S localhost -E -I -W -Q "SELECT name, create_date FROM sys.databases WHERE name LIKE 'DBVC_ITest%'"`
 Expected: 방금 실행이 만든 것 외에 한 시간 넘게 묵은 항목이 없다. (실행 직후라면 정리 대상이 아직 한 시간 조건에 걸리지 않을 수 있다 — 그때는 다음 실행에서 사라진다.)
 
-- [ ] **Step 10: 커밋**
+- [x] **Step 10: 커밋**
 
 ```bash
 git add src/DBVC.Database/InstallTrigger.sql tests/DBVC.Core.Tests/SqlServerTestDatabase.cs tests/DBVC.Core.Tests/DdlTriggerIntegrationTests.cs tests/DBVC.Core.Tests/SmoManagerIntegrationTests.cs
@@ -421,7 +421,7 @@ git commit -m "fix(db): DDL 트리거가 남의 DDL을 막지 않게 한다"
 - Consumes: Task 1의 `SqlServerTestDatabase`, `StateTracker.ReadInstallScript()` (기존 `internal static string`)
 - Produces: `ObjectPathConvention.DdlEventObjectTypes` — `internal static IReadOnlyCollection<string>`. Task 7의 마이그레이션 검증이 다시 쓴다.
 
-- [ ] **Step 1: 유령 이벤트가 기록되지 않는다는 테스트를 쓴다**
+- [x] **Step 1: 유령 이벤트가 기록되지 않는다는 테스트를 쓴다**
 
 `DdlTriggerIntegrationTests.cs`에 더한다:
 
@@ -442,12 +442,12 @@ git commit -m "fix(db): DDL 트리거가 남의 DDL을 막지 않게 한다"
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~Trigger_DoesNotLogEvents"`
 Expected: FAIL — `Expected: 0 But was: 2`
 
-- [ ] **Step 3: DDL 이벤트 타입을 이름 있는 자리로 뺀다**
+- [x] **Step 3: DDL 이벤트 타입을 이름 있는 자리로 뺀다**
 
 `src/DBVC.Core/ObjectPathConvention.cs`에서 `FolderByObjectType` 하나로 뭉쳐 있던 사전을 둘로 가른다. 지금은 SMO 타입명과 DDL 이벤트 타입명이 섞여 있어 어느 쪽이 트리거와 맞춰야 할 목록인지 코드가 말해 주지 않는다.
 
@@ -508,7 +508,7 @@ Expected: FAIL — `Expected: 0 But was: 2`
         }
 ```
 
-- [ ] **Step 4: 트리거에 화이트리스트를 넣는다**
+- [x] **Step 4: 트리거에 화이트리스트를 넣는다**
 
 `InstallTrigger.sql`의 트리거 본문에서 `IF @ObjectName IS NULL ...` 블록 **아래**에 넣는다:
 
@@ -528,7 +528,7 @@ Expected: FAIL — `Expected: 0 But was: 2`
 
 INSERT문의 `ObjectType` 자리를 `@ObjectType`으로 바꾼다(같은 값을 두 번 파싱하지 않는다).
 
-- [ ] **Step 5: 동기화 테스트를 쓴다**
+- [x] **Step 5: 동기화 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/InstallScriptSyncTests.cs`:
 
@@ -590,17 +590,17 @@ namespace DBVC.Core.Tests
 
 `InternalsVisibleTo("DBVC.Core.Tests")`는 `StateTracker.cs`에 이미 있으므로 `DdlEventObjectTypes`가 테스트에서 보인다.
 
-- [ ] **Step 6: 두 테스트를 돌린다**
+- [x] **Step 6: 두 테스트를 돌린다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~InstallScriptSyncTests|FullyQualifiedName~DdlTriggerIntegrationTests"`
 Expected: PASS
 
-- [ ] **Step 7: 전체 테스트**
+- [x] **Step 7: 전체 테스트**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 Expected: PASS
 
-- [ ] **Step 8: 커밋**
+- [x] **Step 8: 커밋**
 
 ```bash
 git add src/DBVC.Core/ObjectPathConvention.cs src/DBVC.Database/InstallTrigger.sql tests/DBVC.Core.Tests/InstallScriptSyncTests.cs tests/DBVC.Core.Tests/DdlTriggerIntegrationTests.cs
@@ -619,7 +619,7 @@ git commit -m "fix(db): 스크립팅할 수 없는 DDL 이벤트를 기록하지
 **Interfaces:**
 - Produces: `ChangeLogRow.TargetObjectName` (`string?`), `ChangeLogRow.TargetObjectType` (`string?`) — Task 5의 정규화가 읽는다. `DBVC_ChangeLog`에 같은 이름의 컬럼.
 
-- [ ] **Step 1: 인덱스 이벤트가 부모를 남긴다는 테스트를 쓴다**
+- [x] **Step 1: 인덱스 이벤트가 부모를 남긴다는 테스트를 쓴다**
 
 `DdlTriggerIntegrationTests.cs`에 더한다:
 
@@ -649,12 +649,12 @@ git commit -m "fix(db): 스크립팅할 수 없는 DDL 이벤트를 기록하지
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~Trigger_RecordsTheParentTable"`
 Expected: FAIL — `Invalid column name 'TargetObjectName'`
 
-- [ ] **Step 3: 테이블에 컬럼을 더한다**
+- [x] **Step 3: 테이블에 컬럼을 더한다**
 
 `InstallTrigger.sql`의 `CREATE TABLE [dbo].[DBVC_ChangeLog]` 안, `[TSQLCommand]` 다음 줄에 넣는다:
 
@@ -680,7 +680,7 @@ END
 GO
 ```
 
-- [ ] **Step 4: 트리거가 값을 넣게 한다**
+- [x] **Step 4: 트리거가 값을 넣게 한다**
 
 INSERT의 컬럼 목록에 `[TargetObjectName], [TargetObjectType]`를 더하고, VALUES에 대응하는 두 줄을 더한다:
 
@@ -691,7 +691,7 @@ INSERT의 컬럼 목록에 `[TargetObjectName], [TargetObjectType]`를 더하고
 
 (`IsProcessed`의 `0` 앞에 오도록 순서를 맞춘다. 트리거는 사실만 남기고 해석하지 않는다 — 인덱스 이벤트의 `ObjectName`은 그대로 인덱스 이름이다.)
 
-- [ ] **Step 5: 모델에 두 속성을 더한다**
+- [x] **Step 5: 모델에 두 속성을 더한다**
 
 `src/DBVC.Core/Models/ChangeRecord.cs`의 `ChangeLogRow`에:
 
@@ -702,12 +702,12 @@ INSERT의 컬럼 목록에 `[TargetObjectName], [TargetObjectType]`를 더하고
         public string? TargetObjectType { get; set; }
 ```
 
-- [ ] **Step 6: 통과를 확인한다**
+- [x] **Step 6: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~DdlTriggerIntegrationTests"`
 Expected: PASS (4개)
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add src/DBVC.Database/InstallTrigger.sql src/DBVC.Core/Models/ChangeRecord.cs tests/DBVC.Core.Tests/DdlTriggerIntegrationTests.cs
@@ -732,7 +732,7 @@ git commit -m "feat(db): 인덱스 이벤트에 부모 객체를 함께 기록�
   - `IStateTracker.GetInstalledVersion(string serverName, string databaseName)` → `int` (0=미설치, 1=구버전, 2=현재). `IsInitialized`를 **대체한다**.
   - `StateTracker.InstalledVersionQuery` — `internal const string`
 
-- [ ] **Step 1: 버전 조회 테스트를 쓴다**
+- [x] **Step 1: 버전 조회 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/StateTrackerTests.cs`의 기존 `IsInitialized*` 테스트 세 개(`IsInitialized_ReturnsFalse_WhenTheServerCannotBeReached`, `IsInitialized_ReturnsFalse_WhenServerOrDatabaseIsMissing`, `IsInitializedQuery_ChecksBothTheChangeLogTableAndTheDdlTrigger`)를 아래로 바꾼다:
 
@@ -801,12 +801,12 @@ git commit -m "feat(db): 인덱스 이벤트에 부모 객체를 함께 기록�
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~StateTrackerTests"`
 Expected: FAIL — 컴파일 오류(`GetInstalledVersion`, `InstalledVersionQuery`, `RequiredSchemaVersion` 없음)
 
-- [ ] **Step 3: 스크립트에 버전 표식을 심는다**
+- [x] **Step 3: 스크립트에 버전 표식을 심는다**
 
 `InstallTrigger.sql` 맨 끝(트리거 생성 다음)에 넣는다:
 
@@ -831,7 +831,7 @@ END
 GO
 ```
 
-- [ ] **Step 4: StateTracker에 버전 조회를 넣는다**
+- [x] **Step 4: StateTracker에 버전 조회를 넣는다**
 
 `src/DBVC.Core/StateTracker.cs`에서 `IsInitializedQuery`(24행)와 `IsInitialized`(83행)를 아래로 **대체한다**:
 
@@ -882,7 +882,7 @@ END";
 
 165행 부근 `TestConnection`의 XML 주석에서 `<see cref="IsInitialized"/>`를 `<see cref="GetInstalledVersion"/>`으로 고친다.
 
-- [ ] **Step 5: 인터페이스를 바꾼다**
+- [x] **Step 5: 인터페이스를 바꾼다**
 
 `src/DBVC.Core/Abstractions.cs:39`:
 
@@ -891,7 +891,7 @@ END";
         int GetInstalledVersion(string serverName, string databaseName);
 ```
 
-- [ ] **Step 6: ViewModel을 컴파일되게 고친다**
+- [x] **Step 6: ViewModel을 컴파일되게 고친다**
 
 `src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs:339`:
 
@@ -901,7 +901,7 @@ END";
 
 (구버전 안내는 Task 8에서 붙인다. 여기서는 기존 동작을 그대로 유지한다.)
 
-- [ ] **Step 7: 테스트 목을 새 API로 바꾼다**
+- [x] **Step 7: 테스트 목을 새 API로 바꾼다**
 
 `tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs`와 `tests/DBVC.Vsix.Tests/Services/BackgroundSchedulerWiringTests.cs`에서 아래 형태를 모두 바꾼다(16 + 1곳):
 
@@ -914,12 +914,12 @@ _stateTracker.Setup(s => s.GetInstalledVersion(It.IsAny<string>(), It.IsAny<stri
 
 `Returns(false)`로 "초기화되지 않음"을 만들던 자리는 `Returns(0)`으로 바꾼다.
 
-- [ ] **Step 8: 전체 테스트**
+- [x] **Step 8: 전체 테스트**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 && dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 Expected: PASS (양쪽)
 
-- [ ] **Step 9: 커밋**
+- [x] **Step 9: 커밋**
 
 ```bash
 git add src/DBVC.Database/InstallTrigger.sql src/DBVC.Core/StateTracker.cs src/DBVC.Core/Abstractions.cs src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs tests/
@@ -938,7 +938,7 @@ git commit -m "feat(core): 설치된 스키마 버전을 읽는다"
 - Consumes: `ChangeLogRow.TargetObjectName`/`TargetObjectType` (Task 3)
 - Produces: `StateTracker.NormalizeRow(ChangeLogRow row)` → `ChangeLogRow` (`internal static`)
 
-- [ ] **Step 1: 정규화 테스트를 쓴다 (삭제 함정부터)**
+- [x] **Step 1: 정규화 테스트를 쓴다 (삭제 함정부터)**
 
 `StateTrackerTests.cs`에 더한다. `Row` 헬퍼는 Target을 받지 않으므로 테스트 안에서 객체를 직접 만든다:
 
@@ -1013,12 +1013,12 @@ git commit -m "feat(core): 설치된 스키마 버전을 읽는다"
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~NormalizeRow"`
 Expected: FAIL — 컴파일 오류(`NormalizeRow` 없음)
 
-- [ ] **Step 3: 정규화를 구현한다**
+- [x] **Step 3: 정규화를 구현한다**
 
 `StateTracker.cs`의 `ToQualifiedNames` 위에 넣는다:
 
@@ -1053,7 +1053,7 @@ Expected: FAIL — 컴파일 오류(`NormalizeRow` 없음)
         }
 ```
 
-- [ ] **Step 4: 읽는 입구에서 부른다**
+- [x] **Step 4: 읽는 입구에서 부른다**
 
 `StateTracker.ReadPendingRows`의 쿼리와 매핑을 바꾼다. `PendingChangesQuery`에 컬럼 둘을 더한다:
 
@@ -1080,12 +1080,12 @@ ORDER BY PostTime DESC, Id DESC";
                 }));
 ```
 
-- [ ] **Step 5: 통과를 확인한다**
+- [x] **Step 5: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 Expected: PASS (전체)
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add src/DBVC.Core/StateTracker.cs tests/DBVC.Core.Tests/StateTrackerTests.cs
@@ -1104,7 +1104,7 @@ git commit -m "feat(core): 인덱스 변경을 부모 테이블의 수정으로 
 **Interfaces:**
 - Produces: `StateTracker.MarkProcessedCommand` — `private const`에서 `internal const`로 공개 범위만 넓힌다.
 
-- [ ] **Step 1: 테스트를 쓴다**
+- [x] **Step 1: 테스트를 쓴다**
 
 `StateTrackerTests.cs`에 더한다:
 
@@ -1159,12 +1159,12 @@ git commit -m "feat(core): 인덱스 변경을 부모 테이블의 수정으로 
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~MarkProcessed"`
 Expected: FAIL — 단위 테스트는 컴파일 오류(`MarkProcessedCommand`가 private), 통합 테스트는 `Expected: 0 But was: 1`
 
-- [ ] **Step 3: 조건을 넓힌다**
+- [x] **Step 3: 조건을 넓힌다**
 
 `StateTracker.cs`의 `MarkProcessedCommand`를 바꾼다:
 
@@ -1182,12 +1182,12 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
   AND (ISNULL(SchemaName, N'dbo') = @schemaName)";
 ```
 
-- [ ] **Step 4: 통과를 확인한다**
+- [x] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 Expected: PASS (전체)
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Core/StateTracker.cs tests/DBVC.Core.Tests/
@@ -1205,7 +1205,7 @@ git commit -m "fix(core): 테이블을 커밋하면 인덱스 로그도 함께 �
 **Interfaces:**
 - Consumes: Task 2의 `DBVC_TRACKED_TYPES` 표식 규약(같은 표식을 이 UPDATE에도 붙인다 — 동기화 테스트가 두 곳을 모두 검사한다)
 
-- [ ] **Step 1: v1 → v2 업그레이드 테스트를 쓴다**
+- [x] **Step 1: v1 → v2 업그레이드 테스트를 쓴다**
 
 `DdlTriggerIntegrationTests.cs`에 더한다. 이 테스트만 별도 데이터베이스를 쓴다 — 공용 DB에 v1 상태를 만들면 다른 테스트의 전제가 무너진다.
 
@@ -1251,12 +1251,12 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~InstallScript_ClosesRowsThatCanNeverBeCommitted"`
 Expected: FAIL — `Expected: 1 But was: 3`
 
-- [ ] **Step 3: 마이그레이션 UPDATE를 넣는다**
+- [x] **Step 3: 마이그레이션 UPDATE를 넣는다**
 
 `InstallTrigger.sql` 맨 끝(버전 표식 다음)에 넣는다. 컬럼 추가 블록보다 뒤여야 `TargetObjectName`을 참조할 수 있다.
 
@@ -1277,12 +1277,12 @@ WHERE [IsProcessed] = 0
 GO
 ```
 
-- [ ] **Step 4: 통과를 확인한다**
+- [x] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 Expected: PASS (전체). `InstallScript_TracksExactlyTheObjectTypesTheConventionKnows_PlusIndex`가 이제 두 목록을 검사한다.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Database/InstallTrigger.sql tests/DBVC.Core.Tests/DdlTriggerIntegrationTests.cs
@@ -1302,7 +1302,7 @@ git commit -m "fix(db): 구버전이 남긴 커밋 불가 로그를 닫는다"
 - Consumes: `IStateTracker.GetInstalledVersion` (Task 4), `StateTracker.RequiredSchemaVersion`
 - Produces: `ViewChangesViewModel.IsTrackerOutdated` (`bool`), `ViewChangesViewModel.UpdateTrackerCommand` (`ICommand`)
 
-- [ ] **Step 1: 테스트를 쓴다**
+- [x] **Step 1: 테스트를 쓴다**
 
 `ViewChangesViewModelTests.cs`에 더한다:
 
@@ -1404,12 +1404,12 @@ git commit -m "fix(db): 구버전이 남긴 커밋 불가 로그를 닫는다"
 
 `RecordingNotifier`(같은 파일 2125행)는 이미 `Infos`/`Errors`를 `List<string>`(메시지만)으로 노출하므로 손댈 것이 없다. `CountingScheduler`는 이 파일에 새로 넣는다 — `BackgroundSchedulerWiringTests`의 `RecordingScheduler`는 그쪽 파일의 `private` 중첩 클래스라 여기서 보이지 않는다.
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~TrackerOutdated|FullyQualifiedName~UpdateTracker|FullyQualifiedName~Setup_RunsThroughTheScheduler"`
 Expected: FAIL — 컴파일 오류(`IsTrackerOutdated`, `UpdateTrackerCommand` 없음)
 
-- [ ] **Step 3: ViewModel에 상태와 명령을 더한다**
+- [x] **Step 3: ViewModel에 상태와 명령을 더한다**
 
 `ContextProbe`에 버전을 담는다(`IsInitialized` 필드를 버전으로 바꾼다):
 
@@ -1479,7 +1479,7 @@ Expected: FAIL — 컴파일 오류(`IsTrackerOutdated`, `UpdateTrackerCommand` 
             (UpdateTrackerCommand as RelayCommand)?.RaiseCanExecuteChanged();
 ```
 
-- [ ] **Step 4: 설치를 백그라운드로 옮기고 두 진입점을 합친다**
+- [x] **Step 4: 설치를 백그라운드로 옮기고 두 진입점을 합친다**
 
 `Setup()`(739행)을 아래로 바꾼다:
 
@@ -1550,7 +1550,7 @@ Expected: FAIL — 컴파일 오류(`IsTrackerOutdated`, `UpdateTrackerCommand` 
         }
 ```
 
-- [ ] **Step 5: 화면에 한 줄을 더한다**
+- [x] **Step 5: 화면에 한 줄을 더한다**
 
 `src/DBVC.Vsix/UI/ViewChangesControl.xaml`의 Row 0 `StackPanel` 안, `SsmsHintMessage` `TextBlock` **다음**에 넣는다. 새 `RowDefinition`을 만들지 않는 이유는 Grid의 행 번호가 밀리면 아래 오버레이까지 함께 고쳐야 하기 때문이다.
 
@@ -1573,17 +1573,17 @@ Expected: FAIL — 컴파일 오류(`IsTrackerOutdated`, `UpdateTrackerCommand` 
             </Border>
 ```
 
-- [ ] **Step 6: 통과를 확인한다**
+- [x] **Step 6: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 Expected: PASS (전체)
 
-- [ ] **Step 7: 솔루션 전체를 빌드한다**
+- [x] **Step 7: 솔루션 전체를 빌드한다**
 
 Run: `dotnet build DBVC.slnx`
 Expected: 성공. XAML은 컴파일 단계에서만 검증되므로 여기서 오타가 드러난다.
 
-- [ ] **Step 8: 커밋**
+- [x] **Step 8: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs src/DBVC.Vsix/UI/ViewChangesControl.xaml tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
@@ -1599,11 +1599,11 @@ git commit -m "feat(vsix): 구버전 추적기를 알리고 업데이트 버튼�
 - Modify: `README.md`
 - Modify: `docs/setup-checklist.md`
 
-- [ ] **Step 1: 확장 버전을 올린다**
+- [x] **Step 1: 확장 버전을 올린다**
 
 `source.extension.vsixmanifest`의 `Version="0.2.5"`를 `Version="0.2.6"`으로 바꾼다.
 
-- [ ] **Step 2: README를 고친다**
+- [x] **Step 2: README를 고친다**
 
 "주요 기능"의 변경 감지 항목에 인덱스를 명시하고, "동작 방식"에 아래 문단을 더한다:
 
@@ -1619,7 +1619,7 @@ git commit -m "feat(vsix): 구버전 추적기를 알리고 업데이트 버튼�
   DDL 권한만 있고 DBVC를 쓰지 않는 팀원의 작업을 막지 않습니다.
 ```
 
-- [ ] **Step 3: setup-checklist를 고친다**
+- [x] **Step 3: setup-checklist를 고친다**
 
 5단계(데이터베이스 초기화)에 요구사항 한 줄을 더한다:
 
@@ -1634,12 +1634,12 @@ git commit -m "feat(vsix): 구버전 추적기를 알리고 업데이트 버튼�
 | 창 위쪽에 "변경 추적기가 구버전입니다"가 뜬다 | 0.2.6 이전에 초기화한 데이터베이스다. **추적기 업데이트** 를 누른 뒤 **전체 다시 추출** 을 한 번 실행한다 |
 ```
 
-- [ ] **Step 4: 전체 테스트와 빌드**
+- [x] **Step 4: 전체 테스트와 빌드**
 
 Run: `dotnet build DBVC.slnx && dotnet test tests/DBVC.Core.Tests -f net10.0 && dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 Expected: 전부 PASS
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/source.extension.vsixmanifest README.md docs/setup-checklist.md
