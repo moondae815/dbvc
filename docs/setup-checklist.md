@@ -61,6 +61,7 @@ Pull이 거부되고, 폴더가 Git 저장소가 아니면 DBVC가 매핑을 거
   - 테이블 생성 (`DBVC_ChangeLog` 생성용)
   - DDL 트리거 생성 (`CREATE TRIGGER ... ON DATABASE`)
   - 스키마 객체 조회 (스크립트 추출용)
+  - `dbo` 가장 (트리거가 `WITH EXECUTE AS 'dbo'`로 실행되므로 `db_owner`여야 한다)
 
 > **확인 방법:** SSMS에서 대상 DB에 **DBVC에서 쓸 바로 그 계정으로** 접속해
 > `SELECT HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'CREATE TABLE');` 이 `1`이면 통과.
@@ -284,7 +285,8 @@ clone은 그 문제를 애초에 만들지 않는다.
 
 - [ ] 패널 중앙에 **"DBVC 초기화"** 버튼이 보이면 누른다.
       `DBVC_ChangeLog` 테이블과 DDL 트리거가 설치된다. 이 스크립트는 멱등이라 다시 실행해도 안전하다.
-      권한이 부족하면 오류가 뜨고 화면은 초기화 전 상태로 남는다 — 0단계의 권한 확인으로 돌아간다.
+      권한이 부족하면 오류가 뜨고 화면은 초기화 전 상태로 남는다 — 위 `db_owner` 확인과
+      0단계의 권한 확인으로 돌아간다.
 
 - [ ] 설치를 확인한다. SSMS 쿼리 창에서:
   ```sql
@@ -497,7 +499,7 @@ Pull과 같은 이유로, 각 상황을 일부러 만들어 **한국어 안내�
 | `.vsix` 설치가 "관리 권한이 있어야 합니다"로 끝난다 | 관리자 권한으로 설치해야 한다. UAC 승인 창을 놓쳤는지 확인 |
 | SSMS가 아니라 Visual Studio에 설치됐다 | 두 제품이 다 있을 때 생길 수 있다. VS에서 제거하고, SSMS의 `VSIXInstaller.exe`에 `/instanceIds:<SSMS 인스턴스ID>` 를 주어 설치한다 (`vswhere.exe -all -products *` 로 ID 확인) |
 | "저장소 연결..."이 오류를 낸다 | 고른 폴더에 `.git` 이 있는지. clone된 최상위 폴더인지 |
-| DBVC 초기화가 실패한다 | 0단계의 권한 확인. `CREATE TABLE`·`CREATE TRIGGER` 권한 |
+| DBVC 초기화가 실패한다 | 0단계의 권한 확인. `CREATE TABLE`·`CREATE TRIGGER` 권한. 트리거가 `dbo`로 실행되므로 계정이 `db_owner`인지도 확인한다 (5단계 첫 항목) |
 | 연결이 "로그인하지 못했습니다"를 낸다 | 개체 탐색기의 그 연결로는 접속되는지, 그리고 서버가 혼합 모드인지 (`SERVERPROPERTY('IsIntegratedSecurityOnly')` 가 `0`) |
 | 연결이 "암호를 사용할 수 없습니다"를 낸다 | 개체 탐색기가 그 연결의 암호를 들고 있지 않다. 개체 탐색기에서 해당 서버에 다시 접속한 뒤 연결을 누른다 |
 | 연결이 "개체 탐색기에서 ... 선택한 뒤"를 낸다 | 선택이 없거나, 여러 개이거나, 서버 노드다. 데이터베이스 노드 하나를 고른다 |
