@@ -478,5 +478,74 @@ namespace DBVC.Core.Tests
             Assert.That(script, Does.Contain("ALTER TABLE").IgnoreCase);
             Assert.That(script, Does.Contain("sys.columns").IgnoreCase);
         }
+
+        // ---------- 인덱스 이벤트 정규화 ----------
+
+        private static ChangeLogRow IndexRow(string eventType, string indexName, string? targetName = "Users")
+            => new ChangeLogRow
+            {
+                Id = 10,
+                SchemaName = "dbo",
+                ObjectName = indexName,
+                ObjectType = "INDEX",
+                EventType = eventType,
+                TargetObjectName = targetName,
+                TargetObjectType = targetName == null ? null : "TABLE"
+            };
+
+        [Test]
+        public void NormalizeRow_TreatsADroppedIndexAsAModifiedParentTable_NotADeletedObject()
+        {
+            // 이름만 바꾸고 이벤트를 그대로 두면 상태가 Deleted가 되고, WorkingTreeCleaner가
+            // 그것을 보고 테이블의 .sql을 지운다 - 인덱스를 지웠을 뿐인데 저장소에서 테이블이 사라진다.
+            var normalized = StateTracker.NormalizeRow(IndexRow("DROP_INDEX", "IX_Users_Name"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(normalized.ObjectName, Is.EqualTo("Users"));
+                Assert.That(normalized.ObjectType, Is.EqualTo("TABLE"));
+                Assert.That(StateTracker.MapEventTypeToState(normalized.EventType), Is.EqualTo("Modified"));
+            });
+        }
+
+        [Test]
+        [TestCase("CREATE_INDEX")]
+        [TestCase("ALTER_INDEX")]
+        public void NormalizeRow_PointsIndexEventsAtTheParentTable(string eventType)
+        {
+            var normalized = StateTracker.NormalizeRow(IndexRow(eventType, "IX_Users_Name"));
+
+            Assert.That(normalized.ObjectName, Is.EqualTo("Users"));
+            Assert.That(normalized.ObjectType, Is.EqualTo("TABLE"));
+        }
+
+        [Test]
+        public void NormalizeRow_LeavesTheRowAlone_WhenTheParentIsUnknown()
+        {
+            // v1이 남긴 행이다. 부모를 지어낼 수 없으므로 손대지 않는다.
+            var normalized = StateTracker.NormalizeRow(IndexRow("CREATE_INDEX", "IX_Users_Name", targetName: null));
+
+            Assert.That(normalized.ObjectName, Is.EqualTo("IX_Users_Name"));
+        }
+
+        [Test]
+        public void NormalizeRow_LeavesNonIndexRowsAlone()
+        {
+            var row = Row(1, "dbo", "Users", "TABLE", "ALTER_TABLE");
+
+            var normalized = StateTracker.NormalizeRow(row);
+
+            Assert.That(normalized.ObjectName, Is.EqualTo("Users"));
+            Assert.That(normalized.EventType, Is.EqualTo("ALTER_TABLE"));
+        }
+
+        [Test]
+        public void ToQualifiedNames_YieldsTheParentTable_ForNormalizedIndexRows()
+        {
+            // 추출 대상 목록에도 부모가 나와야 새로고침이 테이블을 다시 스크립팅한다.
+            var names = StateTracker.ToQualifiedNames(new[] { StateTracker.NormalizeRow(IndexRow("CREATE_INDEX", "IX_Users_Name")) });
+
+            Assert.That(names, Is.EqualTo(new[] { "dbo.Users" }));
+        }
     }
 }

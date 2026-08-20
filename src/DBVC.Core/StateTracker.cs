@@ -42,7 +42,7 @@ END";
         /// 아직 처리(커밋)되지 않은 DDL 이벤트만 최신순으로 읽는다.
         /// </summary>
         internal const string PendingChangesQuery = @"
-SELECT Id, SchemaName, ObjectName, ObjectType, EventType
+SELECT Id, SchemaName, ObjectName, ObjectType, EventType, TargetObjectName, TargetObjectType
 FROM dbo.DBVC_ChangeLog
 WHERE IsProcessed = 0
 ORDER BY PostTime DESC, Id DESC";
@@ -269,6 +269,35 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
         }
 
         /// <summary>
+        /// 인덱스 이벤트를 부모 객체의 변경으로 바꾼다. 로그를 읽는 입구에서 한 번만 부른다 —
+        /// 추출 대상(<see cref="GetChangedObjectNames"/>)과 화면 목록(<see cref="BuildChangeSet"/>)이
+        /// 각자 해석하면 추출은 테이블을 뽑았는데 목록은 인덱스를 보여주는 식으로 갈라진다.
+        ///
+        /// 이벤트 타입도 함께 옮기는 것이 핵심이다. DROP_INDEX를 그대로 두면 상태가 Deleted가 되고
+        /// WorkingTreeCleaner가 테이블의 .sql을 지운다 - 인덱스 하나를 지웠을 뿐인데.
+        /// 인덱스 변경은 부모 테이블의 수정이지 삭제가 아니다.
+        ///
+        /// 부모를 모르면(v1이 남긴 행) 손대지 않는다. 지어낼 근거가 없다.
+        /// </summary>
+        internal static ChangeLogRow NormalizeRow(ChangeLogRow row)
+        {
+            if (row == null) return row!;
+            if (!string.Equals(row.ObjectType?.Trim(), "INDEX", StringComparison.OrdinalIgnoreCase)) return row;
+            if (string.IsNullOrWhiteSpace(row.TargetObjectName)) return row;
+
+            return new ChangeLogRow
+            {
+                Id = row.Id,
+                SchemaName = row.SchemaName,
+                ObjectName = row.TargetObjectName!.Trim(),
+                ObjectType = string.IsNullOrWhiteSpace(row.TargetObjectType) ? "TABLE" : row.TargetObjectType!.Trim(),
+                EventType = "ALTER_TABLE",
+                TargetObjectName = row.TargetObjectName,
+                TargetObjectType = row.TargetObjectType
+            };
+        }
+
+        /// <summary>
         /// 로그 행을 추출 대상 이름으로 바꾼다. 같은 객체를 여러 번 고쳤으면 행도 여러 개지만
         /// 추출은 한 번이면 되므로 중복을 없앤다.
         /// </summary>
@@ -303,14 +332,16 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                rows.Add(new ChangeLogRow
+                rows.Add(NormalizeRow(new ChangeLogRow
                 {
                     Id = reader.GetInt32(0),
                     SchemaName = reader.IsDBNull(1) ? null : reader.GetString(1),
                     ObjectName = reader.GetString(2),
                     ObjectType = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
-                    EventType = reader.IsDBNull(4) ? string.Empty : reader.GetString(4)
-                });
+                    EventType = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                    TargetObjectName = reader.IsDBNull(5) ? null : reader.GetString(5),
+                    TargetObjectType = reader.IsDBNull(6) ? null : reader.GetString(6)
+                }));
             }
 
             return rows;
