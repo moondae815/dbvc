@@ -547,5 +547,21 @@ namespace DBVC.Core.Tests
 
             Assert.That(names, Is.EqualTo(new[] { "dbo.Users" }));
         }
+
+        // ---------- 커밋 완료 처리 ----------
+
+        [Test]
+        public void MarkProcessedCommand_ClosesRowsThatPointAtTheObjectAsTheirParent()
+        {
+            // 정규화 뒤 레코드의 이름은 테이블인데 로그의 행은 인덱스 이름이다. ObjectName만 보면
+            // 인덱스 행이 닫히지 않아 커밋해도 다음 새로고침에 그대로 다시 올라온다.
+            var command = StateTracker.MarkProcessedCommand;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(command, Does.Contain("TargetObjectName = @objectName"));
+                Assert.That(command, Does.Contain("Id <= @lastLogId"), "새로고침 이후의 이벤트는 건드리지 않아야 한다");
+            });
+        }
     }
 }

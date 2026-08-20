@@ -47,10 +47,16 @@ FROM dbo.DBVC_ChangeLog
 WHERE IsProcessed = 0
 ORDER BY PostTime DESC, Id DESC";
 
-        private const string MarkProcessedCommand = @"
+        /// <summary>
+        /// 커밋된 객체의 로그 행을 닫는다. TargetObjectName까지 보는 이유는 정규화 때문이다 -
+        /// 레코드의 이름은 부모 테이블인데 인덱스 행의 ObjectName은 인덱스 이름이라,
+        /// ObjectName만 보면 그 행이 영원히 열린 채로 남아 매번 다시 올라온다.
+        /// </summary>
+        internal const string MarkProcessedCommand = @"
 UPDATE dbo.DBVC_ChangeLog
 SET IsProcessed = 1
-WHERE IsProcessed = 0 AND Id <= @lastLogId AND ObjectName = @objectName
+WHERE IsProcessed = 0 AND Id <= @lastLogId
+  AND (ObjectName = @objectName OR TargetObjectName = @objectName)
   AND (ISNULL(SchemaName, N'dbo') = @schemaName)";
 
         private readonly IConfigManager _configManager;

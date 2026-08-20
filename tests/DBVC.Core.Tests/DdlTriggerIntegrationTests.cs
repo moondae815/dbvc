@@ -99,6 +99,45 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void MarkProcessed_ClosesTheIndexRow_WhenTheParentTableIsCommitted()
+        {
+            _db!.Execute("CREATE TABLE dbo.MarkedTable (Id int NOT NULL PRIMARY KEY, Name nvarchar(50) NULL)");
+            _db.Execute("CREATE NONCLUSTERED INDEX IX_MarkedTable_Name ON dbo.MarkedTable (Name)");
+
+            var tracker = new StateTracker(NewConfig());
+            var maxId = Convert.ToInt64(_db.QueryScalar(
+                "SELECT MAX(Id) FROM dbo.DBVC_ChangeLog WHERE ObjectName IN (N'MarkedTable', N'IX_MarkedTable_Name')"));
+
+            // ReadPendingRows의 넓어진 쿼리·리더 매핑과 인덱스→부모 정규화가 실 DB를 상대로
+            // 끝까지 왕복하는 것을 검증하는 유일한 자리다 - MarkProcessed 이전에 확인해야
+            // 아래에서 행을 닫아도 이 시점의 상태를 정확히 본 것이라 말할 수 있다.
+            var changedNames = tracker.GetChangedObjectNames(SqlServerTestDatabase.ServerName, _db.Name);
+            Assert.That(changedNames, Has.Some.EqualTo("dbo.MarkedTable"));
+            Assert.That(changedNames, Has.None.Matches<string>(n => n.Contains("IX_MarkedTable_Name")),
+                "정규화된 목록에 인덱스 이름이 그대로 남아 있으면 안 된다");
+
+            tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name, new[]
+            {
+                new DBVC.Core.Models.ChangeRecord
+                {
+                    Schema = "dbo",
+                    ObjectName = "MarkedTable",
+                    ObjectType = "TABLE",
+                    State = "Modified",
+                    QualifiedName = "dbo.MarkedTable",
+                    RelativePath = "dbo/Tables/MarkedTable.sql",
+                    LastLogId = maxId
+                }
+            });
+
+            var open = _db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog " +
+                "WHERE IsProcessed = 0 AND ObjectName IN (N'MarkedTable', N'IX_MarkedTable_Name')");
+
+            Assert.That(Convert.ToInt32(open), Is.Zero, "테이블을 커밋하면 딸린 인덱스 행도 함께 닫혀야 한다");
+        }
+
+        [Test]
         public void GetInstalledVersion_ReturnsTheRequiredVersion_AfterInstall()
         {
             var version = new StateTracker(NewConfig())
