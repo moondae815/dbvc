@@ -48,15 +48,30 @@ WHERE IsProcessed = 0
 ORDER BY PostTime DESC, Id DESC";
 
         /// <summary>
-        /// 커밋된 객체의 로그 행을 닫는다. TargetObjectName까지 보는 이유는 정규화 때문이다 -
+        /// <see cref="NormalizeRow"/>가 부모 객체의 수정으로 바꿔치우는 자식 이벤트 타입.
+        /// <see cref="MarkProcessedCommand"/>의 조건도 이 목록으로 만든다 — 두 곳이 갈라지면
+        /// 커밋한 적 없는 행이 닫히거나(넓으면) 닫혀야 할 행이 남는다(좁으면).
+        /// </summary>
+        private static readonly string[] ParentPointingObjectTypes = { "INDEX", "COLUMN" };
+
+        private static readonly string ParentPointingTypeList =
+            string.Join(", ", ParentPointingObjectTypes.Select(t => $"N'{t}'"));
+
+        /// <summary>
+        /// 커밋된 객체의 로그 행을 닫는다. TargetObjectName도 보는 이유는 정규화 때문이다 -
         /// 레코드의 이름은 부모 테이블인데 인덱스 행의 ObjectName은 인덱스 이름이라,
         /// ObjectName만 보면 그 행이 영원히 열린 채로 남아 매번 다시 올라온다.
+        ///
+        /// 다만 <b>정규화되는 타입으로 좁힌다.</b> TargetObjectName은 인덱스 전용이 아니어서
+        /// DML 트리거 이벤트도 부모 테이블을 거기 남긴다 - 타입을 보지 않으면 테이블만 커밋했는데
+        /// 그 테이블에 딸린 트리거의 로그 행까지 닫혀, 커밋된 적 없는 변경이 조용히 사라진다.
         /// </summary>
-        internal const string MarkProcessedCommand = @"
+        internal static readonly string MarkProcessedCommand = $@"
 UPDATE dbo.DBVC_ChangeLog
 SET IsProcessed = 1
 WHERE IsProcessed = 0 AND Id <= @lastLogId
-  AND (ObjectName = @objectName OR TargetObjectName = @objectName)
+  AND (ObjectName = @objectName
+       OR (ObjectType IN ({ParentPointingTypeList}) AND TargetObjectName = @objectName))
   AND (ISNULL(SchemaName, N'dbo') = @schemaName)";
 
         private readonly IConfigManager _configManager;
@@ -275,20 +290,25 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
         }
 
         /// <summary>
-        /// 인덱스 이벤트를 부모 객체의 변경으로 바꾼다. 로그를 읽는 입구에서 한 번만 부른다 —
+        /// 인덱스·컬럼 이벤트를 부모 객체의 변경으로 바꾼다. 로그를 읽는 입구에서 한 번만 부른다 —
         /// 추출 대상(<see cref="GetChangedObjectNames"/>)과 화면 목록(<see cref="BuildChangeSet"/>)이
         /// 각자 해석하면 추출은 테이블을 뽑았는데 목록은 인덱스를 보여주는 식으로 갈라진다.
         ///
+        /// 둘 다 독립 파일이 되지 않고 부모의 스크립트 안에 담긴다. 특히 컬럼 이름 변경(sp_rename)은
+        /// COLUMN 이벤트 하나만 남기고 테이블 이벤트를 따로 내지 않아, 옮기지 않으면 그 변경이
+        /// 저장소에 영영 반영되지 않는다.
+        ///
         /// 이벤트 타입도 함께 옮기는 것이 핵심이다. DROP_INDEX를 그대로 두면 상태가 Deleted가 되고
         /// WorkingTreeCleaner가 테이블의 .sql을 지운다 - 인덱스 하나를 지웠을 뿐인데.
-        /// 인덱스 변경은 부모 테이블의 수정이지 삭제가 아니다.
+        /// 자식 객체의 변경은 부모의 수정이지 삭제가 아니다.
         ///
         /// 부모를 모르면(v1이 남긴 행) 손대지 않는다. 지어낼 근거가 없다.
         /// </summary>
         internal static ChangeLogRow NormalizeRow(ChangeLogRow row)
         {
             if (row == null) return row!;
-            if (!string.Equals(row.ObjectType?.Trim(), "INDEX", StringComparison.OrdinalIgnoreCase)) return row;
+            var objectType = row.ObjectType?.Trim();
+            if (!ParentPointingObjectTypes.Any(t => string.Equals(objectType, t, StringComparison.OrdinalIgnoreCase))) return row;
             if (string.IsNullOrWhiteSpace(row.TargetObjectName)) return row;
 
             return new ChangeLogRow
@@ -296,6 +316,11 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
                 Id = row.Id,
                 SchemaName = row.SchemaName,
                 ObjectName = row.TargetObjectName!.Trim(),
+                // 부모 타입을 그대로 옮긴다. 인덱싱된 뷰의 인덱스는 여기가 VIEW로 오므로
+                // TABLE로 못박으면 그 뷰를 dbo/Tables/... 로 보내 실제 파일과 다른 경로를 얻는다.
+                // 그럼에도 TABLE을 최후 수단으로 두는 이유는, 부모가 있는데 타입만 비어 있으면
+                // Other 폴더로 떨어져 영원히 커밋되지 않기 때문이다 - 자식을 갖는 객체는
+                // 압도적으로 테이블이라 틀릴 확률이 가장 낮은 추측이다.
                 ObjectType = string.IsNullOrWhiteSpace(row.TargetObjectType) ? "TABLE" : row.TargetObjectType!.Trim(),
                 EventType = "ALTER_TABLE",
                 TargetObjectName = row.TargetObjectName,

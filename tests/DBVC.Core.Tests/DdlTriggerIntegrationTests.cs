@@ -140,6 +140,100 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void MarkProcessed_LeavesTheDmlTriggerRowOpen_WhenOnlyTheParentTableIsCommitted()
+        {
+            // TargetObjectName은 인덱스 전용이 아니다 - DML 트리거 이벤트도 부모 테이블을 거기 남긴다.
+            // 조건을 타입 없이 넓히면 테이블만 커밋했는데 트리거의 로그 행까지 닫혀, 커밋된 적 없는
+            // 변경이 목록에서 조용히 사라진다. 조건은 NormalizeRow가 부모로 바꾸는 타입만 덮어야 한다.
+            _db!.Execute("CREATE TABLE dbo.AuditedTable (Id int NOT NULL PRIMARY KEY, Name nvarchar(50) NULL)");
+            _db.Execute("CREATE NONCLUSTERED INDEX IX_AuditedTable_Name ON dbo.AuditedTable (Name)");
+            _db.Execute("CREATE TRIGGER dbo.trg_AuditedTable_Audit ON dbo.AuditedTable AFTER INSERT AS SET NOCOUNT ON");
+
+            // 트리거 행이 가장 늦게 들어오므로, 그 Id까지 포함해야 조건이 실제로 시험된다.
+            var maxId = Convert.ToInt64(_db.QueryScalar(
+                "SELECT MAX(Id) FROM dbo.DBVC_ChangeLog WHERE ObjectName IN " +
+                "(N'AuditedTable', N'IX_AuditedTable_Name', N'trg_AuditedTable_Audit')"));
+
+            new StateTracker(NewConfig()).MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name, new[]
+            {
+                new DBVC.Core.Models.ChangeRecord
+                {
+                    Schema = "dbo",
+                    ObjectName = "AuditedTable",
+                    ObjectType = "TABLE",
+                    State = "Modified",
+                    QualifiedName = "dbo.AuditedTable",
+                    RelativePath = "dbo/Tables/AuditedTable.sql",
+                    LastLogId = maxId
+                }
+            });
+
+            var indexOpen = Convert.ToInt32(_db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE IsProcessed = 0 AND ObjectName = N'IX_AuditedTable_Name'"));
+            var triggerOpen = Convert.ToInt32(_db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE IsProcessed = 0 AND ObjectName = N'trg_AuditedTable_Audit'"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(indexOpen, Is.Zero, "테이블을 커밋하면 딸린 인덱스 행은 닫혀야 한다");
+                Assert.That(triggerOpen, Is.EqualTo(1), "커밋한 적 없는 DML 트리거의 행을 닫으면 안 된다");
+            });
+        }
+
+        [Test]
+        public void MarkProcessed_ClosesTheColumnRenameRow_WhenTheParentTableIsCommitted()
+        {
+            // 컬럼 이름 변경은 COLUMN 타입 한 행으로만 남고 테이블 행이 따로 생기지 않는다.
+            // 부모로 정규화되므로 커밋도 그 행을 닫아야 한다 - 아니면 매번 다시 올라온다.
+            _db!.Execute("CREATE TABLE dbo.RenamedColumnTable (Id int NOT NULL PRIMARY KEY, Name nvarchar(50) NULL)");
+            _db.Execute("EXEC sp_rename N'dbo.RenamedColumnTable.Name', N'FullName', N'COLUMN'");
+
+            var maxId = Convert.ToInt64(_db.QueryScalar(
+                "SELECT MAX(Id) FROM dbo.DBVC_ChangeLog WHERE TargetObjectName = N'RenamedColumnTable' OR ObjectName = N'RenamedColumnTable'"));
+            var recorded = Convert.ToInt32(_db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE IsProcessed = 0 " +
+                "AND ObjectType = N'COLUMN' AND TargetObjectName = N'RenamedColumnTable'"));
+
+            new StateTracker(NewConfig()).MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name, new[]
+            {
+                new DBVC.Core.Models.ChangeRecord
+                {
+                    Schema = "dbo",
+                    ObjectName = "RenamedColumnTable",
+                    ObjectType = "TABLE",
+                    State = "Modified",
+                    QualifiedName = "dbo.RenamedColumnTable",
+                    RelativePath = "dbo/Tables/RenamedColumnTable.sql",
+                    LastLogId = maxId
+                }
+            });
+
+            var open = Convert.ToInt32(_db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE IsProcessed = 0 AND TargetObjectName = N'RenamedColumnTable'"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(recorded, Is.EqualTo(1), "컬럼 이름 변경이 애초에 기록되지 않았다");
+                Assert.That(open, Is.Zero, "부모 테이블을 커밋하면 컬럼 이름 변경 행도 닫혀야 한다");
+            });
+        }
+
+        [Test]
+        public void Trigger_RecordsTheParentTable_ForColumnRenames()
+        {
+            // sp_rename은 COLUMN 이벤트 하나만 남기고 테이블 이벤트를 따로 내지 않는다.
+            // 이 타입을 거르면 부모 테이블이 다시 추출되지 않아 저장소가 조용히 어긋난다.
+            _db!.Execute("CREATE TABLE dbo.ColumnRenameTable (Id int NOT NULL PRIMARY KEY, Nickname nvarchar(50) NULL)");
+            _db.Execute("EXEC sp_rename N'dbo.ColumnRenameTable.Nickname', N'Handle', N'COLUMN'");
+
+            var target = _db.QueryScalar(
+                "SELECT TargetObjectName FROM dbo.DBVC_ChangeLog " +
+                "WHERE ObjectName = N'Nickname' AND ObjectType = N'COLUMN'");
+
+            Assert.That(target, Is.EqualTo("ColumnRenameTable"));
+        }
+
+        [Test]
         public void InstallScript_ThrowsAndKeepsTheExistingTrigger_WhenTheInstallerCannotImpersonateDbo()
         {
             // v2 트리거는 WITH EXECUTE AS 'dbo'라 IMPERSONATE 권한이 필요하지만, 기존 트리거를 지우는
@@ -198,7 +292,7 @@ namespace DBVC.Core.Tests
         public void InstallScript_ClosesRowsThatCanNeverBeCommitted_WhenUpgradingFromV1()
         {
             // v1이 남긴 두 종류를 닫는다: 파일이 생길 수 없는 타입(사용자·권한)과,
-            // 부모를 모르는 인덱스 행. 그대로 두면 목록에 영원히 남는다.
+            // 부모를 모르는 인덱스·컬럼 행. 그대로 두면 목록에 영원히 남는다.
             using var legacy = SqlServerTestDatabase.TryCreate(out var reason);
             if (legacy == null) Assert.Ignore(reason ?? "SQL Server에 접속할 수 없습니다.");
 
@@ -218,6 +312,7 @@ CREATE TABLE [dbo].[DBVC_ChangeLog] (
 INSERT INTO dbo.DBVC_ChangeLog (EventType, SchemaName, ObjectName, ObjectType, LoginName, IsProcessed)
 VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
        (N'CREATE_INDEX', N'dbo', N'IX_Orphan', N'INDEX', N'tester', 0),
+       (N'RENAME', N'dbo', N'OrphanColumn', N'COLUMN', N'tester', 0),
        (N'ALTER_TABLE', N'dbo', N'RealTable', N'TABLE', N'tester', 0)");
 
             new StateTracker(NewConfig()).InitializeDatabase(SqlServerTestDatabase.ServerName, legacy.Name);
@@ -235,7 +330,7 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
 
             Assert.Multiple(() =>
             {
-                Assert.That(Convert.ToInt32(stillOpen), Is.EqualTo(1), "커밋 불가 행 둘이 닫혀야 한다");
+                Assert.That(Convert.ToInt32(stillOpen), Is.EqualTo(1), "커밋 불가 행 셋이 닫혀야 한다");
                 Assert.That(Convert.ToInt32(realOpen), Is.EqualTo(1), "커밋할 수 있는 변경까지 닫으면 안 된다");
                 Assert.That(Convert.ToInt32(hasTargetObjectName), Is.EqualTo(1), "ALTER TABLE 보정으로 TargetObjectName이 추가돼야 한다");
                 Assert.That(Convert.ToInt32(hasTargetObjectType), Is.EqualTo(1), "ALTER TABLE 보정으로 TargetObjectType이 추가돼야 한다");

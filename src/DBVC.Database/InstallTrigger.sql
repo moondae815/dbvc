@@ -104,14 +104,17 @@ BEGIN
 
     DECLARE @ObjectType NVARCHAR(100) = @EventData.value('(/EVENT_INSTANCE/ObjectType)[1]', 'NVARCHAR(100)');
 
-    -- DBVC_TRACKED_TYPES: ObjectPathConvention.DdlEventObjectTypes + INDEX와 같아야 한다.
+    -- DBVC_TRACKED_TYPES: ObjectPathConvention.DdlEventObjectTypes + INDEX + COLUMN과 같아야 한다.
     -- InstallScriptSyncTests가 이 목록을 읽어 대조하므로 형식(따옴표 붙은 값 나열)을 바꾸지 말 것.
     -- 여기서 거르지 않으면 사용자·권한 이벤트가 파일 없는 항목으로 목록에 남는다.
+    -- INDEX와 COLUMN은 독립 파일이 되지 않지만 기록한다 - Core가 부모 객체의 수정으로 정규화한다.
+    -- 특히 컬럼 이름 변경(sp_rename)은 COLUMN 이벤트 하나만 남기고 테이블 이벤트를 내지 않아,
+    -- 거르면 그 변경이 저장소에 영영 반영되지 않는다.
     IF @ObjectType IS NULL OR @ObjectType NOT IN (N'TABLE', N'VIEW', N'PROCEDURE', N'SQL_STORED_PROCEDURE',
         N'FUNCTION', N'SQL_SCALAR_FUNCTION', N'SQL_TABLE_VALUED_FUNCTION',
         N'SQL_INLINE_TABLE_VALUED_FUNCTION', N'TRIGGER', N'SQL_TRIGGER', N'TYPE',
         N'TABLE_TYPE', N'SEQUENCE OBJECT', N'SEQUENCE_OBJECT', N'SEQUENCE', N'SYNONYM',
-        N'INDEX')
+        N'INDEX', N'COLUMN')
         RETURN;
 
     INSERT INTO [dbo].[DBVC_ChangeLog] (
@@ -171,13 +174,13 @@ WHERE [IsProcessed] = 0
         N'FUNCTION', N'SQL_SCALAR_FUNCTION', N'SQL_TABLE_VALUED_FUNCTION',
         N'SQL_INLINE_TABLE_VALUED_FUNCTION', N'TRIGGER', N'SQL_TRIGGER', N'TYPE',
         N'TABLE_TYPE', N'SEQUENCE OBJECT', N'SEQUENCE_OBJECT', N'SEQUENCE', N'SYNONYM',
-        N'INDEX');
+        N'INDEX', N'COLUMN');
 GO
 
--- 부모를 모르는 인덱스 행은 부모 테이블로 정규화할 수 없어 커밋해도 닫히지 않는다.
+-- 부모를 모르는 인덱스·컬럼 행은 부모 객체로 정규화할 수 없어 커밋해도 닫히지 않는다.
 -- 위 UPDATE와 한 문장으로 합치지 않는 이유는 N'INDEX'가 표식 구간에 두 번 들어가
 -- InstallScriptSyncTests의 목록 비교(중복 개수까지 본다)를 깨뜨리기 때문이다.
 UPDATE [dbo].[DBVC_ChangeLog]
 SET [IsProcessed] = 1
-WHERE [IsProcessed] = 0 AND [ObjectType] = N'INDEX' AND [TargetObjectName] IS NULL;
+WHERE [IsProcessed] = 0 AND [ObjectType] IN (N'INDEX', N'COLUMN') AND [TargetObjectName] IS NULL;
 GO

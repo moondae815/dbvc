@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using DBVC.Core;
@@ -493,6 +493,18 @@ namespace DBVC.Core.Tests
                 TargetObjectType = targetName == null ? null : "TABLE"
             };
 
+        private static ChangeLogRow ColumnRow(string columnName, string? targetName = "Users")
+            => new ChangeLogRow
+            {
+                Id = 11,
+                SchemaName = "dbo",
+                ObjectName = columnName,
+                ObjectType = "COLUMN",
+                EventType = "RENAME",
+                TargetObjectName = targetName,
+                TargetObjectType = targetName == null ? null : "TABLE"
+            };
+
         [Test]
         public void NormalizeRow_TreatsADroppedIndexAsAModifiedParentTable_NotADeletedObject()
         {
@@ -540,6 +552,55 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void NormalizeRow_KeepsTheParentType_WhenTheIndexIsOnAnIndexedView()
+        {
+            // 인덱싱된 뷰의 인덱스는 TargetObjectType이 VIEW로 온다(실측). 타입을 TABLE로 못박으면
+            // 그 뷰가 dbo/Tables/... 로 떨어져 저장소의 실제 파일과 다른 경로를 보게 된다.
+            var row = IndexRow("CREATE_INDEX", "IX_vUsers");
+            row.TargetObjectName = "vUsers";
+            row.TargetObjectType = "VIEW";
+
+            var normalized = StateTracker.NormalizeRow(row);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(normalized.ObjectName, Is.EqualTo("vUsers"));
+                Assert.That(normalized.ObjectType, Is.EqualTo("VIEW"));
+            });
+        }
+
+        [Test]
+        public void NormalizeRow_PointsColumnEventsAtTheParentTable()
+        {
+            // sp_rename으로 컬럼 이름을 바꾸면 COLUMN 이벤트 하나만 남고 테이블 이벤트는 생기지 않는다.
+            // 부모로 옮기지 않으면 그 변경은 저장소에 영영 반영되지 않는다.
+            var normalized = StateTracker.NormalizeRow(ColumnRow("Name"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(normalized.ObjectName, Is.EqualTo("Users"));
+                Assert.That(normalized.ObjectType, Is.EqualTo("TABLE"));
+                Assert.That(StateTracker.MapEventTypeToState(normalized.EventType), Is.EqualTo("Modified"));
+            });
+        }
+
+        [Test]
+        public void NormalizeRow_LeavesTheColumnRowAlone_WhenTheParentIsUnknown()
+        {
+            var normalized = StateTracker.NormalizeRow(ColumnRow("Name", targetName: null));
+
+            Assert.That(normalized.ObjectName, Is.EqualTo("Name"));
+        }
+
+        [Test]
+        public void ToQualifiedNames_YieldsTheParentTable_ForNormalizedColumnRows()
+        {
+            var names = StateTracker.ToQualifiedNames(new[] { StateTracker.NormalizeRow(ColumnRow("Name")) });
+
+            Assert.That(names, Is.EqualTo(new[] { "dbo.Users" }));
+        }
+
+        [Test]
         public void ToQualifiedNames_YieldsTheParentTable_ForNormalizedIndexRows()
         {
             // 추출 대상 목록에도 부모가 나와야 새로고침이 테이블을 다시 스크립팅한다.
@@ -548,20 +609,5 @@ namespace DBVC.Core.Tests
             Assert.That(names, Is.EqualTo(new[] { "dbo.Users" }));
         }
 
-        // ---------- 커밋 완료 처리 ----------
-
-        [Test]
-        public void MarkProcessedCommand_ClosesRowsThatPointAtTheObjectAsTheirParent()
-        {
-            // 정규화 뒤 레코드의 이름은 테이블인데 로그의 행은 인덱스 이름이다. ObjectName만 보면
-            // 인덱스 행이 닫히지 않아 커밋해도 다음 새로고침에 그대로 다시 올라온다.
-            var command = StateTracker.MarkProcessedCommand;
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(command, Does.Contain("TargetObjectName = @objectName"));
-                Assert.That(command, Does.Contain("Id <= @lastLogId"), "새로고침 이후의 이벤트는 건드리지 않아야 한다");
-            });
-        }
     }
 }

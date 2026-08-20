@@ -36,9 +36,11 @@ namespace DBVC.Core.Tests
             => Regex.Matches(block, @"N'([^']+)'").Cast<Match>().Select(m => m.Groups[1].Value).ToArray();
 
         [Test]
-        public void InstallScript_TracksExactlyTheObjectTypesTheConventionKnows_PlusIndex()
+        public void InstallScript_TracksExactlyTheObjectTypesTheConventionKnows_PlusTheParentPointingTypes()
         {
-            var expected = ObjectPathConvention.DdlEventObjectTypes.Concat(new[] { "INDEX" }).ToArray();
+            // INDEX와 COLUMN은 독립 파일이 되지 않으므로 폴더 사전(DdlEventObjectTypes)에는 없다.
+            // 부모로 정규화되어야 하므로 기록은 해야 한다 - 그래서 여기서만 더한다.
+            var expected = ObjectPathConvention.DdlEventObjectTypes.Concat(new[] { "INDEX", "COLUMN" }).ToArray();
 
             var lists = TrackedTypeLists();
             Assert.That(lists, Is.Not.Empty, "설치 스크립트에서 DBVC_TRACKED_TYPES 표식을 찾지 못했습니다");
