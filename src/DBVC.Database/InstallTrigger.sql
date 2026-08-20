@@ -145,3 +145,25 @@ BEGIN
          @level1type = N'TABLE',  @level1name = N'DBVC_ChangeLog';
 END
 GO
+
+-- v1이 남긴 커밋 불가 행을 닫는다. 화이트리스트 밖 타입은 .sql이 만들어질 수 없어
+-- 그대로 두면 목록에 영원히 남는다. v2 트리거는 이런 행을 애초에 만들지 않으므로
+-- 이 정리는 옛 행에만 닿고, 여러 번 실행해도 결과가 같다.
+-- DBVC_TRACKED_TYPES: 위 트리거의 목록과 같아야 한다. InstallScriptSyncTests가 두 곳을 함께 검사한다.
+UPDATE [dbo].[DBVC_ChangeLog]
+SET [IsProcessed] = 1
+WHERE [IsProcessed] = 0
+  AND [ObjectType] NOT IN (N'TABLE', N'VIEW', N'PROCEDURE', N'SQL_STORED_PROCEDURE',
+        N'FUNCTION', N'SQL_SCALAR_FUNCTION', N'SQL_TABLE_VALUED_FUNCTION',
+        N'SQL_INLINE_TABLE_VALUED_FUNCTION', N'TRIGGER', N'SQL_TRIGGER', N'TYPE',
+        N'TABLE_TYPE', N'SEQUENCE OBJECT', N'SEQUENCE_OBJECT', N'SEQUENCE', N'SYNONYM',
+        N'INDEX');
+GO
+
+-- 부모를 모르는 인덱스 행은 부모 테이블로 정규화할 수 없어 커밋해도 닫히지 않는다.
+-- 위 UPDATE와 한 문장으로 합치지 않는 이유는 N'INDEX'가 표식 구간에 두 번 들어가
+-- InstallScriptSyncTests의 목록 비교(중복 개수까지 본다)를 깨뜨리기 때문이다.
+UPDATE [dbo].[DBVC_ChangeLog]
+SET [IsProcessed] = 1
+WHERE [IsProcessed] = 0 AND [ObjectType] = N'INDEX' AND [TargetObjectName] IS NULL;
+GO

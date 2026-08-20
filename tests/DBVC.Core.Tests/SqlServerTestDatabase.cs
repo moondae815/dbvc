@@ -108,8 +108,9 @@ namespace DBVC.Core.Tests
 
         private static SqlConnection OpenMaster()
         {
+            // 2초는 전체 실행 부하에서 만료돼 서버가 있는데도 픽스처가 통째로 Skip된다(Skip은 조용한 통과다).
             var connString = new SqlConnectionStringBuilder(
-                SqlConnectionFactory.BuildWindows(ServerName, "master")) { ConnectTimeout = 2 }.ToString();
+                SqlConnectionFactory.BuildWindows(ServerName, "master")) { ConnectTimeout = 10 }.ToString();
             var conn = new SqlConnection(connString);
             conn.Open();
             return conn;

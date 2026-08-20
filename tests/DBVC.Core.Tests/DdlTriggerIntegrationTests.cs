@@ -154,5 +154,53 @@ namespace DBVC.Core.Tests
             Assert.DoesNotThrow(() => tracker.InitializeDatabase(SqlServerTestDatabase.ServerName, _db!.Name));
             Assert.DoesNotThrow(() => tracker.InitializeDatabase(SqlServerTestDatabase.ServerName, _db!.Name));
         }
+
+        [Test]
+        public void InstallScript_ClosesRowsThatCanNeverBeCommitted_WhenUpgradingFromV1()
+        {
+            // v1이 남긴 두 종류를 닫는다: 파일이 생길 수 없는 타입(사용자·권한)과,
+            // 부모를 모르는 인덱스 행. 그대로 두면 목록에 영원히 남는다.
+            using var legacy = SqlServerTestDatabase.TryCreate(out var reason);
+            if (legacy == null) Assert.Ignore(reason);
+
+            // v1 모양: Target 컬럼도 버전 표식도 없다.
+            legacy.Execute(@"
+CREATE TABLE [dbo].[DBVC_ChangeLog] (
+    [Id] INT IDENTITY(1,1) PRIMARY KEY,
+    [EventType] NVARCHAR(100) NOT NULL,
+    [SchemaName] NVARCHAR(128) NULL,
+    [ObjectName] NVARCHAR(256) NOT NULL,
+    [ObjectType] NVARCHAR(100) NOT NULL,
+    [PostTime] DATETIME NOT NULL DEFAULT GETDATE(),
+    [LoginName] NVARCHAR(256) NOT NULL,
+    [TSQLCommand] NVARCHAR(MAX) NULL,
+    [IsProcessed] BIT NOT NULL DEFAULT 0)");
+            legacy.Execute(@"
+INSERT INTO dbo.DBVC_ChangeLog (EventType, SchemaName, ObjectName, ObjectType, LoginName, IsProcessed)
+VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
+       (N'CREATE_INDEX', N'dbo', N'IX_Orphan', N'INDEX', N'tester', 0),
+       (N'ALTER_TABLE', N'dbo', N'RealTable', N'TABLE', N'tester', 0)");
+
+            new StateTracker(NewConfig()).InitializeDatabase(SqlServerTestDatabase.ServerName, legacy.Name);
+
+            var stillOpen = legacy.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE IsProcessed = 0");
+            var realOpen = legacy.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE IsProcessed = 0 AND ObjectName = N'RealTable'");
+            // 이 테스트만 v1 모양으로 테이블을 직접 만들어 ALTER TABLE ... ADD 보정 경로를 태운다 -
+            // 다른 테스트는 전부 현재 스크립트가 처음부터 만든 DB라 이 경로를 타지 않는다.
+            var hasTargetObjectName = legacy.QueryScalar(
+                "SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.DBVC_ChangeLog') AND name = N'TargetObjectName'");
+            var hasTargetObjectType = legacy.QueryScalar(
+                "SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.DBVC_ChangeLog') AND name = N'TargetObjectType'");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(Convert.ToInt32(stillOpen), Is.EqualTo(1), "커밋 불가 행 둘이 닫혀야 한다");
+                Assert.That(Convert.ToInt32(realOpen), Is.EqualTo(1), "커밋할 수 있는 변경까지 닫으면 안 된다");
+                Assert.That(Convert.ToInt32(hasTargetObjectName), Is.EqualTo(1), "ALTER TABLE 보정으로 TargetObjectName이 추가돼야 한다");
+                Assert.That(Convert.ToInt32(hasTargetObjectType), Is.EqualTo(1), "ALTER TABLE 보정으로 TargetObjectType이 추가돼야 한다");
+            });
+        }
     }
 }
