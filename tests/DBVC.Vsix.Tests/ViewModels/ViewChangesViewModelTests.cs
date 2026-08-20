@@ -497,6 +497,100 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.IsInitialized, Is.False);
         }
 
+        // ---------- 추적기 버전 ----------
+
+        [Test]
+        public void IsTrackerOutdated_IsTrue_WhenTheInstalledVersionIsBehind()
+        {
+            _stateTracker.Setup(s => s.GetInstalledVersion(Server, Database)).Returns(1);
+
+            var vm = NewConnectedViewModel();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(vm.IsTrackerOutdated, Is.True);
+                Assert.That(vm.IsInitialized, Is.True, "구버전도 설치된 것이다 - 초기화 오버레이를 다시 띄우면 안 된다");
+            });
+        }
+
+        [Test]
+        public void IsTrackerOutdated_IsFalse_WhenTheTrackerIsCurrent()
+        {
+            _stateTracker.Setup(s => s.GetInstalledVersion(Server, Database)).Returns(StateTracker.RequiredSchemaVersion);
+
+            Assert.That(NewConnectedViewModel().IsTrackerOutdated, Is.False);
+        }
+
+        [Test]
+        public void IsTrackerOutdated_IsFalse_WhenNothingIsInstalled()
+        {
+            // 미설치는 초기화 오버레이가 맡는다. 두 안내가 함께 뜨면 무엇을 눌러야 하는지 흐려진다.
+            _stateTracker.Setup(s => s.GetInstalledVersion(Server, Database)).Returns(0);
+
+            Assert.That(NewConnectedViewModel().IsTrackerOutdated, Is.False);
+        }
+
+        [Test]
+        public void UpdateTracker_ReinstallsTheScript_AndTellsTheUserToReExtract()
+        {
+            _stateTracker.Setup(s => s.GetInstalledVersion(Server, Database)).Returns(1);
+            var vm = NewConnectedViewModel();
+
+            vm.UpdateTrackerCommand.Execute(null);
+
+            _stateTracker.Verify(s => s.InitializeDatabase(Server, Database), Times.Once);
+            Assert.That(_notifier.Infos.Any(m => m.Contains("전체 다시 추출")), Is.True,
+                "과거 인덱스 변경이 정리되면서 사라지므로 다시 추출하라고 알려야 한다");
+        }
+
+        [Test]
+        public void UpdateTracker_ShowsTheReason_WhenInstallFails()
+        {
+            _stateTracker.Setup(s => s.GetInstalledVersion(Server, Database)).Returns(1);
+            _stateTracker.Setup(s => s.InitializeDatabase(Server, Database))
+                .Throws(new InvalidOperationException("권한이 없습니다"));
+            var vm = NewConnectedViewModel();
+
+            vm.UpdateTrackerCommand.Execute(null);
+
+            Assert.That(_notifier.Errors.Any(m => m.Contains("권한이 없습니다")), Is.True);
+        }
+
+        [Test]
+        public void Setup_RunsThroughTheScheduler()
+        {
+            // 설치는 응답 없는 서버에서 수십 초까지 걸린다. UI 스레드에 남으면 그동안 SSMS가 멈춘다.
+            var scheduler = new CountingScheduler();
+            _stateTracker.Setup(s => s.GetInstalledVersion(Server, Database)).Returns(0);
+            var vm = new ViewChangesViewModel(
+                _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
+                _cleaner.Object, _folderDialog, _credentials.Object, _ssms.Object, scheduler);
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info());
+            vm.ConnectCommand.Execute(null);
+            var before = scheduler.RunCount;
+
+            vm.SetupCommand.Execute(null);
+
+            Assert.That(scheduler.RunCount, Is.GreaterThan(before));
+        }
+
+        /// <summary>넘겨받은 작업을 인라인으로 실행하되 횟수를 센다.</summary>
+        private sealed class CountingScheduler : IBackgroundScheduler
+        {
+            public int RunCount { get; private set; }
+
+            public void Run<T>(Func<T> work, Action<T> onSucceeded, Action<Exception> onFailed)
+            {
+                RunCount++;
+                T value;
+                try { value = work(); }
+                catch (Exception ex) { onFailed(ex); return; }
+                onSucceeded(value);
+            }
+
+            public void Post(Action action) => action();
+        }
+
         // ---------- Refresh ----------
 
         [Test]

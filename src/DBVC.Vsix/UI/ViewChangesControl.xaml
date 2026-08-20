@@ -64,6 +64,23 @@
             <TextBlock Text="{Binding SsmsHintMessage}" FontWeight="SemiBold"
                        TextWrapping="Wrap" Margin="5,0,5,4"
                        Visibility="{Binding HasSsmsHintMessage, Converter={StaticResource BoolToVis}}"/>
+
+            <!--
+                구버전 추적기 안내. 위의 경고 배너(WarningMessage)에 얹지 않는다 - 그쪽은 접속 실패·
+                매핑 없음으로 이미 쓰이고 있어 겹치면 한쪽이 다른 쪽을 지운다.
+            -->
+            <Border Background="#FFF4CE" BorderBrush="#E0C77A" BorderThickness="1"
+                    Padding="8,5" Margin="5,0,5,4"
+                    Visibility="{Binding IsTrackerOutdated, Converter={StaticResource BoolToVis}}">
+                <DockPanel LastChildFill="True">
+                    <Button DockPanel.Dock="Right" Content="추적기 업데이트" Width="110" Margin="8,0,0,0"
+                            Command="{Binding UpdateTrackerCommand}"
+                            ToolTip="변경 추적 트리거를 현재 버전으로 다시 설치합니다. 데이터베이스 스키마는 바뀌지 않습니다."/>
+                    <TextBlock Text="변경 추적기가 구버전입니다. 인덱스 변경이 저장소에 반영되지 않습니다."
+                               Foreground="#6B5A00" TextWrapping="Wrap" FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
+                </DockPanel>
+            </Border>
         </StackPanel>
 
         <!--
