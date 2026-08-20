@@ -485,6 +485,17 @@ Pull과 같은 이유로, 각 상황을 일부러 만들어 **한국어 안내�
   DBVC는 스크립트를 실행하지 않는다.
 - **변경 감지는 새로고침 시점.** DDL 트리거가 발생 즉시 `DBVC_ChangeLog` 에 기록하지만,
   화면 반영은 새로고침·연결·DBVC 초기화·Commit 직후에만 일어난다. 주기적 폴링은 하지 않는다.
+- **DBVC를 걷어낼 때는 트리거를 먼저 지운다.** `DBVC_ChangeLog` 만 지우고 트리거를 남기면
+  그 데이터베이스의 **이후 모든 DDL이 실패하고 롤백된다** — 트리거가 없는 테이블에 INSERT하려다
+  오류 208을 내고, 그 오류가 배치를 중단시키기 때문이다. `DROP TABLE` 자체는 트리거가 자기 이름과
+  `DBVC_ChangeLog` 를 예외로 두고 있어 성공하므로, 증상은 *다음* 문장에서야 드러난다.
+  순서는 이렇다:
+
+  ```sql
+  DROP TRIGGER [trg_DBVC_DDL_Tracker] ON DATABASE;
+  DROP TABLE [dbo].[DBVC_ChangeLog];
+  ```
+
 - **Object Explorer 상태 아이콘 오버레이는 미구현.** SSMS에 공개 확장점이 없어 보류했다
   (Feature 10, [plans/2026-08-01-dbvc-object-explorer-overlay.md](superpowers/plans/2026-08-01-dbvc-object-explorer-overlay.md)).
   변경 상태는 DBVC 창에서 확인한다.

@@ -107,12 +107,35 @@ public`도 같은 문제를 풀지만, 그 경우 모든 DB 사용자가 변경 
 수 있어야 한다(db_owner면 충족). 소유자 SID가 유효하지 않은 데이터베이스에서는 실패하며, 그때는
 `InitializeDatabase`가 예외를 그대로 전파해 화면이 사유를 보여준다 — 지금과 같은 경로다.
 
+**그래서 스크립트의 첫 배치는 사전 점검이다.** 트리거를 지우는 `DROP TRIGGER ... ON DATABASE`는
+`ALTER ANY DATABASE DDL TRIGGER`면 되지만 새 트리거의 `WITH EXECUTE AS 'dbo'`는 dbo에 대한
+IMPERSONATE를 요구한다 — 권한 폐포가 다르다. 확인 없이 진행하면 v1 트리거를 지운 뒤 `CREATE`가
+실패해 **변경 추적이 통째로 꺼진 데이터베이스**가 남는다. 그 뒤 `GetInstalledVersion`은 0을 주고
+화면은 초기화 오버레이로 바뀌며, 그것도 같은 자리에서 실패한다.
+
+```sql
+BEGIN TRY
+    EXECUTE AS USER = N'dbo';
+    REVERT;
+END TRY
+BEGIN CATCH
+    THROW 51000, N'DBVC 설치에는 dbo를 가장할 수 있는 권한(db_owner)이 필요합니다. 변경 추적기는 그대로 둡니다.', 1;
+END CATCH
+GO
+```
+
+오류 15517은 이렇게 잡히는 것을 SQL Server 2022에서 확인했다.
+
 **`BEGIN CATCH`는 지운다.** 트리거 안의 오류를 무해하게 만드는 방법은 없다. 삼키는 척하는 코드는
 실패를 감추지도 못하면서 "여기는 안전하다"는 잘못된 믿음만 남긴다.
 
 ### 3.2 기록할 것만 기록한다
 
-트리거는 DBVC가 실제로 스크립팅하는 타입과, 부모로 정규화될 `INDEX`만 기록한다.
+트리거는 DBVC가 실제로 스크립팅하는 타입과, 부모로 정규화될 `INDEX`·`COLUMN`만 기록한다.
+
+`COLUMN`이 여기 있는 이유는 `sp_rename 'dbo.Users.Name', 'FullName', 'COLUMN'`이 **`COLUMN` 이벤트
+한 건만** 남기고 테이블 이벤트를 따로 내지 않기 때문이다(실측). 거르면 부모 테이블이 다시 추출되지
+않아 저장소가 조용히 어긋난다 — 인덱스와 같은 결함이다.
 
 ```sql
 -- DBVC_TRACKED_TYPES: 이 목록은 ObjectPathConvention과 테스트로 동기화된다. 형식을 바꾸지 말 것.
@@ -120,7 +143,7 @@ IF @ObjectType NOT IN (N'TABLE', N'VIEW', N'PROCEDURE', N'SQL_STORED_PROCEDURE',
     N'FUNCTION', N'SQL_SCALAR_FUNCTION', N'SQL_TABLE_VALUED_FUNCTION',
     N'SQL_INLINE_TABLE_VALUED_FUNCTION', N'TRIGGER', N'SQL_TRIGGER', N'TYPE',
     N'TABLE_TYPE', N'SEQUENCE OBJECT', N'SEQUENCE_OBJECT', N'SEQUENCE', N'SYNONYM',
-    N'INDEX')
+    N'INDEX', N'COLUMN')
     RETURN;
 ```
 
@@ -180,8 +203,10 @@ C# 쪽 상수는 `StateTracker.RequiredSchemaVersion`이며, 3.2의 동기화 �
 대상)와 `BuildChangeSet`(화면 목록)이 각자 해석하면 두 경로가 갈라진다 — 추출은 테이블을 다시
 뽑았는데 목록은 인덱스를 보여주는 식이 된다.
 
-규칙은 하나다. **`ObjectType`이 `INDEX`이고 `TargetObjectName`이 있으면 이름·타입을 `Target*`으로
-치환한다.** `TargetObjectName`이 비어 있으면(v1이 남긴 행) 손대지 않는다.
+규칙은 하나다. **`ObjectType`이 `INDEX`·`COLUMN`이고 `TargetObjectName`이 있으면 이름·타입을
+`Target*`으로 치환한다.** `TargetObjectName`이 비어 있으면(v1이 남긴 행) 손대지 않는다.
+타입은 하드코딩하지 않고 `TargetObjectType`을 그대로 옮긴다 — 인덱싱된 뷰의 인덱스는 그 값이
+`VIEW`로 오므로, `TABLE`로 못박으면 뷰가 `Tables` 폴더로 떨어진다.
 
 여기 함정이 있다. `DROP_INDEX`는 `MapEventTypeToState`에서 `"Deleted"`가 되고, `ResolveState`는
 Deleted면 Git 상태를 무시하고 그대로 통과시키며, `WorkingTreeCleaner`는 그것을 보고 파일을
@@ -191,8 +216,9 @@ Deleted면 Git 상태를 무시하고 그대로 통과시키며, `WorkingTreeCle
 | 원래 EventType | 정규화 후 |
 |---|---|
 | `CREATE_INDEX` / `ALTER_INDEX` / `DROP_INDEX` | `ALTER_TABLE` |
+| `RENAME` (ObjectType = `COLUMN`) | `ALTER_TABLE` |
 
-인덱스 변경은 부모 테이블의 **수정**이지 삭제가 아니다.
+자식 객체의 변경은 부모의 **수정**이지 삭제가 아니다.
 
 `ObjectPathConvention`에 `INDEX` 폴더를 더하지 않는다. 인덱스는 독립 객체로 저장되지 않으므로
 정규화되지 못한 행(v1 잔여)이 `Other`로 떨어지는 것이 오히려 정확하다.
@@ -205,11 +231,18 @@ Deleted면 Git 상태를 무시하고 그대로 통과시키며, `WorkingTreeCle
 
 ```sql
 WHERE IsProcessed = 0 AND Id <= @lastLogId
-  AND (ObjectName = @objectName OR TargetObjectName = @objectName)
+  AND (ObjectName = @objectName
+       OR (ObjectType IN (N'INDEX', N'COLUMN') AND TargetObjectName = @objectName))
   AND (ISNULL(SchemaName, N'dbo') = @schemaName)
 ```
 
-테이블 하나를 커밋하면 그 테이블의 `ALTER_TABLE` 행과 딸린 인덱스 행이 함께 닫힌다.
+**타입 조건을 빼면 안 된다.** `TargetObjectName`은 인덱스 전용이 아니다 — DML 트리거 이벤트도
+부모 테이블을 거기 남긴다(실측: `CREATE_TRIGGER | trg_Users_Audit | TRIGGER | Users | TABLE`).
+조건이 넓으면 테이블만 커밋했는데 그 테이블에 딸린 트리거의 로그 행까지 닫혀, 커밋된 적 없는
+변경이 목록에서 조용히 사라진다. 이 목록은 3.5가 부모로 바꾸는 타입과 **정확히** 같아야 하므로
+`StateTracker`가 배열 하나(`ParentPointingObjectTypes`)에서 양쪽을 만든다.
+
+테이블 하나를 커밋하면 그 테이블의 `ALTER_TABLE` 행과 딸린 인덱스·컬럼 행이 함께 닫힌다.
 `Id <= @lastLogId` 조건은 그대로 두어 새로고침 이후에 들어온 이벤트는 건드리지 않는다.
 
 ### 3.7 Vsix: 구버전을 알리고 갈아 끼운다
@@ -240,8 +273,8 @@ WHERE IsProcessed = 0
        OR (ObjectType = N'INDEX' AND TargetObjectName IS NULL));
 ```
 
-(a) 화이트리스트 밖 타입은 파일이 생길 수 없고, (b) 부모를 모르는 v1 인덱스 행은 정규화할 수
-없다. 그대로 두면 목록에 영원히 남는다. v2 이후로는 트리거가 그런 행을 만들지 않으므로 이
+(b)는 `INDEX`·`COLUMN` 양쪽에 걸린다. (a) 화이트리스트 밖 타입은 파일이 생길 수 없고,
+(b) 부모를 모르는 v1 인덱스·컬럼 행은 정규화할 수 없다. 그대로 두면 목록에 영원히 남는다. v2 이후로는 트리거가 그런 행을 만들지 않으므로 이
 정리는 옛 행에만 닿고, 여러 번 실행해도 결과가 같다.
 
 (b) 때문에 과거의 인덱스 변경이 조용히 사라진다. 그래서 업데이트 완료 알림에 **"전체 다시 추출을
@@ -254,8 +287,11 @@ WHERE IsProcessed = 0
 - 정규화: `INDEX` + `Target` 있음 → 부모 이름·타입으로 치환된다
 - 정규화: `DROP_INDEX` → 상태가 `Deleted`가 아니라 `Modified`가 된다 (**이 테스트를 먼저 쓴다**)
 - 정규화: `TargetObjectName`이 없으면 행을 바꾸지 않는다
+- 정규화: 인덱싱된 뷰의 인덱스는 부모 타입이 `VIEW`로 유지된다
+- 정규화: `COLUMN` 행도 부모의 `ALTER_TABLE`로 바뀐다
 - 정규화: 인덱스 이벤트가 추출 대상 이름(`GetChangedObjectNames`)에도 부모로 나온다
-- `MarkProcessed`: 테이블을 커밋하면 그 테이블의 인덱스 행도 닫힌다
+- `MarkProcessed`: 테이블을 커밋하면 그 테이블의 인덱스·컬럼 행도 닫힌다
+- `MarkProcessed`: 같은 테이블에 딸린 **DML 트리거의 행은 열린 채로 남는다**
 - `GetInstalledVersion`: 0 / 1 / 2 세 상태를 가른다
 - ViewModel: `0 < version < Required`일 때만 업데이트 안내와 명령이 활성화된다
 - ViewModel: 초기화·업데이트가 `IBackgroundScheduler`를 거치고 실행 중 `IsBusy`가 선다
@@ -269,6 +305,7 @@ WHERE IsProcessed = 0
 접속되지 않으면 Skip한다.
 
 - 저권한 사용자(`CREATE TABLE`만 가진)의 DDL이 성공하고 로그에 남는다 — 1.1의 회귀 테스트
+- dbo를 가장할 수 없는 설치자가 실행하면 **예외가 나고 기존 트리거가 남는다** — 3.1 사전 점검
 - `CREATE INDEX`가 `TargetObjectName`에 부모 테이블을 남긴다
 - `GRANT`·`CREATE USER`는 기록되지 않는다
 - 스크립트를 두 번 실행해도 결과가 같다(멱등)
@@ -285,6 +322,15 @@ WHERE IsProcessed = 0
 
 ## 5. 범위 밖
 
+- **XML 인덱스와 공간 인덱스의 *생성*은 감지되지 않는다.** SQL Server 2022에서 실측한 결과
+  `CREATE PRIMARY XML INDEX`는 `ObjectType = 'XML INDEX'`를, `CREATE SPATIAL INDEX`는
+  `'SPATIAL INDEX'`를 낸다 — 3.2의 화이트리스트에 없으므로 걸러진다. 같은 인덱스를 지울 때는
+  둘 다 `'INDEX'`로 와서 정상 기록되므로, **생성만** 빠진다. 화이트리스트를 넓히는 것은 이
+  스펙의 범위가 아니다(폴더 사전과의 동기화 계약을 다시 정해야 한다). 그때까지는 **전체 다시
+  추출**이 유일한 반영 경로이며, README가 그렇게 안내한다.
+- **테이블 자체의 `RENAME`은 옛 이름으로 기록된다.** `sp_rename 'dbo.Users', 'Users2'`는
+  `ObjectName = 'Users'`(바꾸기 전 이름)에 `TargetObjectName`이 비어 있어, 새 이름의 파일이
+  만들어지지 않고 옛 파일도 지워지지 않는다. 원인이 이 스펙의 세 결함과 달라 후속 스펙으로 뺀다.
 - **UTF-16 → UTF-8 전환** — 별도 스펙. 이유는 2절에 있다.
 - `MarkProcessed`·`ScriptObjectsDetailed`의 실패 침묵, 매핑 변경 UI, 새로고침의 중복 조회 —
   같은 검토에서 나왔지만 이 스펙의 세 결함과 원인이 다르다.
