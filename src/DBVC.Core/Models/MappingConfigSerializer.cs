@@ -10,7 +10,8 @@ namespace DBVC.Core.Models
     {
         private static readonly JsonSerializerOptions Options = new JsonSerializerOptions
         {
-            WriteIndented = true
+            WriteIndented = true,
+            Converters = { new MappingModeConverter() }
         };
 
         public static string Serialize(IReadOnlyList<MappingConfig> mappings)
