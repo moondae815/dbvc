@@ -37,16 +37,21 @@
                 버전은 오른쪽 끝에 고정한다. WrapPanel 안에 넣으면 창을 좁히는 순간 대상 표시
                 아래로 흘러내려 "지금 무엇에 접속했는가"를 읽는 흐름을 끊는다. 버튼 줄바꿈은
                 안쪽 WrapPanel이 그대로 맡는다.
+
+                세로 정렬은 Center가 아니라 Top이어야 한다. 이 TextBlock이 붙는 곳은 안쪽
+                WrapPanel이 아니라 바깥 DockPanel이라, 창이 좁아져 WrapPanel이 두 줄로 늘어나면
+                Center의 기준이 "두 줄을 합친 높이"가 된다 — 버전이 두 줄 사이에 붕 뜬다.
+                위 여백 4는 연결 버튼의 글자선에 맞추기 위한 값이다.
             -->
             <DockPanel LastChildFill="True" Margin="5,5,5,0">
-                <TextBlock DockPanel.Dock="Right" Text="{Binding VersionText}"
-                           VerticalAlignment="Center" Margin="8,0,0,4"
+                <TextBlock x:Name="VersionLabel" DockPanel.Dock="Right" Text="{Binding VersionText}"
+                           VerticalAlignment="Top" Margin="8,4,0,4"
                            Foreground="{DynamicResource {x:Static vsshell:VsBrushes.GrayTextKey}}"
                            ToolTip="설치된 DBVC 확장의 버전입니다."/>
                 <WrapPanel Orientation="Horizontal">
-                    <Button Content="연결" Command="{Binding ConnectCommand}" Width="70" Margin="0,0,10,4"
+                    <Button x:Name="ConnectButton" Content="연결" Command="{Binding ConnectCommand}" Width="70" Margin="0,0,10,4"
                             ToolTip="SSMS 개체 탐색기에서 선택한 데이터베이스로 접속합니다. 인증 정보는 그 연결에서만 오며 디스크에 저장되지 않습니다."/>
-                    <TextBlock Text="{Binding TargetSummary}" VerticalAlignment="Center" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="TargetLabel" Text="{Binding TargetSummary}" VerticalAlignment="Center" Margin="0,0,0,4"/>
                 </WrapPanel>
             </DockPanel>
 
