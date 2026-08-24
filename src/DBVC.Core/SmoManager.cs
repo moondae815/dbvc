@@ -150,7 +150,16 @@ namespace DBVC.Core
                 XmlIndexes = true,
                 FullTextIndexes = true,
 
-                ExtendedProperties = true
+                ExtendedProperties = true,
+
+                // 저장소 파일 자체가 실행 가능해야 한다. 배포 스크립트의 재료는 브랜치의 파일이지
+                // 대상 DB에서 다시 뜬 것이 아니므로(설계 2.3), 여기서 CREATE OR ALTER로 쓰지 않으면
+                // 생성 시점에 텍스트를 치환해야 하고 그러면 주석·문자열 안의 CREATE까지 건드린다.
+                // 테이블에는 적용되지 않는다 - T-SQL에 CREATE OR ALTER TABLE이 없다.
+                // 반드시 ScriptDrops 뒤에 와야 한다 - SMO의 ScriptDrops setter가 값과 무관하게
+                // ScriptForCreateOrAlter를 꺼버리는 부작용이 있다(리플렉션 없이 실측으로 확인).
+                // 객체 초기화 구문은 나열한 순서대로 세터를 호출하므로 순서 자체가 정확성의 일부다.
+                ScriptForCreateOrAlter = true
             };
         }
 
@@ -332,6 +341,7 @@ namespace DBVC.Core
                 foreach (Trigger trigger in table.Triggers)
                 {
                     if (trigger.IsSystemObject) continue;
+                    DisableTextMode(trigger);
                     yield return NewTarget(table.Schema, trigger.Name, "Trigger", trigger.Urn);
                 }
             }
@@ -339,18 +349,21 @@ namespace DBVC.Core
             foreach (View view in db.Views)
             {
                 if (view.IsSystemObject) continue;
+                DisableTextMode(view);
                 yield return NewTarget(view.Schema, view.Name, "View", view.Urn);
             }
 
             foreach (StoredProcedure sp in db.StoredProcedures)
             {
                 if (sp.IsSystemObject) continue;
+                DisableTextMode(sp);
                 yield return NewTarget(sp.Schema, sp.Name, "StoredProcedure", sp.Urn);
             }
 
             foreach (UserDefinedFunction fn in db.UserDefinedFunctions)
             {
                 if (fn.IsSystemObject) continue;
+                DisableTextMode(fn);
                 yield return NewTarget(fn.Schema, fn.Name, "UserDefinedFunction", fn.Urn);
             }
 
@@ -379,6 +392,17 @@ namespace DBVC.Core
                 yield return NewTarget(synonym.Schema, synonym.Name, "Synonym", synonym.Urn);
             }
         }
+
+        /// <summary>
+        /// <see cref="ScriptingOptions.ScriptForCreateOrAlter"/>는 그 자체로는 아무것도 바꾸지 않는다
+        /// - 프로시저·뷰·함수·트리거는 기본적으로 <c>TextMode = true</c>라 SMO가 sys.sql_modules에
+        /// 저장된 원문을 그대로 돌려주고, 그 안의 CREATE 키워드는 옵션과 무관하게 원본 그대로 남는다.
+        /// 서버에 직접 붙어 실측해서 찾은 값이다(문서에는 이 의존관계가 안 나온다). TextMode를 꺼야
+        /// SMO가 메타데이터로 헤더를 다시 조립하고, 그 조립 단계에서만 CREATE OR ALTER가 반영된다.
+        /// 부작용으로 대괄호 식별자·WITH EXECUTE AS 같은 절이 다시 채워져 원문 서식과 달라지는데,
+        /// 이는 이 작업(#4)이 저장소의 모든 파일 텍스트를 갈아엎는 근본 이유이기도 하다.
+        /// </summary>
+        private static void DisableTextMode(ITextObject obj) => obj.TextMode = false;
 
         private static ScriptTargetInfo NewTarget(string schema, string name, string objectType, Urn urn)
         {

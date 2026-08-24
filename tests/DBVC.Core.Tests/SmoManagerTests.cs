@@ -52,6 +52,27 @@ namespace DBVC.Core.Tests
             Assert.That(smo, Is.Not.Null);
         }
 
+        [Test]
+        public void BuildScriptingOptions_EnablesCreateOrAlter()
+        {
+            // 저장소 파일이 그대로 실행 가능해야 배포 스크립트를 파일에서 만들 수 있다.
+            // 순수 CREATE로 두면 객체가 이미 있는 대상에서 첫 문장부터 실패한다.
+            var options = SmoManager.BuildScriptingOptions();
+
+            Assert.That(options.ScriptForCreateOrAlter, Is.True);
+        }
+
+        [Test]
+        public void BuildScriptingOptions_StillDoesNotScriptDropsOrExistenceChecks()
+        {
+            // CREATE OR ALTER는 이 둘과 함께 켜면 SMO가 무엇을 뱉을지 예측하기 어렵다.
+            // 기존 결정을 그대로 지킨다는 것을 여기서 못박는다.
+            var options = SmoManager.BuildScriptingOptions();
+
+            Assert.That(options.ScriptDrops, Is.False);
+            Assert.That(options.IncludeIfNotExists, Is.False);
+        }
+
         // ---------- ScriptAll: 설계 3.1의 부분 실패 허용 ----------
 
         private static ScriptTargetInfo Target(string schema, string type, string name)
