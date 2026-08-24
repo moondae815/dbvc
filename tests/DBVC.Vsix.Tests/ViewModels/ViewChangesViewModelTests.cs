@@ -198,6 +198,13 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.WarningMessage, Is.Null.Or.Empty);
         }
 
+        [Test]
+        public void VersionText_ShowsTheInstalledExtensionVersion()
+        {
+            Assert.That(NewViewModel().VersionText,
+                Is.EqualTo("DBVC " + DBVC.Vsix.DbvcVersion.Current));
+        }
+
         // ---------- 연결 ----------
 
         [Test]

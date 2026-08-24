@@ -21,6 +21,16 @@
     <Using Include="NUnit.Framework" />
   </ItemGroup>
 
+  <!--
+    매니페스트를 테스트 출력에 복사한다. DbvcVersionTests가 화면에 뜨는 버전과 이 파일을
+    직접 맞대어, csproj의 XmlPeek 배선이 끊겨 기본값(1.0.0)으로 돌아가는 조용한 사고를 잡는다.
+  -->
+  <ItemGroup>
+    <None Include="..\..\src\DBVC.Vsix\source.extension.vsixmanifest"
+          Link="source.extension.vsixmanifest"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\DBVC.Vsix\DBVC.Vsix.csproj" />
     <ProjectReference Include="..\..\src\DBVC.Core\DBVC.Core.csproj" />

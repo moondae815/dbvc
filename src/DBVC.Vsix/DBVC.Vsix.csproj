@@ -51,6 +51,30 @@
     <ProjectReference Include="..\DBVC.Core\DBVC.Core.csproj" />
   </ItemGroup>
 
+  <!--
+    버전의 출처는 매니페스트 하나다. 여기서 읽어 어셈블리 속성으로 넣어야 화면에 뜨는 값과
+    설치된 .vsix의 버전이 갈라지지 않는다.
+
+    AssemblyVersion은 일부러 건드리지 않는다 — pkgdef가 어셈블리 표시 이름으로 패키지를
+    등록하는 자리라(RegisterWithCodebase 주석 참고) 릴리스마다 흔들 이유가 없고, 바인딩만
+    복잡해진다. 표시용 값은 InformationalVersion이면 충분하다.
+
+    XmlPeek은 기본 네임스페이스를 접두사로 명시해야 매치된다. GetAssemblyVersion보다 먼저
+    돌아야 GenerateAssemblyInfo가 이 값을 본다. Windows 조건을 걸지 않는 이유는 이 타깃이
+    VSSDK와 무관해서다 — 다른 OS의 컴파일·테스트에서도 같은 값이 나와야 한다.
+  -->
+  <Target Name="ReadVersionFromVsixManifest" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo">
+    <XmlPeek XmlInputPath="source.extension.vsixmanifest"
+             Query="/x:PackageManifest/x:Metadata/x:Identity/@Version"
+             Namespaces="&lt;Namespace Prefix='x' Uri='http://schemas.microsoft.com/developer/vsx-schema/2011' /&gt;">
+      <Output TaskParameter="Result" PropertyName="VsixManifestVersion" />
+    </XmlPeek>
+    <PropertyGroup>
+      <InformationalVersion>$(VsixManifestVersion)</InformationalVersion>
+      <FileVersion>$(VsixManifestVersion)</FileVersion>
+    </PropertyGroup>
+  </Target>
+
   <ItemGroup>
     <None Include="source.extension.vsixmanifest" />
     <None Include="DbvcPackage.vsct" Condition="'$(OS)' != 'Windows_NT'" />

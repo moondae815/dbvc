@@ -150,6 +150,12 @@ namespace DBVC.Vsix.ViewModels
         }
 
         /// <summary>
+        /// 설치된 확장의 버전. 상태가 아니라 상수이므로 PropertyChanged를 내지 않는다.
+        /// SSMS에서 .vsix를 덮어 설치했을 때 실제로 갱신되었는지 확인할 유일한 자리다.
+        /// </summary>
+        public string VersionText => "DBVC " + DbvcVersion.Current;
+
+        /// <summary>
         /// 대상과 인증 정보를 통째로 갈아 끼운다. 네 값은 언제나 함께 온다 —
         /// 개체 탐색기가 하나의 연결에서 읽어 오기 때문이다.
         /// </summary>
