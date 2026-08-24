@@ -23,8 +23,14 @@ namespace DBVC.Core.Tests
         public void Evaluate_ReturnsNone_WhenExpectedBranchIsEmpty()
         {
             // 개발 클론은 브랜치를 자유롭게 전환한다. 고정이 없으면 어느 브랜치든 정상이다.
+            // IsNullOrWhiteSpace를 쓰므로 null, 빈 문자열, 공백 모두 "미고정"이다.
             var reason = RepositoryStateEvaluator.Evaluate("feature/x", false, null, null);
+            Assert.That(reason, Is.EqualTo(RepositoryBlockReason.None));
 
+            reason = RepositoryStateEvaluator.Evaluate("feature/x", false, null, "");
+            Assert.That(reason, Is.EqualTo(RepositoryBlockReason.None));
+
+            reason = RepositoryStateEvaluator.Evaluate("feature/x", false, null, "   ");
             Assert.That(reason, Is.EqualTo(RepositoryBlockReason.None));
         }
 
@@ -64,6 +70,24 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void Evaluate_PrefersOperationInProgress_OverDetachedHead()
+        {
+            // 병합 중이고 detached이면 우선순위는 병합을 먼저 알린다.
+            var reason = RepositoryStateEvaluator.Evaluate(null, true, "Rebase", null);
+
+            Assert.That(reason, Is.EqualTo(RepositoryBlockReason.OperationInProgress));
+        }
+
+        [Test]
+        public void Evaluate_PrefersDetachedHead_OverBranchMismatch()
+        {
+            // detached이고 브랜치도 맞지 않으면 detached를 먼저 알린다.
+            var reason = RepositoryStateEvaluator.Evaluate(null, true, null, "master");
+
+            Assert.That(reason, Is.EqualTo(RepositoryBlockReason.DetachedHead));
+        }
+
+        [Test]
         public void BuildMessage_NamesBothBranches_WhenBranchMismatch()
         {
             var message = RepositoryStateEvaluator.BuildMessage(
@@ -80,6 +104,28 @@ namespace DBVC.Core.Tests
                 RepositoryBlockReason.None, "master", "master", null);
 
             Assert.That(message, Is.Null);
+        }
+
+        [Test]
+        public void BuildMessage_InterpolatesOperationName_WhenOperationInProgress()
+        {
+            var message = RepositoryStateEvaluator.BuildMessage(
+                RepositoryBlockReason.OperationInProgress, null, null, "Merge");
+
+            Assert.That(message, Does.Contain("Merge"));
+            Assert.That(message, Does.Not.Contain("detached"));
+            Assert.That(message, Does.Not.Contain("브랜치"));
+        }
+
+        [Test]
+        public void BuildMessage_ReturnsDetachedMessage_WhenDetachedHead()
+        {
+            var message = RepositoryStateEvaluator.BuildMessage(
+                RepositoryBlockReason.DetachedHead, null, null, null);
+
+            Assert.That(message, Does.Contain("detached"));
+            Assert.That(message, Is.Not.Null);
+            Assert.That(message, Does.Not.Contain("작업"));
         }
     }
 }
