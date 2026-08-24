@@ -178,6 +178,53 @@ namespace DBVC.Core.Tests
                 Is.False);
         }
 
+        // ---------- GetRepositoryState ----------
+
+        [Test]
+        public void GetRepositoryState_ReportsCurrentBranch_WhenRepositoryIsClean()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager("srv", "db", repoPath);
+
+            var state = git.GetRepositoryState("srv", "db");
+
+            Assert.That(state, Is.Not.Null);
+            Assert.That(state!.IsDetached, Is.False);
+            Assert.That(state.CurrentBranch, Is.Not.Null.And.Not.Empty);
+            Assert.That(state.BlockReason, Is.EqualTo(RepositoryBlockReason.None));
+            Assert.That(state.BlockMessage, Is.Null);
+        }
+
+        [Test]
+        public void GetRepositoryState_BlocksWithMessage_WhenBranchDiffersFromMapping()
+        {
+            var repoPath = NewRepoWithCommit();
+            var configPath = Path.Combine(NewTempDir(), "mappings.json");
+            var config = new ConfigManager(configPath);
+            config.AddMapping("srv", "db", repoPath);
+
+            // 실제 브랜치가 무엇이든 존재하지 않을 이름으로 고정해 불일치를 만든다.
+            var mapping = config.TryGetMapping("srv", "db")!;
+            mapping.Branch = "no-such-branch";
+            config.AddMapping(mapping);
+
+            var state = new GitManager(config).GetRepositoryState("srv", "db");
+
+            Assert.That(state!.BlockReason, Is.EqualTo(RepositoryBlockReason.BranchMismatch));
+            Assert.That(state.BlockMessage, Does.Contain("no-such-branch"));
+        }
+
+        [Test]
+        public void GetRepositoryState_ReturnsNull_WhenMappingIsMissing()
+        {
+            var configPath = Path.Combine(NewTempDir(), "mappings.json");
+            var config = new ConfigManager(configPath);
+
+            var state = new GitManager(config).GetRepositoryState("srv", "db");
+
+            Assert.That(state, Is.Null);
+        }
+
         // ---------- GetChangedFiles ----------
 
         [Test]

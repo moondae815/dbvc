@@ -54,6 +54,14 @@ namespace DBVC.Core
     public interface IGitManager
     {
         bool IsRepository(string path);
+
+        /// <summary>
+        /// 저장소를 그대로 써도 되는지 판정한 결과. 매핑이 없으면 null이다.
+        ///
+        /// DBVC는 저장소의 유일한 주인이 아니다 — 외부 Git 클라이언트가 남긴 상태를 만나는 것이
+        /// 정상이고, 만나면 멈춰야 한다. 판정 자체는 RepositoryStateEvaluator에 있다.
+        /// </summary>
+        RepositoryState? GetRepositoryState(string serverName, string databaseName);
         string GetStatus(string repoPath);
         string GetStatusForDatabase(string serverName, string databaseName);
         IReadOnlyList<string> GetChangedFiles(string repoPath);

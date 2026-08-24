@@ -43,6 +43,37 @@ namespace DBVC.Core
         public bool IsRepository(string path) => IsValidRepository(path);
 
         /// <summary>
+        /// 저장소가 그대로 써도 되는 상태인지 판정한다. 매핑이 없거나 유효한 저장소가 아니면 null이다.
+        /// 값을 읽는 일만 여기서 하고, 차단 여부 판정은 RepositoryStateEvaluator에 맡긴다.
+        /// </summary>
+        public RepositoryState? GetRepositoryState(string serverName, string databaseName)
+        {
+            var mapping = _configManager?.TryGetMapping(serverName, databaseName);
+            if (mapping == null || !IsValidRepository(mapping.GitPath)) return null;
+
+            using var repo = new Repository(mapping.GitPath);
+
+            // CurrentOperation은 병합·리베이스·체리픽이 끝나지 않았을 때만 None이 아니다.
+            var operation = repo.Info.CurrentOperation == CurrentOperation.None
+                ? null
+                : repo.Info.CurrentOperation.ToString();
+
+            var detached = repo.Info.IsHeadDetached;
+            var branch = detached ? null : repo.Head.FriendlyName;
+
+            var reason = RepositoryStateEvaluator.Evaluate(branch, detached, operation, mapping.Branch);
+
+            return new RepositoryState
+            {
+                CurrentBranch = branch,
+                IsDetached = detached,
+                PendingOperation = operation,
+                BlockReason = reason,
+                BlockMessage = RepositoryStateEvaluator.BuildMessage(reason, branch, mapping.Branch, operation)
+            };
+        }
+
+        /// <summary>
         /// 저장소의 작업 트리 상태를 요약한다.
         /// 유효한 Git 저장소가 아니면 <c>"Unknown"</c>을 반환한다.
         /// </summary>
