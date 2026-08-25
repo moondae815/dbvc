@@ -1,6 +1,7 @@
 ﻿#if NETFRAMEWORK
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Moq;
 using NUnit.Framework;
 using DBVC.Core;
@@ -171,6 +172,60 @@ namespace DBVC.Vsix.Tests.UI
             LayoutAt(control, 600);
 
             Assert.That(FindOverlay(control), Is.Null);
+        }
+
+        /// <summary>
+        /// 차단 오버레이는 색을 셸 테마에서 받는데, 셸 없이 도는 이 테스트에서는 그 키가 풀리지
+        /// 않아 Background가 null이 된다. 배경이 null인 WPF 요소는 마우스 이벤트를 그대로
+        /// 통과시키므로, 그 상태로 히트 테스트를 하면 SSMS에서와 다른 결과가 나온다.
+        /// 셸이 주는 브러시를 흉내내 키를 채워 넣고 판단한다.
+        /// </summary>
+        private static void SupplyShellBrushes(ViewChangesControl control)
+        {
+            control.Resources[Microsoft.VisualStudio.Shell.VsBrushes.ToolWindowBackgroundKey] = Brushes.White;
+            control.Resources[Microsoft.VisualStudio.Shell.VsBrushes.ToolWindowTextKey] = Brushes.Black;
+            control.Resources[Microsoft.VisualStudio.Shell.VsBrushes.GrayTextKey] = Brushes.Gray;
+        }
+
+        /// <summary>
+        /// 차단은 "덮여 보인다"가 아니라 "눌리지 않는다"여야 한다. Commit은 CanCommit이 막지만
+        /// Pull·Push·배포 스크립트에는 그런 판정이 없어서, 그 버튼들을 막는 것은 오버레이가
+        /// 마우스 이벤트를 흡수하는 것뿐이다.
+        /// </summary>
+        [Test]
+        public void BlockOverlay_SwallowsClicksOnTheToolbar_WhenBlocked()
+        {
+            var control = NewConnectedControl(new RepositoryState
+            {
+                CurrentBranch = "develop",
+                BlockReason = RepositoryBlockReason.BranchMismatch,
+                BlockMessage = "이 대상은 'master' 브랜치에 고정되어 있는데 저장소는 'develop'에 있습니다."
+            });
+            SupplyShellBrushes(control);
+
+            LayoutAt(control, 600);
+
+            var overlay = FindOverlay(control);
+            Assert.That(overlay, Is.Not.Null, "차단 상태에서는 오버레이가 보여야 한다");
+
+            // 도구 줄 한복판. 차단이 아니면 여기에 버튼이 있다.
+            var point = new Point(40, overlay!.TranslatePoint(new Point(0, 0), control).Y + 10);
+            var hit = VisualTreeHelper.HitTest(control, point);
+
+            Assert.That(hit, Is.Not.Null, "히트 테스트가 아무것도 잡지 못했다면 판정이 성립하지 않는다");
+            Assert.That(IsInside(hit!.VisualHit, overlay), Is.True,
+                "오버레이가 아니라 그 아래 요소가 잡혔다 - 덮여 보이기만 하고 클릭은 통과한다");
+        }
+
+        private static bool IsInside(DependencyObject? node, DependencyObject ancestor)
+        {
+            while (node != null)
+            {
+                if (ReferenceEquals(node, ancestor)) return true;
+                node = VisualTreeHelper.GetParent(node);
+            }
+
+            return false;
         }
 
         /// <summary>보이는 상태일 때만 돌려준다 - 숨은 요소는 좌표를 물어도 의미가 없다.</summary>

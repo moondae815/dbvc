@@ -250,14 +250,21 @@
             Pull·배포 스크립트처럼 커밋이 아닌 버튼도 어긋난 저장소를 상대로 눌리지 않는다.
             경고 배너로 두지 않는 이유는 조용히 틀린 결과가 더 나쁘기 때문이다(설계 3.4).
         -->
-        <Border x:Name="BlockOverlay" Grid.Row="0" Grid.RowSpan="3" Background="#CC000000"
+        <!--
+            색은 초기화 오버레이와 같은 방식으로 셸 테마에서 받는다. 반투명 검정에 흰 글자로 두면
+            밝은 테마에서만 읽히고 어두운 테마에서는 대비가 무너진다. 불투명한 것도 의도다 -
+            아래 내용이 비쳐 보이면 "지금 이 목록은 믿을 수 없다"는 사실이 흐려진다.
+        -->
+        <Border x:Name="BlockOverlay" Grid.Row="0" Grid.RowSpan="3"
+                Background="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"
                 Visibility="{Binding IsBlocked, Converter={StaticResource BoolToVis}}">
-            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="520" Margin="20">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="520" Margin="20"
+                        TextElement.Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}">
                 <TextBlock Text="저장소를 그대로 사용할 수 없습니다"
-                           Foreground="White" FontSize="16" FontWeight="Bold"
+                           FontSize="16" FontWeight="Bold"
                            HorizontalAlignment="Center" Margin="0,0,0,12"/>
                 <TextBlock Text="{Binding BlockMessage}"
-                           Foreground="White" TextWrapping="Wrap" TextAlignment="Center"/>
+                           TextWrapping="Wrap" TextAlignment="Center"/>
             </StackPanel>
         </Border>
     </Grid>
