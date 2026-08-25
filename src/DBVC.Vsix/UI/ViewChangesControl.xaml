@@ -48,6 +48,17 @@
                            VerticalAlignment="Top" Margin="8,4,0,4"
                            Foreground="{DynamicResource {x:Static vsshell:VsBrushes.GrayTextKey}}"
                            ToolTip="설치된 DBVC 확장의 버전입니다."/>
+                <!--
+                    브랜치는 버전 왼쪽에 붙인다. DockPanel은 먼저 Dock된 것이 더 바깥이라
+                    VersionLabel 다음에 두어야 이 순서가 나온다. 비교 기준이 브랜치 내용이므로
+                    이것이 보이지 않으면 사용자가 diff를 오독한다.
+                -->
+                <TextBlock x:Name="BranchLabel" DockPanel.Dock="Right"
+                           Text="{Binding CurrentBranch, StringFormat=브랜치: {0}}"
+                           VerticalAlignment="Top" Margin="8,4,0,4"
+                           Visibility="{Binding HasCurrentBranch, Converter={StaticResource BoolToVis}}"
+                           Foreground="{DynamicResource {x:Static vsshell:VsBrushes.GrayTextKey}}"
+                           ToolTip="저장소가 지금 가리키는 브랜치입니다. 커밋은 이 브랜치에 담깁니다."/>
                 <WrapPanel Orientation="Horizontal">
                     <Button x:Name="ConnectButton" Content="연결" Command="{Binding ConnectCommand}" Width="70" Margin="0,0,10,4"
                             ToolTip="SSMS 개체 탐색기에서 선택한 데이터베이스로 접속합니다. 인증 정보는 그 연결에서만 오며 디스크에 저장되지 않습니다."/>
@@ -144,6 +155,15 @@
                         ToolTip="선택한 객체의 현재 DDL을 단일 .sql 파일로 병합합니다." />
                 <Button Content="롤백 스크립트" Command="{Binding GenerateRollbackScriptCommand}" Width="100" Margin="0,0,0,4"
                         ToolTip="선택한 객체가 마지막으로 커밋되기 직전 코드를 단일 .sql 파일로 병합합니다." />
+                <!--
+                    작업 중에는 잠근다. 체크박스에는 CanExecute가 없어 버튼과 달리 스스로 막히지
+                    않는데, 여기서 새로고침이 겹쳐 돌면 서로의 결과를 덮어쓴다.
+                -->
+                <CheckBox Content="다른 사람 변경도 보기"
+                          IsChecked="{Binding ShowAllAuthors, Mode=TwoWay}"
+                          IsEnabled="{Binding IsNotBusy}"
+                          ToolTip="공용 계정이라 사람은 접속 PC로 구분합니다. 평소에는 자기 변경만 보이는 편이 안전합니다."
+                          Margin="16,0,0,4" VerticalAlignment="Center" />
             </WrapPanel>
 
             <!-- Middle Area -->
@@ -160,6 +180,7 @@
                         <GridViewColumn Header="상태" DisplayMemberBinding="{Binding StateText}"/>
                         <GridViewColumn Header="객체" DisplayMemberBinding="{Binding ObjectName}"/>
                         <GridViewColumn Header="객체 유형" DisplayMemberBinding="{Binding ObjectTypeText}"/>
+                        <GridViewColumn Header="변경자" DisplayMemberBinding="{Binding Author}"/>
                     </GridView>
                 </ListView.View>
             </ListView>
@@ -223,5 +244,21 @@
                 <Button Content="DBVC 초기화" Command="{Binding SetupCommand}" Width="150" Height="40" FontSize="14" Cursor="Hand"/>
             </StackPanel>
         </Grid>
+
+        <!--
+            차단 오버레이. 초기화 오버레이와 달리 전 행을 덮는다 - 도구 줄까지 가려야
+            Pull·배포 스크립트처럼 커밋이 아닌 버튼도 어긋난 저장소를 상대로 눌리지 않는다.
+            경고 배너로 두지 않는 이유는 조용히 틀린 결과가 더 나쁘기 때문이다(설계 3.4).
+        -->
+        <Border x:Name="BlockOverlay" Grid.Row="0" Grid.RowSpan="3" Background="#CC000000"
+                Visibility="{Binding IsBlocked, Converter={StaticResource BoolToVis}}">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="520" Margin="20">
+                <TextBlock Text="저장소를 그대로 사용할 수 없습니다"
+                           Foreground="White" FontSize="16" FontWeight="Bold"
+                           HorizontalAlignment="Center" Margin="0,0,0,12"/>
+                <TextBlock Text="{Binding BlockMessage}"
+                           Foreground="White" TextWrapping="Wrap" TextAlignment="Center"/>
+            </StackPanel>
+        </Border>
     </Grid>
 </UserControl>
