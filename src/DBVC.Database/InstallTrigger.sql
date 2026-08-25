@@ -37,6 +37,8 @@ BEGIN
         [TSQLCommand] NVARCHAR(MAX) NULL,
         [TargetObjectName] NVARCHAR(256) NULL,
         [TargetObjectType] NVARCHAR(100) NULL,
+        [HostName] NVARCHAR(128) NULL,
+        [ClientNetAddress] NVARCHAR(48) NULL,
         [IsProcessed] BIT NOT NULL DEFAULT 0
     );
 END
@@ -65,6 +67,20 @@ GO
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'TargetObjectType')
 BEGIN
     ALTER TABLE [dbo].[DBVC_ChangeLog] ADD [TargetObjectType] NVARCHAR(100) NULL;
+END
+GO
+
+-- v3 이전에 설치된 테이블에는 작업자 컬럼이 없다. NULL로 더한다 -
+-- 기존 행은 작업자를 알 수 없으므로 "내 변경만"에서 빠지고 "전체"에서만 보인다.
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'HostName')
+BEGIN
+    ALTER TABLE [dbo].[DBVC_ChangeLog] ADD [HostName] NVARCHAR(128) NULL;
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'ClientNetAddress')
+BEGIN
+    ALTER TABLE [dbo].[DBVC_ChangeLog] ADD [ClientNetAddress] NVARCHAR(48) NULL;
 END
 GO
 
@@ -127,6 +143,8 @@ BEGIN
         [TSQLCommand],
         [TargetObjectName],
         [TargetObjectType],
+        [HostName],
+        [ClientNetAddress],
         [IsProcessed]
     )
     VALUES (
@@ -139,6 +157,11 @@ BEGIN
         @EventData.value('(/EVENT_INSTANCE/TSQLCommand/CommandText)[1]', 'NVARCHAR(MAX)'),
         @EventData.value('(/EVENT_INSTANCE/TargetObjectName)[1]', 'NVARCHAR(256)'),
         @EventData.value('(/EVENT_INSTANCE/TargetObjectType)[1]', 'NVARCHAR(100)'),
+        -- 세션 범위 내장 함수라 WITH EXECUTE AS 'dbo'의 샌드박싱에 걸리지 않는다.
+        -- sys.dm_exec_connections는 서버 범위라 이 문맥에서 읽을 수 없다.
+        HOST_NAME(),
+        -- CONNECTIONPROPERTY는 sql_variant를 돌려준다. CONVERT 없이 넣으면 형식이 안 맞는다.
+        CONVERT(NVARCHAR(48), CONNECTIONPROPERTY('client_net_address')),
         0
     );
 END;
@@ -151,13 +174,13 @@ IF NOT EXISTS (SELECT 1 FROM sys.extended_properties
                WHERE class = 1 AND major_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]')
                  AND minor_id = 0 AND name = N'DBVC_SchemaVersion')
 BEGIN
-    EXEC sp_addextendedproperty @name = N'DBVC_SchemaVersion', @value = N'2',
+    EXEC sp_addextendedproperty @name = N'DBVC_SchemaVersion', @value = N'3',
          @level0type = N'SCHEMA', @level0name = N'dbo',
          @level1type = N'TABLE',  @level1name = N'DBVC_ChangeLog';
 END
 ELSE
 BEGIN
-    EXEC sp_updateextendedproperty @name = N'DBVC_SchemaVersion', @value = N'2',
+    EXEC sp_updateextendedproperty @name = N'DBVC_SchemaVersion', @value = N'3',
          @level0type = N'SCHEMA', @level0name = N'dbo',
          @level1type = N'TABLE',  @level1name = N'DBVC_ChangeLog';
 END

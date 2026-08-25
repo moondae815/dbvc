@@ -19,7 +19,7 @@ namespace DBVC.Core
     public class StateTracker : IStateTracker
     {
         /// <summary>설치 스크립트가 심는 스키마 버전. 이 값보다 낮으면 도구 창이 업데이트를 안내한다.</summary>
-        public const int RequiredSchemaVersion = 2;
+        public const int RequiredSchemaVersion = 3;
 
         /// <summary>
         /// 설치 상태를 한 번의 왕복으로 판정한다.

@@ -336,5 +336,49 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
                 Assert.That(Convert.ToInt32(hasTargetObjectType), Is.EqualTo(1), "ALTER TABLE 보정으로 TargetObjectType이 추가돼야 한다");
             });
         }
+
+        [Test]
+        public void Trigger_RecordsTheClientHostName_WhenDdlRuns()
+        {
+            // 개발·테스트 DB는 공용 SQL 계정을 쓴다. LoginName이 모든 행에서 같으므로
+            // 사람을 가르는 축은 접속 PC뿐이다(설계 3.9). 여기가 비면 필터가 통째로 무너진다.
+            _db!.ExecuteInOneSession("CREATE PROCEDURE dbo.HostNameProbe AS SELECT 1");
+
+            // as 캐스팅을 쓰는 이유: 컬럼이 NULL이면 ExecuteScalar가 DBNull을 돌려주는데
+            // (string?) 캐스팅은 거기서 InvalidCastException으로 죽어 아래 안내 문구가 묻힌다.
+            var recorded = _db.QueryScalar(
+                "SELECT TOP 1 HostName FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'HostNameProbe' ORDER BY Id DESC") as string;
+
+            Assert.That(recorded, Is.Not.Null.And.Not.Empty,
+                "EXECUTE AS 'dbo' 문맥에서 HOST_NAME()이 값을 내지 못했습니다 - 필터의 축을 다시 정해야 합니다");
+        }
+
+        [Test]
+        public void Trigger_RecordsTheClientNetAddress_WhenDdlRuns()
+        {
+            // IP는 필터에 쓰지 않는다. HostName은 클라이언트가 보내는 값이라 신뢰도가 낮아,
+            // 이상한 경우를 사람이 판별할 근거로만 남긴다.
+            _db!.ExecuteInOneSession("CREATE PROCEDURE dbo.ClientAddressProbe AS SELECT 1");
+
+            var recorded = _db.QueryScalar(
+                "SELECT TOP 1 ClientNetAddress FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'ClientAddressProbe' ORDER BY Id DESC") as string;
+
+            Assert.That(recorded, Is.Not.Null.And.Not.Empty,
+                "EXECUTE AS 'dbo' 문맥에서 CONNECTIONPROPERTY가 값을 내지 못했습니다");
+        }
+
+        [Test]
+        public void Trigger_RecordsTheSameHostNameTheClientSees()
+        {
+            // 클라이언트가 SELECT HOST_NAME()으로 얻은 값과 글자 단위로 같아야 한다.
+            // 다르면 필터가 전부를 걸러내 목록이 항상 빈다.
+            _db!.ExecuteInOneSession("CREATE PROCEDURE dbo.HostNameMatchProbe AS SELECT 1");
+
+            var fromTrigger = _db.QueryScalar(
+                "SELECT TOP 1 HostName FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'HostNameMatchProbe' ORDER BY Id DESC") as string;
+            var fromClient = _db.QueryScalar("SELECT HOST_NAME()") as string;
+
+            Assert.That(fromTrigger, Is.EqualTo(fromClient));
+        }
     }
 }

@@ -330,11 +330,11 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
-        public void RequiredSchemaVersion_IsTwo()
+        public void RequiredSchemaVersion_IsThree()
         {
             // 설치 스크립트가 심는 값과 같아야 한다. 어긋나면 모든 사용자에게 업데이트 배너가 계속 뜨거나
             // 구버전이 최신으로 읽힌다. 스크립트 쪽 값은 InstallScriptSyncTests가 대조한다.
-            Assert.That(StateTracker.RequiredSchemaVersion, Is.EqualTo(2));
+            Assert.That(StateTracker.RequiredSchemaVersion, Is.EqualTo(3));
         }
 
         [Test]
