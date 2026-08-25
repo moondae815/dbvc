@@ -1156,7 +1156,14 @@ namespace DBVC.Vsix.ViewModels
         /// 스테이징은 객체 3000개 기준 15초가 걸린다(libgit2 고유 비용이라 API를 바꿔도 줄지 않는다).
         /// 그래서 커밋도 UI 스레드에서 하지 않는다.
         /// </summary>
-        private void Commit()
+        private void Commit() => Commit(coAuthorConfirmed: false);
+
+        /// <param name="coAuthorConfirmed">
+        /// 사용자가 이미 "남의 변경이 딸려 온다"는 확인에 동의했는지. 확인 대화상자는 UI
+        /// 스레드에서만 띄울 수 있는데 판정은 DB를 읽어야 해서, 판정을 백그라운드에서 마치고
+        /// 확인을 받은 뒤 이 값을 참으로 해서 같은 경로를 다시 탄다.
+        /// </param>
+        private void Commit(bool coAuthorConfirmed)
         {
             if (!CanCommit()) return;
 
@@ -1181,18 +1188,45 @@ namespace DBVC.Vsix.ViewModels
             var message = CommitMessage!;
 
             IsBusy = true;
-            _scheduler.Run(
+            _scheduler.Run<CommitOutcome>(
                 () =>
                 {
-                    if (!_gitManager.CommitChanges(server, database, message, selectedPaths)) return false;
+                    // 커밋 직전에 본다. 목록을 만든 시점과 커밋 시점 사이에 남이 또 만졌을 수 있다.
+                    // 조회가 DB를 읽으므로 UI 스레드가 아니라 여기서 한다.
+                    if (!coAuthorConfirmed)
+                    {
+                        var warnings = _stateTracker.GetCoAuthorWarnings(server, database, committedNames);
+                        if (warnings != null && warnings.Count > 0)
+                        {
+                            return new CommitOutcome { CoAuthors = warnings };
+                        }
+                    }
+
+                    if (!_gitManager.CommitChanges(server, database, message, selectedPaths))
+                    {
+                        return new CommitOutcome();
+                    }
+
                     _stateTracker.MarkProcessed(server, database, committedRecords);
-                    return true;
+                    return new CommitOutcome { Committed = true };
                 },
-                committed =>
+                outcome =>
                 {
                     IsBusy = false;
 
-                    if (!committed)
+                    if (outcome.CoAuthors != null)
+                    {
+                        // 차단이 아니라 확인이다. 대부분은 실제로 이어서 작업한 정상적인 경우이고,
+                        // 막으면 사람들이 도구를 쓰지 않게 된다(설계 3.10).
+                        if (AskToCommitWithOtherAuthorsWork(outcome.CoAuthors))
+                        {
+                            Commit(coAuthorConfirmed: true);
+                        }
+
+                        return;
+                    }
+
+                    if (!outcome.Committed)
                     {
                         WarningMessage = "커밋할 변경사항이 없습니다.";
                         return;
@@ -1206,6 +1240,29 @@ namespace DBVC.Vsix.ViewModels
                     IsBusy = false;
                     _notifier.ShowError("DBVC 커밋 실패", ex.Message);
                 });
+        }
+
+        /// <summary>
+        /// 커밋 결과. bool로는 "커밋됨 / 커밋할 것 없음 / 확인이 필요함" 셋을 구분할 수 없다.
+        /// </summary>
+        private sealed class CommitOutcome
+        {
+            public bool Committed { get; set; }
+
+            /// <summary>null이 아니면 커밋하지 않았고 사용자 확인이 필요하다는 뜻이다.</summary>
+            public IReadOnlyList<CoAuthorWarning>? CoAuthors { get; set; }
+        }
+
+        private bool AskToCommitWithOtherAuthorsWork(IReadOnlyList<CoAuthorWarning> coAuthors)
+        {
+            var lines = string.Join(Environment.NewLine,
+                coAuthors.Select(w => $"  · {w.QualifiedName} — {w.Author}"));
+
+            return _notifier.Confirm(
+                "DBVC 커밋 확인",
+                "다음 객체는 다른 작업자도 변경했습니다. 지금 커밋하는 내용에 그 변경이 포함됩니다."
+                + Environment.NewLine + Environment.NewLine + lines
+                + Environment.NewLine + Environment.NewLine + "그대로 커밋할까요?");
         }
 
         // ---------- 외부에서 객체 선택 (SQL 에디터 컨텍스트 메뉴) ----------

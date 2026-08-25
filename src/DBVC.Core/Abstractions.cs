@@ -51,6 +51,14 @@ namespace DBVC.Core
         /// </param>
         bool RefreshState(string serverName, string databaseName, bool includeAllAuthors);
 
+        /// <summary>
+        /// 커밋하려는 객체들을 다른 작업자도 만졌는지 조회한다. 비어 있으면 경고할 것이 없다.
+        /// 화면 필터와 무관하게 항상 전체 로그를 본다 - "내 변경만" 상태에서도 남이 만졌다는
+        /// 사실은 알려야 한다.
+        /// </summary>
+        IReadOnlyList<CoAuthorWarning> GetCoAuthorWarnings(
+            string serverName, string databaseName, IEnumerable<string> qualifiedNames);
+
         /// <summary>아직 처리되지 않은 DDL 로그가 가리키는 객체의 스키마 한정 이름.</summary>
         IReadOnlyList<string> GetChangedObjectNames(string serverName, string databaseName);
         IReadOnlyList<ChangeRecord> GetPendingChanges(string serverName, string databaseName);

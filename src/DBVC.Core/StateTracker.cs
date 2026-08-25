@@ -559,6 +559,27 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
 
         // ---------- 조회 ----------
 
+        public IReadOnlyList<CoAuthorWarning> GetCoAuthorWarnings(
+            string serverName, string databaseName, IEnumerable<string> qualifiedNames)
+        {
+            try
+            {
+                var connectionString = BuildConnectionString(serverName, databaseName);
+                var current = ReadCurrentAuthor(connectionString);
+
+                // 필터 없이 읽는다. "내 변경만" 상태에서도 남이 만졌다는 사실은 알려야 한다.
+                var rows = ReadPendingRows(connectionString, author: null);
+
+                return CoAuthorDetector.Detect(rows, qualifiedNames, current.Login, current.Host);
+            }
+            catch (Exception ex)
+            {
+                // 경고를 못 내는 것이 커밋을 막을 이유는 되지 않는다.
+                Debug.WriteLine($"StateTracker.GetCoAuthorWarnings failed for '{serverName}.{databaseName}': {ex.Message}");
+                return Array.Empty<CoAuthorWarning>();
+            }
+        }
+
         public IReadOnlyList<ChangeRecord> GetPendingChanges(string serverName, string databaseName)
         {
             return _changesByDatabase.TryGetValue(GetDatabaseKey(serverName, databaseName), out var records)
