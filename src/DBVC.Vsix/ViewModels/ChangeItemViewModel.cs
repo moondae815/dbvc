@@ -59,6 +59,12 @@ namespace DBVC.Vsix.ViewModels
             _ => State ?? string.Empty
         };
 
+        /// <summary>
+        /// 목록에 띄울 변경자. 공용 계정 환경에서는 로그인 이름이 전부 같으므로
+        /// 접속 PC를 우선한다 - 로그인 이름을 대면 아무 정보도 주지 못한다.
+        /// </summary>
+        public string? Author { get; set; }
+
         /// <summary><c>dbo/Tables/Users.sql</c> 형태의 저장소 상대 경로. 커밋·Diff 대상 식별에 쓴다.</summary>
         public string? RelativePath { get; set; }
 

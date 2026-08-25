@@ -19,7 +19,7 @@ namespace DBVC.Core
     public class StateTracker : IStateTracker
     {
         /// <summary>설치 스크립트가 심는 스키마 버전. 이 값보다 낮으면 도구 창이 업데이트를 안내한다.</summary>
-        public const int RequiredSchemaVersion = 2;
+        public const int RequiredSchemaVersion = 3;
 
         /// <summary>
         /// 설치 상태를 한 번의 왕복으로 판정한다.
@@ -39,13 +39,34 @@ SELECT CASE
 END";
 
         /// <summary>
-        /// 아직 처리(커밋)되지 않은 DDL 이벤트만 최신순으로 읽는다.
+        /// 아직 처리(커밋)되지 않은 DDL 이벤트만 최신순으로 읽는다. 전체 보기용이다.
         /// </summary>
         internal const string PendingChangesQuery = @"
-SELECT Id, SchemaName, ObjectName, ObjectType, EventType, TargetObjectName, TargetObjectType
+SELECT Id, SchemaName, ObjectName, ObjectType, EventType, TargetObjectName, TargetObjectType, LoginName, HostName
 FROM dbo.DBVC_ChangeLog
 WHERE IsProcessed = 0
 ORDER BY PostTime DESC, Id DESC";
+
+        /// <summary>
+        /// 지금 이 접속의 작업자가 낸 이벤트만 읽는다. 기본 화면이 쓰는 쿼리다.
+        ///
+        /// 두 쿼리를 문자열 결합 대신 따로 두는 이유는 읽기와 테스트 때문이다 -
+        /// WHERE를 조립하면 어느 조합이 실제로 나가는지 눈으로 확인할 수 없다.
+        /// </summary>
+        internal const string PendingChangesByAuthorQuery = @"
+SELECT Id, SchemaName, ObjectName, ObjectType, EventType, TargetObjectName, TargetObjectType, LoginName, HostName
+FROM dbo.DBVC_ChangeLog
+WHERE IsProcessed = 0
+  AND ISNULL(LoginName, N'') = ISNULL(@login, N'')
+  AND ISNULL(HostName, N'') = ISNULL(@host, N'')
+ORDER BY PostTime DESC, Id DESC";
+
+        /// <summary>
+        /// "나는 누구인가"를 서버에게 묻는다. 클라이언트에서 Environment.MachineName으로 유도하면
+        /// 접속 문자열의 Workstation ID를 누가 바꿔 두었을 때 트리거가 기록한 값과 달라지고,
+        /// 필터가 전부를 걸러내 목록이 항상 빈다.
+        /// </summary>
+        internal const string CurrentAuthorQuery = "SELECT SUSER_SNAME(), HOST_NAME()";
 
         /// <summary>
         /// <see cref="NormalizeRow"/>가 부모 객체의 수정으로 바꿔치우는 자식 이벤트 타입.
@@ -72,7 +93,9 @@ SET IsProcessed = 1
 WHERE IsProcessed = 0 AND Id <= @lastLogId
   AND (ObjectName = @objectName
        OR (ObjectType IN ({ParentPointingTypeList}) AND TargetObjectName = @objectName))
-  AND (ISNULL(SchemaName, N'dbo') = @schemaName)";
+  AND (ISNULL(SchemaName, N'dbo') = @schemaName)
+  AND ISNULL(LoginName, N'') = ISNULL(@login, N'')
+  AND ISNULL(HostName, N'') = ISNULL(@host, N'')";
 
         private readonly IConfigManager _configManager;
         private readonly IGitManager _gitManager;
@@ -239,6 +262,18 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
         /// </summary>
         /// <returns>갱신에 성공하면 true. 매핑이 없거나 DB에 접근할 수 없으면 false.</returns>
         public bool RefreshState(string serverName, string databaseName)
+            => RefreshState(serverName, databaseName, includeAllAuthors: false);
+
+        /// <summary>
+        /// DDL 로그와 Git 상태를 다시 읽어 캐시를 갱신한다.
+        /// </summary>
+        /// <param name="includeAllAuthors">
+        /// true면 다른 사람이 만든 변경까지 읽는다. 기본 화면은 false다 —
+        /// 공용 계정 환경에서 필터가 없으면 목록에 남의 진행 중 작업이 전부 뜨고,
+        /// 전체 선택 커밋 한 번이면 검증되지 않은 남의 작업이 브랜치에 담긴다.
+        /// </param>
+        /// <returns>갱신에 성공하면 true. 매핑이 없거나 DB에 접근할 수 없으면 false.</returns>
+        public bool RefreshState(string serverName, string databaseName, bool includeAllAuthors)
         {
             var mapping = _configManager.TryGetMapping(serverName, databaseName);
             if (mapping == null)
@@ -250,7 +285,10 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             List<ChangeLogRow> rows;
             try
             {
-                rows = ReadPendingRows(BuildConnectionString(serverName, databaseName));
+                var connectionString = BuildConnectionString(serverName, databaseName);
+                rows = ReadPendingRows(
+                    connectionString,
+                    includeAllAuthors ? null : (ValueTuple<string?, string?>?)ReadCurrentAuthor(connectionString));
             }
             catch (Exception ex)
             {
@@ -280,7 +318,9 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
 
             try
             {
-                return ToQualifiedNames(ReadPendingRows(BuildConnectionString(serverName, databaseName)));
+                // 추출 대상은 작업자로 좁히지 않는다. 파일을 쓰는 것과 커밋에 담는 것은 다른 문제이고,
+                // 남의 변경을 추출에서 빼면 그 객체의 파일이 낡은 채로 남아 다음 커밋에 섞여 들어간다.
+                return ToQualifiedNames(ReadPendingRows(BuildConnectionString(serverName, databaseName), null));
             }
             catch (Exception ex)
             {
@@ -324,7 +364,9 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
                 ObjectType = string.IsNullOrWhiteSpace(row.TargetObjectType) ? "TABLE" : row.TargetObjectType!.Trim(),
                 EventType = "ALTER_TABLE",
                 TargetObjectName = row.TargetObjectName,
-                TargetObjectType = row.TargetObjectType
+                TargetObjectType = row.TargetObjectType,
+                LoginName = row.LoginName,
+                HostName = row.HostName
             };
         }
 
@@ -351,14 +393,25 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             return names;
         }
 
-        private static List<ChangeLogRow> ReadPendingRows(string connectionString)
+        /// <param name="author">null이면 전체를 읽는다(전체 보기).</param>
+        private static List<ChangeLogRow> ReadPendingRows(string connectionString, (string? Login, string? Host)? author)
         {
             var rows = new List<ChangeLogRow>();
 
             using var conn = new SqlConnection(connectionString);
             conn.Open();
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = PendingChangesQuery;
+
+            if (author == null)
+            {
+                cmd.CommandText = PendingChangesQuery;
+            }
+            else
+            {
+                cmd.CommandText = PendingChangesByAuthorQuery;
+                cmd.Parameters.AddWithValue("@login", (object?)author.Value.Login ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@host", (object?)author.Value.Host ?? DBNull.Value);
+            }
 
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
@@ -371,11 +424,31 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
                     ObjectType = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
                     EventType = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
                     TargetObjectName = reader.IsDBNull(5) ? null : reader.GetString(5),
-                    TargetObjectType = reader.IsDBNull(6) ? null : reader.GetString(6)
+                    TargetObjectType = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    LoginName = reader.IsDBNull(7) ? null : reader.GetString(7),
+                    HostName = reader.IsDBNull(8) ? null : reader.GetString(8)
                 }));
             }
 
             return rows;
+        }
+
+        /// <summary>
+        /// 지금 이 접속이 서버에서 어떻게 보이는지 읽는다. 트리거가 기록하는 값과 같은 함수를
+        /// 같은 접속에서 부르므로 정의상 일치한다.
+        /// </summary>
+        private static (string? Login, string? Host) ReadCurrentAuthor(string connectionString)
+        {
+            using var conn = new SqlConnection(connectionString);
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = CurrentAuthorQuery;
+
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read()) return (null, null);
+
+            return (reader.IsDBNull(0) ? null : reader.GetString(0),
+                    reader.IsDBNull(1) ? null : reader.GetString(1));
         }
 
         /// <summary>
@@ -408,7 +481,9 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
                     State = ResolveState(row.EventType, gitState),
                     QualifiedName = ObjectPathConvention.GetQualifiedName(row.SchemaName, row.ObjectName),
                     RelativePath = relativePath,
-                    LastLogId = row.Id
+                    LastLogId = row.Id,
+                    Author = row.LoginName,
+                    HostName = row.HostName
                 };
             }
 
@@ -484,6 +559,27 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
 
         // ---------- 조회 ----------
 
+        public IReadOnlyList<CoAuthorWarning> GetCoAuthorWarnings(
+            string serverName, string databaseName, IEnumerable<string> qualifiedNames)
+        {
+            try
+            {
+                var connectionString = BuildConnectionString(serverName, databaseName);
+                var current = ReadCurrentAuthor(connectionString);
+
+                // 필터 없이 읽는다. "내 변경만" 상태에서도 남이 만졌다는 사실은 알려야 한다.
+                var rows = ReadPendingRows(connectionString, author: null);
+
+                return CoAuthorDetector.Detect(rows, qualifiedNames, current.Login, current.Host);
+            }
+            catch (Exception ex)
+            {
+                // 경고를 못 내는 것이 커밋을 막을 이유는 되지 않는다.
+                Debug.WriteLine($"StateTracker.GetCoAuthorWarnings failed for '{serverName}.{databaseName}': {ex.Message}");
+                return Array.Empty<CoAuthorWarning>();
+            }
+        }
+
         public IReadOnlyList<ChangeRecord> GetPendingChanges(string serverName, string databaseName)
         {
             return _changesByDatabase.TryGetValue(GetDatabaseKey(serverName, databaseName), out var records)
@@ -526,6 +622,10 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
                     cmd.Parameters.AddWithValue("@lastLogId", record.LastLogId);
                     cmd.Parameters.AddWithValue("@objectName", record.ObjectName);
                     cmd.Parameters.AddWithValue("@schemaName", record.Schema ?? ObjectPathConvention.DefaultSchema);
+                    // 현재 사용자가 아니라 레코드의 작업자로 좁힌다. 전체 보기에서 남의 변경을
+                    // 대신 커밋하는 경로가 있고, 현재 사용자로 좁히면 그 행이 영원히 닫히지 않는다.
+                    cmd.Parameters.AddWithValue("@login", (object?)record.Author ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@host", (object?)record.HostName ?? DBNull.Value);
                     cmd.ExecuteNonQuery();
                 }
             }

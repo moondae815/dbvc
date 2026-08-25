@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Collections.Generic;
 using System.IO;
@@ -60,10 +60,17 @@ namespace DBVC.Vsix.Tests.ViewModels
             _stateTracker.Setup(s => s.GetInstalledVersion(It.IsAny<string>(), It.IsAny<string>())).Returns(StateTracker.RequiredSchemaVersion);
             // null = 접속 성공. 인증 실패 경로를 보는 테스트만 이 값을 덮어쓴다.
             _stateTracker.Setup(s => s.TestConnection(It.IsAny<string>(), It.IsAny<string>())).Returns((string?)null);
-            _stateTracker.Setup(s => s.RefreshState(Server, Database)).Returns(true);
+            _stateTracker.Setup(s => s.RefreshState(Server, Database, It.IsAny<bool>())).Returns(true);
             _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>());
             _smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>())).Returns(new ScriptResult());
             _git.Setup(g => g.GetChangedFiles(It.IsAny<string>())).Returns(new List<string>());
+            // 차단되지 않은 정상 저장소가 기본값이다. 차단 경로를 보는 테스트만 이 값을 덮어쓴다.
+            _git.Setup(g => g.GetRepositoryState(It.IsAny<string>(), It.IsAny<string>()))
+                .Returns(new RepositoryState { CurrentBranch = "main", BlockReason = RepositoryBlockReason.None });
+            // 기본은 "경고할 것 없음". 이 줄이 없으면 Moq가 null을 돌려주고 Commit이 죽는다.
+            _stateTracker.Setup(s => s.GetCoAuthorWarnings(
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+                .Returns(new CoAuthorWarning[0]);
 
             _cleaner = new Mock<IWorkingTreeCleaner>();
             _cleaner.Setup(c => c.RemoveDeletedObjectFiles(It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()))
@@ -474,7 +481,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             vm.SetupCommand.Execute(null);
 
-            _stateTracker.Verify(s => s.RefreshState(Server, Database), Times.AtLeastOnce);
+            _stateTracker.Verify(s => s.RefreshState(Server, Database, It.IsAny<bool>()), Times.AtLeastOnce);
         }
 
         [Test]
@@ -675,7 +682,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             _smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
                 .Callback(() => sequence.Add("script"))
                 .Returns(new ScriptResult());
-            _stateTracker.Setup(s => s.RefreshState(Server, Database))
+            _stateTracker.Setup(s => s.RefreshState(Server, Database, It.IsAny<bool>()))
                 .Callback(() => sequence.Add("refresh"))
                 .Returns(true);
             var vm = NewConnectedViewModel();
@@ -2302,6 +2309,146 @@ namespace DBVC.Vsix.Tests.ViewModels
                 CallCount++;
                 return PathToReturn;
             }
+        }
+
+        [Test]
+        public void CurrentBranch_ShowsRepositoryBranch_WhenConnected()
+        {
+            // 비교 기준이 브랜치 내용이므로 어느 브랜치인지 모르면 diff를 오독한다.
+            _git.Setup(g => g.GetRepositoryState(It.IsAny<string>(), It.IsAny<string>()))
+                .Returns(new RepositoryState { CurrentBranch = "feature/x", BlockReason = RepositoryBlockReason.None });
+
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.CurrentBranch, Is.EqualTo("feature/x"));
+        }
+
+        [Test]
+        public void IsBlocked_IsTrueWithMessage_WhenRepositoryStateIsBlocked()
+        {
+            _git.Setup(g => g.GetRepositoryState(It.IsAny<string>(), It.IsAny<string>()))
+                .Returns(new RepositoryState
+                {
+                    CurrentBranch = "develop",
+                    BlockReason = RepositoryBlockReason.BranchMismatch,
+                    BlockMessage = "이 대상은 'master' 브랜치에 고정되어 있는데 저장소는 'develop'에 있습니다."
+                });
+
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.IsBlocked, Is.True);
+            Assert.That(vm.BlockMessage, Does.Contain("master"));
+        }
+
+        [Test]
+        public void CommitCommand_CannotExecute_WhenBlocked()
+        {
+            // 차단은 경고가 아니다. 조용히 틀린 결과를 내는 것보다 멈추는 편이 낫다.
+            _git.Setup(g => g.GetRepositoryState(It.IsAny<string>(), It.IsAny<string>()))
+                .Returns(new RepositoryState
+                {
+                    BlockReason = RepositoryBlockReason.DetachedHead,
+                    BlockMessage = "저장소가 어느 브랜치도 가리키지 않는 상태(detached HEAD)입니다."
+                });
+
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.CommitCommand.CanExecute(null), Is.False);
+        }
+
+        [Test]
+        public void ShowAllAuthors_DefaultsToFalse()
+        {
+            // 기본이 전체면 목록에 남의 진행 중 작업이 전부 뜨고, 전체 선택 커밋 한 번이면
+            // 검증되지 않은 남의 작업이 브랜치에 담긴다.
+            Assert.That(NewViewModel().ShowAllAuthors, Is.False);
+        }
+
+        [Test]
+        public void Refresh_PassesShowAllAuthorsToTracker()
+        {
+            var vm = NewConnectedViewModel();
+            vm.ShowAllAuthors = true;
+
+            _stateTracker.Verify(s => s.RefreshState(Server, Database, true), Times.AtLeastOnce);
+        }
+
+        /// <summary>
+        /// dbo.P 하나가 선택된 상태의 뷰모델. 항목은 새로고침이 기본으로 체크해 둔다.
+        /// </summary>
+        private ViewChangesViewModel NewViewModelWithOneSelectedChange(string qualifiedName)
+        {
+            var parts = qualifiedName.Split('.');
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                Record(parts[0], parts[1], "Modified", $"{parts[0]}/StoredProcedures/{parts[1]}.sql")
+            });
+            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+                .Returns(true);
+
+            var vm = NewConnectedViewModel();
+            vm.Changes.Single(ch => ch.ObjectName == qualifiedName).IsSelected = true;
+            return vm;
+        }
+
+        [Test]
+        public void Commit_AsksForConfirmation_WhenAnotherAuthorTouchedTheSameObject()
+        {
+            _stateTracker.Setup(s => s.GetCoAuthorWarnings(
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+                .Returns(new[] { new CoAuthorWarning { QualifiedName = "dbo.P", Author = "KIM-PC" } });
+
+            _notifier.ConfirmResult = false;
+
+            var vm = NewViewModelWithOneSelectedChange("dbo.P");
+            vm.CommitMessage = "테스트";
+            vm.CommitCommand.Execute(null);
+
+            Assert.That(_notifier.ConfirmCalls.Any(call => call.Message.Contains("KIM-PC")), Is.True,
+                "다른 작업자의 PC 이름이 확인 문구에 없습니다");
+
+            // 사용자가 취소했으므로 커밋이 일어나면 안 된다.
+            _git.Verify(g => g.CommitChanges(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>()),
+                Times.Never);
+        }
+
+        [Test]
+        public void Commit_ProceedsAfterConfirmation_WhenTheUserAccepts()
+        {
+            // 경고는 차단이 아니다. 대부분은 실제로 이어서 작업한 정상적인 경우다.
+            _stateTracker.Setup(s => s.GetCoAuthorWarnings(
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+                .Returns(new[] { new CoAuthorWarning { QualifiedName = "dbo.P", Author = "KIM-PC" } });
+
+            _notifier.ConfirmResult = true;
+
+            var vm = NewViewModelWithOneSelectedChange("dbo.P");
+            vm.CommitMessage = "테스트";
+            vm.CommitCommand.Execute(null);
+
+            Assert.That(_notifier.ConfirmCallCount, Is.EqualTo(1),
+                "확인을 건너뛰고 곧장 커밋했다면 이 테스트는 아무것도 보장하지 않는다");
+            _git.Verify(g => g.CommitChanges(
+                Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>()),
+                Times.Once);
+        }
+
+        [Test]
+        public void Commit_DoesNotAsk_WhenNoOtherAuthorTouchedIt()
+        {
+            _stateTracker.Setup(s => s.GetCoAuthorWarnings(
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+                .Returns(new CoAuthorWarning[0]);
+
+            var before = _notifier.ConfirmCallCount;
+
+            var vm = NewViewModelWithOneSelectedChange("dbo.P");
+            vm.CommitMessage = "테스트";
+            vm.CommitCommand.Execute(null);
+
+            Assert.That(_notifier.ConfirmCallCount, Is.EqualTo(before),
+                "경고할 것이 없는데 확인을 물었습니다 - 매번 뜨면 사용자가 읽지 않게 된다");
         }
     }
 }

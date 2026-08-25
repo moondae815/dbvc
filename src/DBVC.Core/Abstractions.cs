@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using DBVC.Core.Models;
@@ -44,6 +44,21 @@ namespace DBVC.Core
         string? TestConnection(string serverName, string databaseName);
         bool RefreshState(string serverName, string databaseName);
 
+        /// <param name="includeAllAuthors">
+        /// true면 다른 사람이 만든 변경까지 읽는다. 기본 화면은 false다 —
+        /// 공용 계정 환경에서 필터가 없으면 목록에 남의 진행 중 작업이 전부 뜨고,
+        /// 전체 선택 커밋 한 번이면 검증되지 않은 남의 작업이 브랜치에 담긴다.
+        /// </param>
+        bool RefreshState(string serverName, string databaseName, bool includeAllAuthors);
+
+        /// <summary>
+        /// 커밋하려는 객체들을 다른 작업자도 만졌는지 조회한다. 비어 있으면 경고할 것이 없다.
+        /// 화면 필터와 무관하게 항상 전체 로그를 본다 - "내 변경만" 상태에서도 남이 만졌다는
+        /// 사실은 알려야 한다.
+        /// </summary>
+        IReadOnlyList<CoAuthorWarning> GetCoAuthorWarnings(
+            string serverName, string databaseName, IEnumerable<string> qualifiedNames);
+
         /// <summary>아직 처리되지 않은 DDL 로그가 가리키는 객체의 스키마 한정 이름.</summary>
         IReadOnlyList<string> GetChangedObjectNames(string serverName, string databaseName);
         IReadOnlyList<ChangeRecord> GetPendingChanges(string serverName, string databaseName);
@@ -54,6 +69,14 @@ namespace DBVC.Core
     public interface IGitManager
     {
         bool IsRepository(string path);
+
+        /// <summary>
+        /// 저장소를 그대로 써도 되는지 판정한 결과. 매핑이 없으면 null이다.
+        ///
+        /// DBVC는 저장소의 유일한 주인이 아니다 — 외부 Git 클라이언트가 남긴 상태를 만나는 것이
+        /// 정상이고, 만나면 멈춰야 한다. 판정 자체는 RepositoryStateEvaluator에 있다.
+        /// </summary>
+        RepositoryState? GetRepositoryState(string serverName, string databaseName);
         string GetStatus(string repoPath);
         string GetStatusForDatabase(string serverName, string databaseName);
         IReadOnlyList<string> GetChangedFiles(string repoPath);

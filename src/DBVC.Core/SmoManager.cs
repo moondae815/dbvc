@@ -95,12 +95,25 @@ namespace DBVC.Core
                 var scripter = new Scripter(server) { Options = BuildScriptingOptions() };
 
                 var filter = BuildFilter(objectNames);
-                var targets = EnumerateTargets(db).Where(t => ShouldInclude(t, filter));
+
+                // 열거하면서 참조만 모아 둔다. 참조를 담는 것은 속성을 만지는 것이 아니라
+                // 재조회를 부르지 않는다 - 실제로 TextMode를 끄는 것은 스크립팅 직전이다.
+                var textObjects = new Dictionary<string, ITextObject>();
+                var targets = EnumerateTargets(db, textObjects).Where(t => ShouldInclude(t, filter));
 
                 return ScriptAll(targets, localGitPath!, (target, outputPath) =>
                 {
+                    var urn = (Urn)target.Tag!;
+
+                    // 필터를 통과해 실제로 쓰는 객체만 끈다. 열거 중에 끄면 걸러질 객체까지
+                    // 전부 비용을 내고, 그러면 "바뀐 것만 추출한다"는 빠른 경로가 사라진다.
+                    if (textObjects.TryGetValue(urn.ToString(), out var textObject))
+                    {
+                        DisableTextMode(textObject);
+                    }
+
                     scripter.Options.FileName = outputPath;
-                    scripter.Script(new[] { (Urn)target.Tag! });
+                    scripter.Script(new[] { urn });
                 }, progress, cancellationToken);
             }
             catch (OperationCanceledException)
@@ -150,7 +163,16 @@ namespace DBVC.Core
                 XmlIndexes = true,
                 FullTextIndexes = true,
 
-                ExtendedProperties = true
+                ExtendedProperties = true,
+
+                // 저장소 파일 자체가 실행 가능해야 한다. 배포 스크립트의 재료는 브랜치의 파일이지
+                // 대상 DB에서 다시 뜬 것이 아니므로(설계 2.3), 여기서 CREATE OR ALTER로 쓰지 않으면
+                // 생성 시점에 텍스트를 치환해야 하고 그러면 주석·문자열 안의 CREATE까지 건드린다.
+                // 테이블에는 적용되지 않는다 - T-SQL에 CREATE OR ALTER TABLE이 없다.
+                // 반드시 ScriptDrops 뒤에 와야 한다 - SMO의 ScriptDrops setter가 값과 무관하게
+                // ScriptForCreateOrAlter를 꺼버리는 부작용이 있다(리플렉션 없이 실측으로 확인).
+                // 객체 초기화 구문은 나열한 순서대로 세터를 호출하므로 순서 자체가 정확성의 일부다.
+                ScriptForCreateOrAlter = true
             };
         }
 
@@ -321,7 +343,12 @@ namespace DBVC.Core
         /// <summary>
         /// Feature 14가 요구하는 9개 객체 타입을 열거한다.
         /// </summary>
-        private static IEnumerable<ScriptTargetInfo> EnumerateTargets(Database db)
+        /// <param name="textObjects">
+        /// Urn 문자열 → 텍스트 객체. 스크립팅 직전에 <see cref="DisableTextMode"/>를 걸 대상을
+        /// 찾기 위한 것이다. 여기서 참조만 담고 속성은 만지지 않는다.
+        /// </param>
+        private static IEnumerable<ScriptTargetInfo> EnumerateTargets(
+            Database db, IDictionary<string, ITextObject> textObjects)
         {
             foreach (Table table in db.Tables)
             {
@@ -332,6 +359,7 @@ namespace DBVC.Core
                 foreach (Trigger trigger in table.Triggers)
                 {
                     if (trigger.IsSystemObject) continue;
+                    textObjects[trigger.Urn.ToString()] = trigger;
                     yield return NewTarget(table.Schema, trigger.Name, "Trigger", trigger.Urn);
                 }
             }
@@ -339,18 +367,21 @@ namespace DBVC.Core
             foreach (View view in db.Views)
             {
                 if (view.IsSystemObject) continue;
+                textObjects[view.Urn.ToString()] = view;
                 yield return NewTarget(view.Schema, view.Name, "View", view.Urn);
             }
 
             foreach (StoredProcedure sp in db.StoredProcedures)
             {
                 if (sp.IsSystemObject) continue;
+                textObjects[sp.Urn.ToString()] = sp;
                 yield return NewTarget(sp.Schema, sp.Name, "StoredProcedure", sp.Urn);
             }
 
             foreach (UserDefinedFunction fn in db.UserDefinedFunctions)
             {
                 if (fn.IsSystemObject) continue;
+                textObjects[fn.Urn.ToString()] = fn;
                 yield return NewTarget(fn.Schema, fn.Name, "UserDefinedFunction", fn.Urn);
             }
 
@@ -379,6 +410,25 @@ namespace DBVC.Core
                 yield return NewTarget(synonym.Schema, synonym.Name, "Synonym", synonym.Urn);
             }
         }
+
+        /// <summary>
+        /// <see cref="ScriptingOptions.ScriptForCreateOrAlter"/>는 그 자체로는 아무것도 바꾸지 않는다
+        /// - 프로시저·뷰·함수·트리거는 기본적으로 <c>TextMode = true</c>라 SMO가 sys.sql_modules에
+        /// 저장된 원문을 그대로 돌려주고, 그 안의 CREATE 키워드는 옵션과 무관하게 원본 그대로 남는다.
+        /// 서버에 직접 붙어 실측해서 찾은 값이다(문서에는 이 의존관계가 안 나온다). TextMode를 꺼야
+        /// SMO가 메타데이터로 헤더를 다시 조립하고, 그 조립 단계에서만 CREATE OR ALTER가 반영된다.
+        /// 부작용으로 대괄호 식별자·WITH EXECUTE AS 같은 절이 다시 채워져 원문 서식과 달라지는데,
+        /// 이는 이 작업(#4)이 저장소의 모든 파일 텍스트를 갈아엎는 근본 이유이기도 하다.
+        ///
+        /// <b>열거 중에 부르지 말 것.</b> TextMode는 <see cref="ConfigureBulkEnumeration"/>이
+        /// 지정하는 필드가 아니므로, 만지는 순간 그 객체 하나를 위한 전체 속성 재조회가 일어난다
+        /// (그 함수의 주석이 경고하는 바로 그 비용이다). 열거는 필터보다 먼저 도므로 객체 하나만
+        /// 추출하는 새로고침에서도 DB의 모든 프로시저·뷰·함수·트리거가 값을 치른다.
+        /// localhost SQL Server 2022에서 실측했다(프로시저 150 + 뷰 30, 그중 1개만 지정 추출):
+        ///   열거 중에 끔      : 14146 ms — 객체당 약 73 ms
+        ///   스크립팅 직전에 끔:  1075 ms
+        /// </summary>
+        private static void DisableTextMode(ITextObject obj) => obj.TextMode = false;
 
         private static ScriptTargetInfo NewTarget(string schema, string name, string objectType, Urn urn)
         {

@@ -197,6 +197,10 @@ namespace DBVC.Vsix.ViewModels
             IsInitialized = false;
             IsTrackerOutdated = false;
             WarningMessage = null;
+            // 대상이 바뀌면 이전 대상의 브랜치와 차단 사유가 남아 있으면 안 된다 -
+            // 남으면 새 대상의 화면이 엉뚱한 저장소를 근거로 덮인다.
+            CurrentBranch = null;
+            BlockMessage = null;
             // 대상이 바뀌면 "개체 탐색기 선택이 다릅니다"의 판정 근거가 사라진다.
             // 여전히 다르다면 다음 CheckSsmsSelection()에서 다시 뜬다.
             SsmsHintMessage = null;
@@ -347,6 +351,14 @@ namespace DBVC.Vsix.ViewModels
                 probe.InstalledVersion = _stateTracker.GetInstalledVersion(server, database);
             }
 
+            // 저장소 상태도 여기서 읽는다. libgit2가 도는 일이라 UI 스레드에서 부르면
+            // 개체 탐색기를 붙잡는다 - 이 파일이 접속 판정을 백그라운드로 뺀 이유와 같다.
+            // 매핑이 없을 때는 묻지 않는다. 가리킬 저장소가 없고 안내는 이미 따로 뜬다.
+            if (probe.IsMapped)
+            {
+                probe.RepositoryState = _gitManager.GetRepositoryState(server, database);
+            }
+
             return probe;
         }
 
@@ -370,8 +382,18 @@ namespace DBVC.Vsix.ViewModels
             IsTrackerOutdated = probe.InstalledVersion > 0
                 && probe.InstalledVersion < StateTracker.RequiredSchemaVersion;
 
+            CurrentBranch = probe.RepositoryState?.CurrentBranch;
+            BlockMessage = probe.RepositoryState?.BlockMessage;
+
             // Refresh가 스스로 다시 IsBusy를 세우므로 먼저 내려놓는다.
             IsBusy = false;
+
+            if (IsBlocked)
+            {
+                // 차단 상태에서 Refresh를 돌리면 틀린 기준으로 비교한 목록이 만들어진다.
+                Changes.Clear();
+                return;
+            }
 
             if (IsMapped && IsInitialized)
             {
@@ -384,6 +406,9 @@ namespace DBVC.Vsix.ViewModels
             public string? ConnectionError { get; set; }
             public bool IsMapped { get; set; }
             public int InstalledVersion { get; set; }
+
+            /// <summary>매핑이 없으면 null이다. 판정은 Core가 하고 여기서는 나르기만 한다.</summary>
+            public RepositoryState? RepositoryState { get; set; }
         }
 
         // ---------- 바인딩 속성 ----------
@@ -397,6 +422,70 @@ namespace DBVC.Vsix.ViewModels
                 if (_isInitialized == value) return;
                 _isInitialized = value;
                 OnPropertyChanged();
+            }
+        }
+
+        private string? _currentBranch;
+
+        /// <summary>
+        /// 저장소의 현재 브랜치. 비교 기준이 브랜치 내용이므로 이것이 보이지 않으면
+        /// 사용자가 diff를 오독한다.
+        /// </summary>
+        public string? CurrentBranch
+        {
+            get => _currentBranch;
+            private set
+            {
+                if (_currentBranch == value) return;
+                _currentBranch = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasCurrentBranch));
+            }
+        }
+
+        /// <summary>브랜치를 알 수 없으면 표시 자체를 숨긴다. "브랜치: " 만 남으면 오히려 오해를 준다.</summary>
+        public bool HasCurrentBranch => !string.IsNullOrWhiteSpace(CurrentBranch);
+
+        private string? _blockMessage;
+
+        /// <summary>
+        /// null이 아니면 저장소를 그대로 쓸 수 없다는 뜻이고, 화면을 덮는다.
+        /// 경고 배너로 두지 않는 이유는 조용히 틀린 결과가 더 나쁘기 때문이다(설계 3.4).
+        /// </summary>
+        public string? BlockMessage
+        {
+            get => _blockMessage;
+            private set
+            {
+                if (_blockMessage == value) return;
+                _blockMessage = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsBlocked));
+                // 이 뷰모델은 CommandManager.RequerySuggested를 구독하지 않으므로
+                // 여기서 직접 올리지 않으면 커밋 버튼이 차단된 뒤에도 눌린 채로 남는다.
+                RaiseActionCanExecuteChanged();
+            }
+        }
+
+        public bool IsBlocked => !string.IsNullOrWhiteSpace(BlockMessage);
+
+        private bool _showAllAuthors;
+
+        /// <summary>
+        /// 다른 작업자의 변경까지 볼지 여부. 기본은 false다.
+        ///
+        /// 토글이 필요한 이유가 넷이다 - 커밋하지 않고 떠난 사람의 고아 변경, 휴가 중인 동료의
+        /// 대리 커밋, 노트북에서 만들고 데스크톱에서 커밋하는 경우, 그리고 v3 이전의 작업자 없는 행.
+        /// </summary>
+        public bool ShowAllAuthors
+        {
+            get => _showAllAuthors;
+            set
+            {
+                if (_showAllAuthors == value) return;
+                _showAllAuthors = value;
+                OnPropertyChanged();
+                Refresh();
             }
         }
 
@@ -444,9 +533,16 @@ namespace DBVC.Vsix.ViewModels
                 if (_isBusy == value) return;
                 _isBusy = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(IsNotBusy));
                 RaiseActionCanExecuteChanged();
             }
         }
+
+        /// <summary>
+        /// 버튼은 CanExecute가 잠그지만 체크박스에는 명령이 없다. 작업 중 토글이 눌리면
+        /// 새로고침이 겹쳐 돌아 서로의 결과를 덮어쓰므로, 화면에서 막을 근거가 필요하다.
+        /// </summary>
+        public bool IsNotBusy => !IsBusy;
 
         private string? _progressText;
 
@@ -879,6 +975,8 @@ namespace DBVC.Vsix.ViewModels
 
             var server = ServerName!;
             var database = DatabaseName!;
+            // UI 스레드에서 읽어 값으로 넘긴다. 백그라운드에서 바인딩 속성을 읽지 않는 규약이다.
+            var includeAllAuthors = ShowAllAuthors;
 
             _extractionCancellation?.Dispose();
             _extractionCancellation = new CancellationTokenSource();
@@ -889,7 +987,7 @@ namespace DBVC.Vsix.ViewModels
             ProgressText = "시작하는 중...";
 
             _scheduler.Run(
-                () => GatherRefresh(server, database, fullExtraction, token),
+                () => GatherRefresh(server, database, fullExtraction, includeAllAuthors, token),
                 ApplyRefreshOutcome,
                 ex =>
                 {
@@ -915,7 +1013,7 @@ namespace DBVC.Vsix.ViewModels
         /// 새로고침의 무거운 부분. SMO 추출·변경 로그 조회·Git 상태 읽기·작업 트리 정리를 한다.
         /// UI 스레드 밖에서 돌므로 <see cref="Changes"/>를 비롯한 바인딩 대상을 건드리지 않는다.
         /// </summary>
-        private RefreshOutcome GatherRefresh(string server, string database, bool fullExtraction, CancellationToken cancellationToken)
+        private RefreshOutcome GatherRefresh(string server, string database, bool fullExtraction, bool includeAllAuthors, CancellationToken cancellationToken)
         {
             var outcome = new RefreshOutcome();
             var mapping = _configManager.TryGetMapping(server, database);
@@ -923,7 +1021,7 @@ namespace DBVC.Vsix.ViewModels
             // 현재 DB 상태를 파일로 추출해야 Git 상태·Diff가 최신 코드를 반영한다.
             Extract(server, database, mapping, fullExtraction, outcome, cancellationToken);
 
-            if (!_stateTracker.RefreshState(server, database))
+            if (!_stateTracker.RefreshState(server, database, includeAllAuthors))
             {
                 outcome.Warnings.Add("변경 로그를 읽지 못했습니다.");
             }
@@ -1007,6 +1105,8 @@ namespace DBVC.Vsix.ViewModels
                     ObjectType = record.ObjectType,
                     State = record.State,
                     RelativePath = record.RelativePath,
+                    // 공용 계정 환경에서는 로그인 이름이 전부 같으므로 접속 PC를 우선한다.
+                    Author = string.IsNullOrWhiteSpace(record.HostName) ? record.Author : record.HostName,
                     IsSelected = !cleanupFailed
                 });
             }
@@ -1041,6 +1141,9 @@ namespace DBVC.Vsix.ViewModels
 
         private bool CanCommit()
         {
+            // 차단은 경고가 아니다. 조용히 틀린 결과를 내는 것보다 멈추는 편이 낫다.
+            if (IsBlocked) return false;
+
             return HasContext
                 && IsMapped
                 && IsInitialized
@@ -1053,7 +1156,14 @@ namespace DBVC.Vsix.ViewModels
         /// 스테이징은 객체 3000개 기준 15초가 걸린다(libgit2 고유 비용이라 API를 바꿔도 줄지 않는다).
         /// 그래서 커밋도 UI 스레드에서 하지 않는다.
         /// </summary>
-        private void Commit()
+        private void Commit() => Commit(coAuthorConfirmed: false);
+
+        /// <param name="coAuthorConfirmed">
+        /// 사용자가 이미 "남의 변경이 딸려 온다"는 확인에 동의했는지. 확인 대화상자는 UI
+        /// 스레드에서만 띄울 수 있는데 판정은 DB를 읽어야 해서, 판정을 백그라운드에서 마치고
+        /// 확인을 받은 뒤 이 값을 참으로 해서 같은 경로를 다시 탄다.
+        /// </param>
+        private void Commit(bool coAuthorConfirmed)
         {
             if (!CanCommit()) return;
 
@@ -1078,18 +1188,45 @@ namespace DBVC.Vsix.ViewModels
             var message = CommitMessage!;
 
             IsBusy = true;
-            _scheduler.Run(
+            _scheduler.Run<CommitOutcome>(
                 () =>
                 {
-                    if (!_gitManager.CommitChanges(server, database, message, selectedPaths)) return false;
+                    // 커밋 직전에 본다. 목록을 만든 시점과 커밋 시점 사이에 남이 또 만졌을 수 있다.
+                    // 조회가 DB를 읽으므로 UI 스레드가 아니라 여기서 한다.
+                    if (!coAuthorConfirmed)
+                    {
+                        var warnings = _stateTracker.GetCoAuthorWarnings(server, database, committedNames);
+                        if (warnings != null && warnings.Count > 0)
+                        {
+                            return new CommitOutcome { CoAuthors = warnings };
+                        }
+                    }
+
+                    if (!_gitManager.CommitChanges(server, database, message, selectedPaths))
+                    {
+                        return new CommitOutcome();
+                    }
+
                     _stateTracker.MarkProcessed(server, database, committedRecords);
-                    return true;
+                    return new CommitOutcome { Committed = true };
                 },
-                committed =>
+                outcome =>
                 {
                     IsBusy = false;
 
-                    if (!committed)
+                    if (outcome.CoAuthors != null)
+                    {
+                        // 차단이 아니라 확인이다. 대부분은 실제로 이어서 작업한 정상적인 경우이고,
+                        // 막으면 사람들이 도구를 쓰지 않게 된다(설계 3.10).
+                        if (AskToCommitWithOtherAuthorsWork(outcome.CoAuthors))
+                        {
+                            Commit(coAuthorConfirmed: true);
+                        }
+
+                        return;
+                    }
+
+                    if (!outcome.Committed)
                     {
                         WarningMessage = "커밋할 변경사항이 없습니다.";
                         return;
@@ -1103,6 +1240,29 @@ namespace DBVC.Vsix.ViewModels
                     IsBusy = false;
                     _notifier.ShowError("DBVC 커밋 실패", ex.Message);
                 });
+        }
+
+        /// <summary>
+        /// 커밋 결과. bool로는 "커밋됨 / 커밋할 것 없음 / 확인이 필요함" 셋을 구분할 수 없다.
+        /// </summary>
+        private sealed class CommitOutcome
+        {
+            public bool Committed { get; set; }
+
+            /// <summary>null이 아니면 커밋하지 않았고 사용자 확인이 필요하다는 뜻이다.</summary>
+            public IReadOnlyList<CoAuthorWarning>? CoAuthors { get; set; }
+        }
+
+        private bool AskToCommitWithOtherAuthorsWork(IReadOnlyList<CoAuthorWarning> coAuthors)
+        {
+            var lines = string.Join(Environment.NewLine,
+                coAuthors.Select(w => $"  · {w.QualifiedName} — {w.Author}"));
+
+            return _notifier.Confirm(
+                "DBVC 커밋 확인",
+                "다음 객체는 다른 작업자도 변경했습니다. 지금 커밋하는 내용에 그 변경이 포함됩니다."
+                + Environment.NewLine + Environment.NewLine + lines
+                + Environment.NewLine + Environment.NewLine + "그대로 커밋할까요?");
         }
 
         // ---------- 외부에서 객체 선택 (SQL 에디터 컨텍스트 메뉴) ----------

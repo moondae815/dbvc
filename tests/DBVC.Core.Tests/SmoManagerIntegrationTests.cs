@@ -190,6 +190,54 @@ namespace DBVC.Core.Tests
             Assert.That(repo.RelativePaths(), Is.Empty, "취소된 추출이 파일을 남겼습니다.");
         }
 
+        [Test]
+        public void ScriptObjects_EmitsCreateOrAlter_ForProcedures()
+        {
+            // SMO 옵션이 실제로 어떤 텍스트를 뱉는지는 서버에 붙어야만 확인된다.
+            // 설계 3.6의 배포 스크립트 3분류가 전부 이 텍스트에 걸려 있다.
+            //
+            // 이 fixture의 _database는 OneTimeSetUp에서 한 번 만들어 모든 테스트가 공유한다.
+            // 여기서 만든 프로브 객체가 남으면 ScriptObjectsDetailed_ExtractsEveryObjectType_...처럼
+            // "정확히 이 5개"를 단정하는 테스트를 깨뜨리므로 finally에서 반드시 지운다.
+            _testDatabase!.Execute("CREATE PROCEDURE dbo.CreateOrAlterProbe AS SELECT 1");
+            try
+            {
+                using var repo = new TempRepo(_database!);
+                repo.Smo.ScriptObjects(ServerName, _database!, new List<string> { "dbo.CreateOrAlterProbe" });
+
+                var relative = repo.RelativePaths().Single(p => p.EndsWith("CreateOrAlterProbe.sql", StringComparison.OrdinalIgnoreCase));
+                var sql = File.ReadAllText(Path.Combine(repo.Path, relative.Replace('/', Path.DirectorySeparatorChar)));
+
+                Assert.That(sql, Does.Contain("CREATE OR ALTER").IgnoreCase);
+            }
+            finally
+            {
+                _testDatabase.Execute("DROP PROCEDURE dbo.CreateOrAlterProbe");
+            }
+        }
+
+        [Test]
+        public void ScriptObjects_KeepsPlainCreate_ForTables()
+        {
+            // T-SQL에 CREATE OR ALTER TABLE이 없다. 기존 테이블 변경이 자동화 불가인 근거다(설계 2.4).
+            _testDatabase!.Execute("CREATE TABLE dbo.CreateOrAlterTableProbe (Id int NOT NULL)");
+            try
+            {
+                using var repo = new TempRepo(_database!);
+                repo.Smo.ScriptObjects(ServerName, _database!, new List<string> { "dbo.CreateOrAlterTableProbe" });
+
+                var relative = repo.RelativePaths().Single(p => p.EndsWith("CreateOrAlterTableProbe.sql", StringComparison.OrdinalIgnoreCase));
+                var sql = File.ReadAllText(Path.Combine(repo.Path, relative.Replace('/', Path.DirectorySeparatorChar)));
+
+                Assert.That(sql, Does.Contain("CREATE TABLE").IgnoreCase);
+                Assert.That(sql, Does.Not.Contain("CREATE OR ALTER").IgnoreCase);
+            }
+            finally
+            {
+                _testDatabase.Execute("DROP TABLE dbo.CreateOrAlterTableProbe");
+            }
+        }
+
         /// <summary>매핑까지 갖춘 임시 저장소 폴더. 사용자의 실제 mappings.json을 건드리지 않는다.</summary>
         private sealed class TempRepo : IDisposable
         {

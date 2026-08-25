@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Microsoft.Data.SqlClient;
 using NUnit.Framework;
@@ -103,6 +103,27 @@ namespace DBVC.Core.Tests
                 SqlConnectionFactory.BuildWindows(ServerName, Name)) { Pooling = false }.ToString();
 
             using var conn = new SqlConnection(connString);
+            conn.Open();
+            foreach (var sql in statements)
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = sql;
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        /// <summary>
+        /// 지정한 워크스테이션 이름으로 접속해 실행한다. 트리거의 HOST_NAME()이 그 값을 본다 —
+        /// 다른 PC에서 작업한 상황을 테스트에서 만드는 유일한 방법이다.
+        /// </summary>
+        public void ExecuteWithWorkstationId(string workstationId, params string[] statements)
+        {
+            var builder = new SqlConnectionStringBuilder(SqlConnectionFactory.BuildWindows(ServerName, Name))
+            {
+                WorkstationID = workstationId
+            };
+
+            using var conn = new SqlConnection(builder.ConnectionString);
             conn.Open();
             foreach (var sql in statements)
             {
