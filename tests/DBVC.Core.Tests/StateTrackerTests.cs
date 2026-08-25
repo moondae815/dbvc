@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using DBVC.Core;
@@ -335,6 +335,40 @@ namespace DBVC.Core.Tests
             // 설치 스크립트가 심는 값과 같아야 한다. 어긋나면 모든 사용자에게 업데이트 배너가 계속 뜨거나
             // 구버전이 최신으로 읽힌다. 스크립트 쪽 값은 InstallScriptSyncTests가 대조한다.
             Assert.That(StateTracker.RequiredSchemaVersion, Is.EqualTo(3));
+        }
+
+        [Test]
+        public void PendingChangesByAuthorQuery_FiltersByBothLoginAndHost()
+        {
+            // 공용 계정 환경에서는 LoginName이 상수라 HostName이 일을 한다.
+            // 계정을 사람별로 나눈 환경에서는 둘 다 의미가 있다. 규칙을 두 번 만들지 않는다.
+            Assert.That(StateTracker.PendingChangesByAuthorQuery, Does.Contain("@login"));
+            Assert.That(StateTracker.PendingChangesByAuthorQuery, Does.Contain("@host"));
+        }
+
+        [Test]
+        public void PendingChangesQuery_SelectsAuthorColumns()
+        {
+            // 전체 보기에서도 변경자 컬럼을 띄워야 하므로 필터 없는 쪽도 값을 읽어야 한다.
+            Assert.That(StateTracker.PendingChangesQuery, Does.Contain("LoginName"));
+            Assert.That(StateTracker.PendingChangesQuery, Does.Contain("HostName"));
+        }
+
+        [Test]
+        public void MarkProcessedCommand_NarrowsByAuthor()
+        {
+            // 같은 객체를 둘이 만졌을 때, A의 커밋이 B의 로그까지 닫으면
+            // B 화면에서 조용히 사라진다(설계 1.3).
+            Assert.That(StateTracker.MarkProcessedCommand, Does.Contain("@login"));
+            Assert.That(StateTracker.MarkProcessedCommand, Does.Contain("@host"));
+        }
+
+        [Test]
+        public void MarkProcessedCommand_TreatsNullHostAsEmpty()
+        {
+            // v3 이전 행은 HostName이 NULL이다. NULL = @host는 절대 참이 되지 않으므로
+            // 전체 보기에서 그 행을 커밋해도 닫히지 않고 매번 다시 올라온다.
+            Assert.That(StateTracker.MarkProcessedCommand, Does.Contain("ISNULL(HostName"));
         }
 
         [Test]

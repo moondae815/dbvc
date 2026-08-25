@@ -19,6 +19,15 @@
         /// 정규화가 이 값을 그대로 옮긴다 — <c>TABLE</c>로 못박으면 뷰가 Tables 폴더로 떨어진다.
         /// </summary>
         public string? TargetObjectType { get; set; }
+
+        /// <summary>DDL을 실행한 SQL 로그인. 공용 계정 환경에서는 모든 행에서 같다.</summary>
+        public string? LoginName { get; set; }
+
+        /// <summary>
+        /// DDL을 실행한 접속의 워크스테이션 이름(<c>HOST_NAME()</c>).
+        /// 공용 계정을 쓰는 환경에서 사람을 가르는 유일한 축이다. v3 이전 행은 null이다.
+        /// </summary>
+        public string? HostName { get; set; }
     }
 
     /// <summary>
@@ -44,5 +53,15 @@
         /// Git 상태에서만 유래한 항목은 0이다.
         /// </summary>
         public long LastLogId { get; set; }
+
+        /// <summary>이 상태의 근거가 된 가장 최신 로그 행의 SQL 로그인.</summary>
+        public string? Author { get; set; }
+
+        /// <summary>
+        /// 이 상태의 근거가 된 가장 최신 로그 행의 접속 PC.
+        /// MarkProcessed가 현재 사용자가 아니라 이 값으로 좁힌다 - 전체 보기에서 남의 변경을
+        /// 대신 커밋하는 경로가 있고, 현재 사용자로 좁히면 그 행이 영원히 닫히지 않는다.
+        /// </summary>
+        public string? HostName { get; set; }
     }
 }

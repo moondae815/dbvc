@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using DBVC.Core.Models;
@@ -43,6 +43,13 @@ namespace DBVC.Core
         /// <summary>접속을 시도해 성공하면 <c>null</c>, 실패하면 사용자에게 보일 한국어 사유.</summary>
         string? TestConnection(string serverName, string databaseName);
         bool RefreshState(string serverName, string databaseName);
+
+        /// <param name="includeAllAuthors">
+        /// true면 다른 사람이 만든 변경까지 읽는다. 기본 화면은 false다 —
+        /// 공용 계정 환경에서 필터가 없으면 목록에 남의 진행 중 작업이 전부 뜨고,
+        /// 전체 선택 커밋 한 번이면 검증되지 않은 남의 작업이 브랜치에 담긴다.
+        /// </param>
+        bool RefreshState(string serverName, string databaseName, bool includeAllAuthors);
 
         /// <summary>아직 처리되지 않은 DDL 로그가 가리키는 객체의 스키마 한정 이름.</summary>
         IReadOnlyList<string> GetChangedObjectNames(string serverName, string databaseName);

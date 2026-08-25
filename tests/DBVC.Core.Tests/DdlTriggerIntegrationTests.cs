@@ -1,5 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using Microsoft.Data.SqlClient;
 using NUnit.Framework;
 using DBVC.Core;
@@ -38,6 +40,12 @@ namespace DBVC.Core.Tests
         {
             if (_db == null) Assert.Ignore(_skipReason ?? "SQL Server에 접속할 수 없습니다.");
         }
+
+        /// <summary>트리거가 LoginName에 기록하는 값과 같은 함수를 같은 서버에서 부른다.</summary>
+        private static string? CurrentLogin() => _db!.QueryScalar("SELECT SUSER_SNAME()") as string;
+
+        /// <summary>트리거가 HostName에 기록하는 값과 같은 함수를 같은 서버에서 부른다.</summary>
+        private static string? CurrentHost() => _db!.QueryScalar("SELECT HOST_NAME()") as string;
 
         private static ConfigManager NewConfig()
             => new ConfigManager(System.IO.Path.Combine(
@@ -128,7 +136,12 @@ namespace DBVC.Core.Tests
                     State = "Modified",
                     QualifiedName = "dbo.MarkedTable",
                     RelativePath = "dbo/Tables/MarkedTable.sql",
-                    LastLogId = maxId
+                    LastLogId = maxId,
+                    // MarkProcessed는 레코드의 작업자로 좁힌다. RefreshState가 만든
+                    // 레코드에는 이 값이 늘 들어 있으므로, 손으로 만드는 여기서도 채워야
+                    // 실제 경로와 같은 조건이 나간다 - 비워 두면 아무 행도 닫히지 않는다.
+                    Author = CurrentLogin(),
+                    HostName = CurrentHost()
                 }
             });
 
@@ -164,7 +177,12 @@ namespace DBVC.Core.Tests
                     State = "Modified",
                     QualifiedName = "dbo.AuditedTable",
                     RelativePath = "dbo/Tables/AuditedTable.sql",
-                    LastLogId = maxId
+                    LastLogId = maxId,
+                    // MarkProcessed는 레코드의 작업자로 좁힌다. RefreshState가 만든
+                    // 레코드에는 이 값이 늘 들어 있으므로, 손으로 만드는 여기서도 채워야
+                    // 실제 경로와 같은 조건이 나간다 - 비워 두면 아무 행도 닫히지 않는다.
+                    Author = CurrentLogin(),
+                    HostName = CurrentHost()
                 }
             });
 
@@ -204,7 +222,12 @@ namespace DBVC.Core.Tests
                     State = "Modified",
                     QualifiedName = "dbo.RenamedColumnTable",
                     RelativePath = "dbo/Tables/RenamedColumnTable.sql",
-                    LastLogId = maxId
+                    LastLogId = maxId,
+                    // MarkProcessed는 레코드의 작업자로 좁힌다. RefreshState가 만든
+                    // 레코드에는 이 값이 늘 들어 있으므로, 손으로 만드는 여기서도 채워야
+                    // 실제 경로와 같은 조건이 나간다 - 비워 두면 아무 행도 닫히지 않는다.
+                    Author = CurrentLogin(),
+                    HostName = CurrentHost()
                 }
             });
 
@@ -379,6 +402,36 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
             var fromClient = _db.QueryScalar("SELECT HOST_NAME()") as string;
 
             Assert.That(fromTrigger, Is.EqualTo(fromClient));
+        }
+
+        [Test]
+        public void RefreshState_ExcludesOtherWorkstationsChanges_WhenNotIncludingAllAuthors()
+        {
+            // 같은 공용 계정으로 서로 다른 PC에서 작업하는 상황을 Workstation ID로 흉내낸다.
+            // 이 테스트가 이 계획 전체의 핵심이다 - 여기가 통과하지 않으면 나머지는 의미가 없다.
+            _db!.ExecuteWithWorkstationId("OTHER-PC", "CREATE PROCEDURE dbo.OtherPcProbe AS SELECT 1");
+            // 내 쪽에서도 하나 만든다. 이것이 없으면 필터가 전부를 걸러내 목록이 항상 비어도
+            // 아래 Does.Not.Contain이 통과해 버려, 테스트가 아무것도 보장하지 않는다.
+            _db.Execute("CREATE PROCEDURE dbo.MyPcProbe AS SELECT 1");
+
+            // RefreshState는 매핑이 없으면 아무것도 읽지 않고 false를 낸다. Git 쪽은 저장소가
+            // 아니어도 빈 상태를 돌려주므로, 여기서는 경로가 가리키는 곳이 실제 저장소일 필요가 없다.
+            var config = NewConfig();
+            var repoPath = Path.Combine(Path.GetTempPath(), "dbvc_repo_" + Guid.NewGuid().ToString("N"));
+            config.AddMapping(SqlServerTestDatabase.ServerName, _db.Name, repoPath);
+            var tracker = new StateTracker(config);
+
+            Assert.That(tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: false),
+                Is.True, "매핑이 있으면 갱신에 성공해야 한다");
+            var mine = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name);
+
+            Assert.That(mine.Select(c => c.ObjectName), Does.Contain("MyPcProbe"), "내 변경은 남아야 한다");
+            Assert.That(mine.Select(c => c.ObjectName), Does.Not.Contain("OtherPcProbe"));
+
+            tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
+            var all = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name);
+
+            Assert.That(all.Select(c => c.ObjectName), Does.Contain("OtherPcProbe"));
         }
     }
 }
