@@ -95,12 +95,25 @@ namespace DBVC.Core
                 var scripter = new Scripter(server) { Options = BuildScriptingOptions() };
 
                 var filter = BuildFilter(objectNames);
-                var targets = EnumerateTargets(db).Where(t => ShouldInclude(t, filter));
+
+                // 열거하면서 참조만 모아 둔다. 참조를 담는 것은 속성을 만지는 것이 아니라
+                // 재조회를 부르지 않는다 - 실제로 TextMode를 끄는 것은 스크립팅 직전이다.
+                var textObjects = new Dictionary<string, ITextObject>();
+                var targets = EnumerateTargets(db, textObjects).Where(t => ShouldInclude(t, filter));
 
                 return ScriptAll(targets, localGitPath!, (target, outputPath) =>
                 {
+                    var urn = (Urn)target.Tag!;
+
+                    // 필터를 통과해 실제로 쓰는 객체만 끈다. 열거 중에 끄면 걸러질 객체까지
+                    // 전부 비용을 내고, 그러면 "바뀐 것만 추출한다"는 빠른 경로가 사라진다.
+                    if (textObjects.TryGetValue(urn.ToString(), out var textObject))
+                    {
+                        DisableTextMode(textObject);
+                    }
+
                     scripter.Options.FileName = outputPath;
-                    scripter.Script(new[] { (Urn)target.Tag! });
+                    scripter.Script(new[] { urn });
                 }, progress, cancellationToken);
             }
             catch (OperationCanceledException)
@@ -330,7 +343,12 @@ namespace DBVC.Core
         /// <summary>
         /// Feature 14가 요구하는 9개 객체 타입을 열거한다.
         /// </summary>
-        private static IEnumerable<ScriptTargetInfo> EnumerateTargets(Database db)
+        /// <param name="textObjects">
+        /// Urn 문자열 → 텍스트 객체. 스크립팅 직전에 <see cref="DisableTextMode"/>를 걸 대상을
+        /// 찾기 위한 것이다. 여기서 참조만 담고 속성은 만지지 않는다.
+        /// </param>
+        private static IEnumerable<ScriptTargetInfo> EnumerateTargets(
+            Database db, IDictionary<string, ITextObject> textObjects)
         {
             foreach (Table table in db.Tables)
             {
@@ -341,7 +359,7 @@ namespace DBVC.Core
                 foreach (Trigger trigger in table.Triggers)
                 {
                     if (trigger.IsSystemObject) continue;
-                    DisableTextMode(trigger);
+                    textObjects[trigger.Urn.ToString()] = trigger;
                     yield return NewTarget(table.Schema, trigger.Name, "Trigger", trigger.Urn);
                 }
             }
@@ -349,21 +367,21 @@ namespace DBVC.Core
             foreach (View view in db.Views)
             {
                 if (view.IsSystemObject) continue;
-                DisableTextMode(view);
+                textObjects[view.Urn.ToString()] = view;
                 yield return NewTarget(view.Schema, view.Name, "View", view.Urn);
             }
 
             foreach (StoredProcedure sp in db.StoredProcedures)
             {
                 if (sp.IsSystemObject) continue;
-                DisableTextMode(sp);
+                textObjects[sp.Urn.ToString()] = sp;
                 yield return NewTarget(sp.Schema, sp.Name, "StoredProcedure", sp.Urn);
             }
 
             foreach (UserDefinedFunction fn in db.UserDefinedFunctions)
             {
                 if (fn.IsSystemObject) continue;
-                DisableTextMode(fn);
+                textObjects[fn.Urn.ToString()] = fn;
                 yield return NewTarget(fn.Schema, fn.Name, "UserDefinedFunction", fn.Urn);
             }
 
@@ -401,6 +419,14 @@ namespace DBVC.Core
         /// SMO가 메타데이터로 헤더를 다시 조립하고, 그 조립 단계에서만 CREATE OR ALTER가 반영된다.
         /// 부작용으로 대괄호 식별자·WITH EXECUTE AS 같은 절이 다시 채워져 원문 서식과 달라지는데,
         /// 이는 이 작업(#4)이 저장소의 모든 파일 텍스트를 갈아엎는 근본 이유이기도 하다.
+        ///
+        /// <b>열거 중에 부르지 말 것.</b> TextMode는 <see cref="ConfigureBulkEnumeration"/>이
+        /// 지정하는 필드가 아니므로, 만지는 순간 그 객체 하나를 위한 전체 속성 재조회가 일어난다
+        /// (그 함수의 주석이 경고하는 바로 그 비용이다). 열거는 필터보다 먼저 도므로 객체 하나만
+        /// 추출하는 새로고침에서도 DB의 모든 프로시저·뷰·함수·트리거가 값을 치른다.
+        /// localhost SQL Server 2022에서 실측했다(프로시저 150 + 뷰 30, 그중 1개만 지정 추출):
+        ///   열거 중에 끔      : 14146 ms — 객체당 약 73 ms
+        ///   스크립팅 직전에 끔:  1075 ms
         /// </summary>
         private static void DisableTextMode(ITextObject obj) => obj.TextMode = false;
 
