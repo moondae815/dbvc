@@ -1,4 +1,5 @@
-﻿namespace DBVC.Core.Models
+﻿using System.Collections.Generic;
+namespace DBVC.Core.Models
 {
     /// <summary>
     /// <c>DBVC_ChangeLog</c>에서 읽은 원시 DDL 이벤트 한 건.
@@ -28,6 +29,13 @@
         /// v4 이전에 쌓인 행은 null이다.
         /// </summary>
         public string? NewObjectName { get; set; }
+
+        /// <summary>
+        /// 이 행이 로그에 <em>물리적으로</em> 저장된 이름. 이름 변경을 접으면
+        /// <see cref="ObjectName"/>은 새 이름으로 바뀌지만 DB의 행은 옛 이름 그대로다.
+        /// 접히지 않았으면 null이다.
+        /// </summary>
+        public string? SourceObjectName { get; set; }
 
         /// <summary>DDL을 실행한 SQL 로그인. 공용 계정 환경에서는 모든 행에서 같다.</summary>
         public string? LoginName { get; set; }
@@ -62,6 +70,16 @@
         /// Git 상태에서만 유래한 항목은 0이다.
         /// </summary>
         public long LastLogId { get; set; }
+
+        /// <summary>
+        /// 이 항목으로 접힌 로그 행들이 <em>물리적으로</em> 갖고 있는 이름.
+        ///
+        /// 이름 변경을 접으면 화면의 이름과 로그의 이름이 갈라진다. MarkProcessed가 화면의
+        /// 이름으로만 좁히면 옛 이름의 행이 영원히 열린 채 남아 매번 다시 올라오고, .sql은
+        /// 이미 같아졌으니 다시 커밋해서 지울 수도 없다. 비어 있으면 <see cref="ObjectName"/>
+        /// 하나뿐이라는 뜻이다.
+        /// </summary>
+        public List<string> SourceObjectNames { get; set; } = new List<string>();
 
         /// <summary>이 상태의 근거가 된 가장 최신 로그 행의 SQL 로그인.</summary>
         public string? Author { get; set; }

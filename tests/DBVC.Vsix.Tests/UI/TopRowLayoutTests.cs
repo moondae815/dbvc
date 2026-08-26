@@ -39,8 +39,7 @@ namespace DBVC.Vsix.Tests.UI
         {
             var config = new Mock<IConfigManager>();
             config.Setup(c => c.TryGetMapping(It.IsAny<string>(), It.IsAny<string>()))
-                .Returns(new MappingConfig { ServerName = "S", DatabaseName = "D", GitPath = @"C:
-epo" });
+                .Returns(new MappingConfig { ServerName = "S", DatabaseName = "D", GitPath = @"C:epo" });
 
             var tracker = new Mock<IStateTracker>();
             tracker.Setup(t => t.TestConnection(It.IsAny<string>(), It.IsAny<string>())).Returns((string?)null);

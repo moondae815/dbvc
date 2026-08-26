@@ -182,6 +182,76 @@ namespace DBVC.Core.Tests
         }
 
         /// <summary>
+        /// 같은 이름이 두 번 쓰이면 홉을 고를 때 순서가 갈린다. 옛 이름의 행은 그 이름이
+        /// <em>처음</em> 비워졌을 때 따라가야 한다 - 나중의 이름 변경은 그때 만들어진 다른
+        /// 객체의 이야기다. 최신 것을 먼저 집으면 서로 다른 두 객체가 한 항목으로 뭉친다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_FollowsTheEarliestRename_WhenTheOldNameWasReused()
+        {
+            var folded = StateTracker.FoldRenames(new[]
+            {
+                TableRow(30, "A", "RENAME", "C"),
+                TableRow(20, "A", "CREATE_TABLE"),
+                TableRow(10, "A", "RENAME", "B"),
+                TableRow(5, "A", "ALTER_TABLE")
+            });
+
+            Assert.That(folded.Single(r => r.Id == 5 && r.EventType == "ALTER_TABLE").ObjectName,
+                Is.EqualTo("B"), "Id 10에서 B가 된 원래 객체의 이력이다");
+            Assert.That(folded.Single(r => r.Id == 20).ObjectName,
+                Is.EqualTo("C"), "Id 20에서 새로 만든 객체는 Id 30에서 C가 된다");
+        }
+
+        /// <summary>
+        /// 컬럼 이름 변경은 부모 테이블의 수정으로 정규화된다. 그때 컬럼의 새 이름이 따라
+        /// 올라오면 테이블이 컬럼 이름으로 접힌다 - 지금은 NormalizeRow가 그 속성을 옮기지
+        /// 않는 것으로만 지켜지고 있어, 복사 헬퍼로 바뀌면 조용히 깨진다.
+        /// </summary>
+        [Test]
+        public void NormalizeRow_DoesNotCarryTheNewNameToTheParent_ForAColumnRename()
+        {
+            var normalized = StateTracker.NormalizeRow(new ChangeLogRow
+            {
+                Id = 1, SchemaName = "dbo", ObjectName = "OldColumn", ObjectType = "COLUMN",
+                EventType = "RENAME", NewObjectName = "NewColumn",
+                TargetObjectName = "Orders", TargetObjectType = "TABLE"
+            });
+
+            Assert.That(normalized.ObjectName, Is.EqualTo("Orders"));
+            Assert.That(normalized.NewObjectName, Is.Null,
+                "컬럼의 새 이름을 테이블 행에 남기면 FoldRenames가 테이블을 컬럼 이름으로 접는다");
+        }
+
+        /// <summary>
+        /// 입력 행을 제자리에서 고치면 두 번 부를 때 두 번 접힌다. 호출자가 같은 목록을
+        /// 다시 쓰는 것을 막을 방법이 없으므로 새 행을 낸다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_DoesNotMutateTheRowsItWasGiven()
+        {
+            var input = new[] { TableRow(1, "p_old", "RENAME", "p_new") };
+
+            StateTracker.FoldRenames(input);
+
+            Assert.That(input[0].ObjectName, Is.EqualTo("p_old"));
+        }
+
+        /// <summary>
+        /// 이름이 비어 있는 행 하나가 새로고침 전체를 무너뜨려서는 안 된다.
+        /// 다른 소비자들은 모두 먼저 걸러 낸다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_SkipsRowsWithNoObjectName()
+        {
+            Assert.DoesNotThrow(() => StateTracker.FoldRenames(new[]
+            {
+                TableRow(2, "T", "RENAME", "U"),
+                TableRow(1, "   ", "ALTER_TABLE")
+            }));
+        }
+
+        /// <summary>
         /// v4 이전에 쌓인 RENAME 행은 새 이름을 담고 있지 않다. 지어낼 근거가 없으므로 둔다 -
         /// 그런 행이 남긴 유령 항목은 DB 대조(ReconcileWithDatabase)가 걷어낸다.
         /// </summary>

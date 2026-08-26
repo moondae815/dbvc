@@ -486,6 +486,104 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
             }
         }
 
+        /// <summary>
+        /// 삭제는 새로고침 한 번으로 끝나지 않는다. WorkingTreeCleaner가 첫 새로고침 끝에
+        /// 그 .sql을 지우므로, 두 번째 새로고침에서는 파일이 이미 없다. 존재 확인을
+        /// File.Exists로만 하면 그때 이 항목이 목록에서 사라지고 - 선택할 수 없으니
+        /// 커밋에도 담기지 않아 - 저장소에는 없어진 객체의 .sql이 영원히 남는다.
+        ///
+        /// Git은 그 파일을 "삭제됨"으로 보고 있다. 근거를 파일 시스템이 아니라 Git에서 받아야 한다.
+        /// </summary>
+        [Test]
+        public void RefreshState_KeepsTheDeletion_WhenTheCleanerAlreadyRemovedTheFile()
+        {
+            _db!.Execute("CREATE PROCEDURE dbo.DropTwiceProbe AS SELECT 1");
+            _db.Execute("DROP PROCEDURE dbo.DropTwiceProbe");
+
+            var repoPath = Path.Combine(Path.GetTempPath(), "dbvc_repo_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var relative = ObjectPathConvention.GetRelativePath("dbo", "PROCEDURE", "DropTwiceProbe");
+                var full = Path.Combine(repoPath, relative.Replace('/', Path.DirectorySeparatorChar));
+                CommitFile(repoPath, full, "CREATE OR ALTER PROCEDURE dbo.DropTwiceProbe AS SELECT 1");
+
+                var config = NewConfig();
+                config.AddMapping(SqlServerTestDatabase.ServerName, _db.Name, repoPath);
+                var tracker = new StateTracker(config);
+
+                tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
+                Assert.That(
+                    tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name)
+                        .SingleOrDefault(c => c.ObjectName == "DropTwiceProbe")?.State,
+                    Is.EqualTo("Deleted"), "첫 새로고침에서 삭제로 떠야 한다");
+
+                // WorkingTreeCleaner가 하는 일이다. 커밋하지 않은 채 다시 새로고침하는 것은
+                // 흔한 흐름이다 - 커밋을 취소했거나 실패했을 때가 그렇다.
+                File.Delete(full);
+
+                tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
+                var second = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name)
+                    .SingleOrDefault(c => c.ObjectName == "DropTwiceProbe");
+
+                Assert.That(second, Is.Not.Null,
+                    "삭제가 목록에서 사라지면 선택할 수 없고, 커밋에 담기지 않아 저장소에 .sql이 영영 남는다");
+                Assert.That(second!.State, Is.EqualTo("Deleted"));
+            }
+            finally
+            {
+                TryDeleteRepo(repoPath);
+            }
+        }
+
+        /// <summary>
+        /// 이름을 접으면 화면의 이름과 로그에 저장된 이름이 달라진다. MarkProcessed가 화면의
+        /// 이름으로만 좁히면 옛 이름으로 기록된 행이 영원히 열린 채 남아, 매번 새로고침마다
+        /// 같은 항목이 다시 올라온다 - 이번에는 비교창이 빈 유령이 아니라 살아 있는 테이블의
+        /// "수정"으로. 게다가 .sql은 이미 같아졌으니 다시 커밋해서 지울 수도 없다.
+        /// </summary>
+        [Test]
+        public void MarkProcessed_ClosesTheRowsRecordedUnderTheOldName_AfterARenameWasFolded()
+        {
+            _db!.Execute("CREATE TABLE dbo.CloseFoldedProbe (Id int NOT NULL, Name nvarchar(50) NULL)");
+
+            _db.ExecuteInOneSession(
+                "CREATE TABLE dbo.Tmp_CloseFoldedProbe (Id int NOT NULL, Name nvarchar(200) NULL) ON [PRIMARY]",
+                "ALTER TABLE dbo.Tmp_CloseFoldedProbe SET (LOCK_ESCALATION = TABLE)",
+                "DROP TABLE dbo.CloseFoldedProbe",
+                "EXECUTE sp_rename N'dbo.Tmp_CloseFoldedProbe', N'CloseFoldedProbe', 'OBJECT'");
+
+            var config = NewConfig();
+            config.AddMapping(SqlServerTestDatabase.ServerName, _db.Name,
+                Path.Combine(Path.GetTempPath(), "dbvc_repo_" + Guid.NewGuid().ToString("N")));
+            var tracker = new StateTracker(config);
+
+            tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
+            var records = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name)
+                .Where(c => c.ObjectName == "CloseFoldedProbe").ToList();
+            Assert.That(records, Has.Count.EqualTo(1), "접힌 뒤에는 항목이 하나여야 한다");
+
+            tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name, records);
+
+            var stillOpen = _db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE IsProcessed = 0 AND ObjectName = N'Tmp_CloseFoldedProbe'");
+
+            Assert.That(stillOpen, Is.EqualTo(0),
+                "옛 이름으로 기록된 행이 닫히지 않으면 같은 항목이 매번 다시 올라오고, 지울 방법이 없다");
+        }
+
+        /// <summary>커밋된 파일이 있는 저장소를 만든다. 미추적 파일은 지워도 Git이 "삭제됨"으로 보지 않는다.</summary>
+        private static void CommitFile(string repoPath, string fullPath, string content)
+        {
+            LibGit2Sharp.Repository.Init(repoPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+            File.WriteAllText(fullPath, content);
+
+            using var repo = new LibGit2Sharp.Repository(repoPath);
+            LibGit2Sharp.Commands.Stage(repo, "*");
+            var who = new LibGit2Sharp.Signature("Test", "test@example.com", DateTimeOffset.UtcNow);
+            repo.Commit("초기", who, who, new LibGit2Sharp.CommitOptions());
+        }
+
         /// <summary>.git 안에는 읽기 전용 파일이 있어 그냥 지우면 실패한다. 지우지 못해도 테스트를 깨지 않는다.</summary>
         private static void TryDeleteRepo(string path)
         {

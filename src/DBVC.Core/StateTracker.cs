@@ -310,8 +310,13 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
                 records = ReconcileWithDatabase(
                     records,
                     ReadExistingObjectNames(BuildConnectionString(serverName, databaseName)),
-                    relativePath => File.Exists(Path.Combine(
-                        mapping.GitPath, relativePath.Replace('/', Path.DirectorySeparatorChar))));
+                    // Git을 먼저 본다. WorkingTreeCleaner가 첫 새로고침 끝에 삭제된 객체의 .sql을
+                    // 지우므로, 파일 존재만 보면 두 번째 새로고침에서 그 삭제가 목록에서 사라진다 -
+                    // 선택할 수 없으니 커밋에도 담기지 않아 저장소에 .sql이 영영 남는다.
+                    // Git은 그 파일을 여전히 "삭제됨"으로 보고 있다.
+                    relativePath => (gitStates != null && gitStates.ContainsKey(relativePath))
+                        || File.Exists(Path.Combine(
+                            mapping.GitPath, relativePath.Replace('/', Path.DirectorySeparatorChar))));
             }
             catch (Exception ex)
             {
@@ -472,7 +477,8 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
 
             var renames = rows
                 .Where(r => string.Equals(r.EventType?.Trim(), "RENAME", StringComparison.OrdinalIgnoreCase)
-                            && !string.IsNullOrWhiteSpace(r.NewObjectName))
+                            && !string.IsNullOrWhiteSpace(r.NewObjectName)
+                            && !string.IsNullOrWhiteSpace(r.ObjectName))
                 .Select(r => new RenameHop
                 {
                     OldPath = RelativePathOf(r),
@@ -491,25 +497,45 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
                         HostName = r.HostName
                     }
                 })
+                // 오래된 것부터 본다. 한 이름이 두 번 쓰였을 때 옛 행은 그 이름이 "처음"
+                // 비워졌을 때를 따라가야 한다 - 나중의 이름 변경은 그때 만들어진 다른 객체다.
+                .OrderBy(x => x.Id)
                 .ToList();
 
             if (renames.Count == 0) return rows;
 
+            var folded = new List<ChangeLogRow>(rows.Count + renames.Count);
+
             foreach (var row in rows)
             {
+                // 이름이 없는 행은 경로를 물을 수 없다. 하나 때문에 새로고침 전체가 무너지지 않게 둔다.
+                if (string.IsNullOrWhiteSpace(row.ObjectName))
+                {
+                    folded.Add(row);
+                    continue;
+                }
+
+                var name = row.ObjectName;
+                var since = row.Id;
+
                 // 이름 변경이 이어질 수 있다(A->B->C). 홉 수는 이름 변경 개수를 넘지 않는다.
                 for (var hop = 0; hop < renames.Count; hop++)
                 {
-                    var path = RelativePathOf(row);
+                    var path = ObjectPathConvention.GetRelativePath(row.SchemaName, row.ObjectType, name);
                     var next = renames.FirstOrDefault(
-                        x => x.Id >= row.Id && string.Equals(x.OldPath, path, StringComparison.OrdinalIgnoreCase));
+                        x => x.Id >= since && string.Equals(x.OldPath, path, StringComparison.OrdinalIgnoreCase));
                     if (next == null) break;
-                    row.ObjectName = next.NewName;
+
+                    name = next.NewName;
+                    // 워터마크를 올린다. 그러지 않으면 이 홉보다 앞선 이름 변경으로 되돌아간다.
+                    since = next.Id;
                 }
+
+                folded.Add(string.Equals(name, row.ObjectName, StringComparison.Ordinal) ? row : WithName(row, name));
             }
 
-            rows.AddRange(renames.Select(x => x.Vanished));
-            return rows;
+            folded.AddRange(renames.Select(x => x.Vanished));
+            return folded;
         }
 
         private sealed class RenameHop
@@ -519,6 +545,27 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             public string NewName { get; set; } = string.Empty;
             public ChangeLogRow Vanished { get; set; } = new ChangeLogRow();
         }
+
+        /// <summary>
+        /// 이름만 바꾼 사본. 입력 행을 제자리에서 고치면 두 번 부를 때 두 번 접힌다.
+        /// 로그에 실제로 저장된 이름은 <see cref="ChangeLogRow.SourceObjectName"/>에 남긴다 -
+        /// 커밋 뒤 그 행을 닫으려면 물리 이름이 필요하다.
+        /// </summary>
+        private static ChangeLogRow WithName(ChangeLogRow row, string name)
+            => new ChangeLogRow
+            {
+                Id = row.Id,
+                SchemaName = row.SchemaName,
+                ObjectName = name,
+                ObjectType = row.ObjectType,
+                EventType = row.EventType,
+                TargetObjectName = row.TargetObjectName,
+                TargetObjectType = row.TargetObjectType,
+                SourceObjectName = row.SourceObjectName ?? row.ObjectName,
+                NewObjectName = row.NewObjectName,
+                LoginName = row.LoginName,
+                HostName = row.HostName
+            };
 
         private static string RelativePathOf(ChangeLogRow row)
             => ObjectPathConvention.GetRelativePath(row.SchemaName, row.ObjectType, row.ObjectName);
@@ -577,8 +624,10 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
         /// 그 파일이 Git에서 더럽게 보인다. 그 목록을 넘기지 않으면 BuildChangeSet의 Git 폴백이
         /// 방금 걸러낸 항목을 그대로 도로 넣어 필터가 통째로 샌다.
         ///
-        /// 비교 규칙은 SQL이 하던 ISNULL 비교와 같아야 한다. v3 이전에 쌓인 행은 HostName이
-        /// NULL이라, 이것을 빈 문자열과 다르게 보면 판정이 달라진다.
+        /// 비교 규칙은 SQL이 하던 ISNULL 비교를 따른다. v3 이전에 쌓인 행은 HostName이
+        /// NULL이라, 이것을 빈 문자열과 다르게 보면 판정이 달라진다. 다만 정확히 같지는 않다 -
+        /// 데이터 정렬과 달리 후행 공백을 무시하지 않고, 대소문자는 항상 무시한다. 어긋나는
+        /// 쪽이 "내 것"이므로 남의 것을 내 것으로 볼 뿐 그 반대는 없다.
         /// </summary>
         internal static (List<ChangeLogRow> Mine, IReadOnlyCollection<string> ForeignPaths) PartitionByAuthor(
             IEnumerable<ChangeLogRow> rows, string? login, string? host)
@@ -662,12 +711,29 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             IReadOnlyCollection<string>? foreignPaths = null)
         {
             var byPath = new Dictionary<string, ChangeRecord>(StringComparer.OrdinalIgnoreCase);
+            var sourceNames = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var row in rows ?? Enumerable.Empty<ChangeLogRow>())
             {
                 if (string.IsNullOrWhiteSpace(row.ObjectName)) continue;
 
                 var relativePath = ObjectPathConvention.GetRelativePath(row.SchemaName, row.ObjectType, row.ObjectName);
+
+                // 물리 이름은 채택 여부와 무관하게 전부 모은다. 접힌 행이 로그에서 어떤 이름을
+                // 갖고 있는지 알아야 커밋 뒤에 그 행을 닫을 수 있다.
+                if (!string.IsNullOrWhiteSpace(row.SourceObjectName))
+                {
+                    if (!sourceNames.TryGetValue(relativePath, out var names))
+                    {
+                        names = new List<string>();
+                        sourceNames[relativePath] = names;
+                    }
+
+                    if (!names.Contains(row.SourceObjectName!, StringComparer.OrdinalIgnoreCase))
+                    {
+                        names.Add(row.SourceObjectName!);
+                    }
+                }
 
                 // 최신 이벤트가 먼저 오므로 처음 본 것만 채택한다.
                 if (byPath.ContainsKey(relativePath)) continue;
@@ -717,6 +783,11 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
                         LastLogId = 0
                     };
                 }
+            }
+
+            foreach (var pair in sourceNames)
+            {
+                if (byPath.TryGetValue(pair.Key, out var record)) record.SourceObjectNames = pair.Value;
             }
 
             return byPath.Values
@@ -769,6 +840,17 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
         }
 
         // ---------- 조회 ----------
+
+        /// <summary>화면의 이름과, 접히기 전 로그에 저장된 이름들.</summary>
+        internal static IEnumerable<string> NamesToClose(ChangeRecord record)
+        {
+            yield return record.ObjectName;
+
+            foreach (var name in record.SourceObjectNames ?? new List<string>())
+            {
+                if (!string.Equals(name, record.ObjectName, StringComparison.OrdinalIgnoreCase)) yield return name;
+            }
+        }
 
         public IReadOnlyList<CoAuthorWarning> GetCoAuthorWarnings(
             string serverName, string databaseName, IEnumerable<string> qualifiedNames)
@@ -828,16 +910,21 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
 
                 foreach (var record in targets)
                 {
-                    using var cmd = conn.CreateCommand();
-                    cmd.CommandText = MarkProcessedCommand;
-                    cmd.Parameters.AddWithValue("@lastLogId", record.LastLogId);
-                    cmd.Parameters.AddWithValue("@objectName", record.ObjectName);
-                    cmd.Parameters.AddWithValue("@schemaName", record.Schema ?? ObjectPathConvention.DefaultSchema);
-                    // 현재 사용자가 아니라 레코드의 작업자로 좁힌다. 전체 보기에서 남의 변경을
-                    // 대신 커밋하는 경로가 있고, 현재 사용자로 좁히면 그 행이 영원히 닫히지 않는다.
-                    cmd.Parameters.AddWithValue("@login", (object?)record.Author ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@host", (object?)record.HostName ?? DBNull.Value);
-                    cmd.ExecuteNonQuery();
+                    // 화면의 이름 하나로는 부족하다. 이름 변경을 접었으면 로그의 행은 옛 이름을
+                    // 그대로 갖고 있어, 그것으로도 닫지 않으면 영원히 열린 채 매번 다시 올라온다.
+                    foreach (var name in NamesToClose(record))
+                    {
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = MarkProcessedCommand;
+                        cmd.Parameters.AddWithValue("@lastLogId", record.LastLogId);
+                        cmd.Parameters.AddWithValue("@objectName", name);
+                        cmd.Parameters.AddWithValue("@schemaName", record.Schema ?? ObjectPathConvention.DefaultSchema);
+                        // 현재 사용자가 아니라 레코드의 작업자로 좁힌다. 전체 보기에서 남의 변경을
+                        // 대신 커밋하는 경로가 있고, 현재 사용자로 좁히면 그 행이 영원히 닫히지 않는다.
+                        cmd.Parameters.AddWithValue("@login", (object?)record.Author ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@host", (object?)record.HostName ?? DBNull.Value);
+                        cmd.ExecuteNonQuery();
+                    }
                 }
             }
             catch (Exception ex)
