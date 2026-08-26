@@ -159,9 +159,15 @@
                     작업 중에는 잠근다. 체크박스에는 CanExecute가 없어 버튼과 달리 스스로 막히지
                     않는데, 여기서 새로고침이 겹쳐 돌면 서로의 결과를 덮어쓴다.
                 -->
-                <CheckBox Content="다른 사람 변경도 보기"
+                <!--
+                    이 WrapPanel은 위쪽 StackPanel 바깥이라 TextElement.Foreground 상속을 받지
+                    못한다. 버튼은 VS가 자기 스타일로 칠해 주지만 맨 CheckBox는 WPF 기본값(검정)이
+                    남아, 어두운 테마에서 어두운 바탕에 검은 글씨로 사라졌다.
+                -->
+                <CheckBox x:Name="AuthorToggle" Content="다른 사람 변경도 보기"
                           IsChecked="{Binding ShowAllAuthors, Mode=TwoWay}"
                           IsEnabled="{Binding IsNotBusy}"
+                          Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"
                           ToolTip="공용 계정이라 사람은 접속 PC로 구분합니다. 평소에는 자기 변경만 보이는 편이 안전합니다."
                           Margin="16,0,0,4" VerticalAlignment="Center" />
             </WrapPanel>
