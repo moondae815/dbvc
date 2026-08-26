@@ -39,6 +39,9 @@ BEGIN
         [TargetObjectType] NVARCHAR(100) NULL,
         [HostName] NVARCHAR(128) NULL,
         [ClientNetAddress] NVARCHAR(48) NULL,
+        -- sp_rename은 옛 이름만 ObjectName에 남긴다. 새 이름을 여기 담지 않으면 바뀐 객체가
+        -- 로그에 없어 추출되지 않고, 사라진 이름이 유령 항목으로 목록에 남는다.
+        [NewObjectName] NVARCHAR(256) NULL,
         [IsProcessed] BIT NOT NULL DEFAULT 0
     );
 END
@@ -75,6 +78,12 @@ GO
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'HostName')
 BEGIN
     ALTER TABLE [dbo].[DBVC_ChangeLog] ADD [HostName] NVARCHAR(128) NULL;
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'NewObjectName')
+BEGIN
+    ALTER TABLE [dbo].[DBVC_ChangeLog] ADD [NewObjectName] NVARCHAR(256) NULL;
 END
 GO
 
@@ -145,6 +154,7 @@ BEGIN
         [TargetObjectType],
         [HostName],
         [ClientNetAddress],
+        [NewObjectName],
         [IsProcessed]
     )
     VALUES (
@@ -162,6 +172,8 @@ BEGIN
         HOST_NAME(),
         -- CONNECTIONPROPERTY는 sql_variant를 돌려준다. CONVERT 없이 넣으면 형식이 안 맞는다.
         CONVERT(NVARCHAR(48), CONNECTIONPROPERTY('client_net_address')),
+        -- RENAME 이벤트에만 채워진다. 다른 이벤트에서는 NULL이다.
+        @EventData.value('(/EVENT_INSTANCE/NewObjectName)[1]', 'NVARCHAR(256)'),
         0
     );
 END;
@@ -174,13 +186,13 @@ IF NOT EXISTS (SELECT 1 FROM sys.extended_properties
                WHERE class = 1 AND major_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]')
                  AND minor_id = 0 AND name = N'DBVC_SchemaVersion')
 BEGIN
-    EXEC sp_addextendedproperty @name = N'DBVC_SchemaVersion', @value = N'3',
+    EXEC sp_addextendedproperty @name = N'DBVC_SchemaVersion', @value = N'4',
          @level0type = N'SCHEMA', @level0name = N'dbo',
          @level1type = N'TABLE',  @level1name = N'DBVC_ChangeLog';
 END
 ELSE
 BEGIN
-    EXEC sp_updateextendedproperty @name = N'DBVC_SchemaVersion', @value = N'3',
+    EXEC sp_updateextendedproperty @name = N'DBVC_SchemaVersion', @value = N'4',
          @level0type = N'SCHEMA', @level0name = N'dbo',
          @level1type = N'TABLE',  @level1name = N'DBVC_ChangeLog';
 END

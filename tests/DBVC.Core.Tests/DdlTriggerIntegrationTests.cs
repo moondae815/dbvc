@@ -433,5 +433,81 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
 
             Assert.That(all.Select(c => c.ObjectName), Does.Contain("OtherPcProbe"));
         }
+
+        /// <summary>
+        /// SSMS 테이블 디자이너로 열 형식을 바꾸면 SQL Server가 테이블을 재작성한다 —
+        /// Tmp_ 테이블을 만들고, 데이터를 옮기고, 원본을 DROP한 뒤, 이름을 바꾼다.
+        /// 그러면 원본 이름의 최신 이벤트가 DROP_TABLE이라 살아 있는 테이블이 삭제로 뜨고,
+        /// 커밋하면 WorkingTreeCleaner가 저장소에서 그 .sql을 지운다.
+        ///
+        /// PK를 더할 때는 뒤에 ALTER가 하나 더 붙어 우연히 가려지므로, 그것이 붙지 않는
+        /// 열 형식 변경으로 재현한다. 아래 스크립트는 디자이너가 실제로 내보내는 것이다.
+        /// </summary>
+        [Test]
+        public void RefreshState_ReportsTheLiveTableAsModified_WhenTheDesignerRebuiltIt()
+        {
+            _db!.Execute("CREATE TABLE dbo.RebuiltProbe (Id int NOT NULL, Name nvarchar(50) NULL)");
+
+            _db.ExecuteInOneSession(
+                @"CREATE TABLE dbo.Tmp_RebuiltProbe
+                    (
+                    Id int NOT NULL,
+                    Name nvarchar(200) NULL
+                    )  ON [PRIMARY]",
+                "ALTER TABLE dbo.Tmp_RebuiltProbe SET (LOCK_ESCALATION = TABLE)",
+                @"IF EXISTS(SELECT * FROM dbo.RebuiltProbe)
+                     EXEC('INSERT INTO dbo.Tmp_RebuiltProbe (Id, Name) SELECT Id, Name FROM dbo.RebuiltProbe WITH (HOLDLOCK TABLOCKX)')",
+                "DROP TABLE dbo.RebuiltProbe",
+                "EXECUTE sp_rename N'dbo.Tmp_RebuiltProbe', N'RebuiltProbe', 'OBJECT'");
+
+            // 매핑된 폴더는 비어 있다. 사라진 Tmp_ 이름은 DB에도 저장소에도 없으므로 걷힌다.
+            var config = NewConfig();
+            config.AddMapping(SqlServerTestDatabase.ServerName, _db.Name,
+                Path.Combine(Path.GetTempPath(), "dbvc_repo_" + Guid.NewGuid().ToString("N")));
+            var tracker = new StateTracker(config);
+
+            Assert.That(tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true),
+                Is.True);
+            var changes = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name);
+
+            var rebuilt = changes.SingleOrDefault(c => c.ObjectName == "RebuiltProbe");
+            Assert.That(rebuilt, Is.Not.Null, "재작성된 테이블은 목록에 있어야 한다");
+            Assert.That(rebuilt!.State, Is.EqualTo("Modified"),
+                "살아 있는 테이블이 삭제로 뜨면 커밋 시점에 저장소에서 .sql이 지워진다");
+
+            Assert.That(changes.Select(c => c.ObjectName), Does.Not.Contain("Tmp_RebuiltProbe"),
+                "존재한 적 없는 이름이 목록에 남으면 비교창이 빈 채로 뜬다");
+        }
+
+        /// <summary>
+        /// sp_rename은 ObjectName에 옛 이름만 남긴다. 접지 않으면 새 이름이 로그 어디에도
+        /// 없어 그 객체가 영영 추출되지 않는다 - 목록에서 사라지는 것이 아니라, 바뀐 코드가
+        /// 저장소에 반영되지 않는 쪽이라 눈에 띄지 않는다.
+        ///
+        /// 추출 대상 목록(GetChangedObjectNames)까지 보는 이유가 그것이다. 화면만 고치면
+        /// 목록은 새 이름을 보여 주는데 SMO는 옛 이름을 찾는다.
+        /// </summary>
+        [Test]
+        public void Rename_MovesTheChangeToTheNewName_InBothTheListAndTheExtractionTargets()
+        {
+            _db!.Execute("CREATE PROCEDURE dbo.RenameProbeOld AS SELECT 1");
+            _db.Execute("EXEC sp_rename N'dbo.RenameProbeOld', N'RenameProbeNew', 'OBJECT'");
+
+            var config = NewConfig();
+            config.AddMapping(SqlServerTestDatabase.ServerName, _db.Name,
+                Path.Combine(Path.GetTempPath(), "dbvc_repo_" + Guid.NewGuid().ToString("N")));
+            var tracker = new StateTracker(config);
+
+            var targets = tracker.GetChangedObjectNames(SqlServerTestDatabase.ServerName, _db.Name);
+            Assert.That(targets, Does.Contain("dbo.RenameProbeNew"),
+                "새 이름이 추출 대상에 없으면 바뀐 코드가 저장소에 반영되지 않는다");
+
+            tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
+            var changes = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name);
+
+            Assert.That(changes.Select(c => c.ObjectName), Does.Contain("RenameProbeNew"));
+            Assert.That(changes.Select(c => c.ObjectName), Does.Not.Contain("RenameProbeOld"),
+                "옛 이름은 DB에도 저장소에도 없으므로 걷혀야 한다");
+        }
     }
 }

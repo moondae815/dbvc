@@ -20,6 +20,15 @@
         /// </summary>
         public string? TargetObjectType { get; set; }
 
+        /// <summary>
+        /// <c>RENAME</c> 이벤트가 붙여 준 새 이름. 다른 이벤트에서는 null이다.
+        ///
+        /// sp_rename은 <see cref="ObjectName"/>에 <em>옛</em> 이름을 남긴다. 이 값이 없으면
+        /// 바뀐 객체가 로그 어디에도 없어 추출되지 않고, 사라진 이름만 유령 항목으로 남는다.
+        /// v4 이전에 쌓인 행은 null이다.
+        /// </summary>
+        public string? NewObjectName { get; set; }
+
         /// <summary>DDL을 실행한 SQL 로그인. 공용 계정 환경에서는 모든 행에서 같다.</summary>
         public string? LoginName { get; set; }
 

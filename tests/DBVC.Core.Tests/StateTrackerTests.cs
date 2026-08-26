@@ -116,6 +116,181 @@ namespace DBVC.Core.Tests
             Assert.That(result.ForeignPaths, Is.Empty);
         }
 
+        // ---------- 이름 변경 접기 ----------
+
+        private static ChangeLogRow TableRow(long id, string name, string eventType, string? newName = null)
+            => new ChangeLogRow
+            {
+                Id = id, SchemaName = "dbo", ObjectName = name, ObjectType = "TABLE",
+                EventType = eventType, NewObjectName = newName
+            };
+
+        /// <summary>
+        /// RENAME은 옛 이름으로 기록된다. 그대로 두면 존재하지 않는 객체가 목록에 뜨고,
+        /// 정작 바뀐 객체는 로그에 없어 추출되지 않는다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_MovesTheRenameEventToTheNewName()
+        {
+            var folded = StateTracker.FoldRenames(new[] { TableRow(1, "p_old", "RENAME", "p_new") });
+
+            Assert.That(folded.Single(r => r.EventType == "RENAME").ObjectName, Is.EqualTo("p_new"));
+        }
+
+        /// <summary>
+        /// 이름이 바뀌기 전에 그 객체에 일어난 일도 새 이름의 이력이다. 옮기지 않으면
+        /// 사라진 이름이 목록에 남는다 - SSMS 테이블 디자이너의 Tmp_ 테이블이 그것이다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_MovesEarlierEventsOfTheOldNameToTheNewName()
+        {
+            var folded = StateTracker.FoldRenames(new[]
+            {
+                TableRow(2, "Tmp_T", "RENAME", "T"),
+                TableRow(1, "Tmp_T", "CREATE_TABLE")
+            });
+
+            Assert.That(folded.Where(r => !r.EventType.StartsWith("DROP")).Select(r => r.ObjectName),
+                Is.All.EqualTo("T"));
+        }
+
+        /// <summary>
+        /// 이름이 바뀌면 저장소의 옛 .sql은 남을 이유가 없다. 삭제 행을 내지 않으면
+        /// 그 파일이 영영 고아로 남는다. 저장소에 없던 이름(Tmp_ 테이블)이면 뒤따르는
+        /// DB 대조가 이 행을 걷어낸다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_EmitsADeletionForTheOldName()
+        {
+            var folded = StateTracker.FoldRenames(new[] { TableRow(1, "p_old", "RENAME", "p_new") });
+
+            var vanished = folded.Single(r => r.ObjectName == "p_old");
+            Assert.That(StateTracker.MapEventTypeToState(vanished.EventType), Is.EqualTo("Deleted"));
+        }
+
+        [Test]
+        public void FoldRenames_FollowsAChainOfRenames()
+        {
+            var folded = StateTracker.FoldRenames(new[]
+            {
+                TableRow(3, "B", "RENAME", "C"),
+                TableRow(2, "A", "RENAME", "B"),
+                TableRow(1, "A", "CREATE_TABLE")
+            });
+
+            Assert.That(folded.Where(r => !r.EventType.StartsWith("DROP")).Select(r => r.ObjectName), Is.All.EqualTo("C"));
+        }
+
+        /// <summary>
+        /// v4 이전에 쌓인 RENAME 행은 새 이름을 담고 있지 않다. 지어낼 근거가 없으므로 둔다 -
+        /// 그런 행이 남긴 유령 항목은 DB 대조(ReconcileWithDatabase)가 걷어낸다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_LeavesTheRowAlone_WhenTheNewNameIsUnknown()
+        {
+            var folded = StateTracker.FoldRenames(new[] { TableRow(1, "Tmp_T", "RENAME") });
+
+            Assert.That(folded.Single().ObjectName, Is.EqualTo("Tmp_T"),
+                "새 이름을 모르면 옮길 곳도, 삭제로 볼 근거도 없다");
+        }
+
+        /// <summary>
+        /// 이름을 비운 뒤 같은 이름으로 새 객체를 만들 수 있다. 그 뒤의 행까지 옮기면
+        /// 서로 다른 두 객체가 한 항목으로 뭉친다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_DoesNotMoveRowsRecordedAfterTheRename()
+        {
+            var folded = StateTracker.FoldRenames(new[]
+            {
+                TableRow(3, "A", "CREATE_TABLE"),
+                TableRow(2, "A", "RENAME", "B")
+            });
+
+            Assert.That(folded.Single(r => r.EventType == "CREATE_TABLE").ObjectName, Is.EqualTo("A"));
+        }
+
+        /// <summary>
+        /// 실제로 터진 경로. SSMS 테이블 디자이너로 열 형식만 바꾸면 이 네 행이 남는다.
+        /// 접기가 없으면 Table_3의 최신 이벤트가 DROP_TABLE이라 살아 있는 테이블이 삭제로 뜨고,
+        /// 커밋하면 WorkingTreeCleaner가 저장소에서 그 .sql을 지운다.
+        /// </summary>
+        [Test]
+        public void BuildChangeSet_ReportsTheLiveTableAsModified_WhenTheDesignerRebuiltIt()
+        {
+            var tracker = NewTracker();
+            var folded = StateTracker.FoldRenames(new[]
+            {
+                TableRow(17, "Tmp_Table_3", "RENAME", "Table_3"),
+                TableRow(16, "Table_3", "DROP_TABLE"),
+                TableRow(15, "Tmp_Table_3", "ALTER_TABLE"),
+                TableRow(14, "Tmp_Table_3", "CREATE_TABLE")
+            });
+
+            // 생산 흐름과 같은 순서다. 대조가 없으면 사라진 Tmp_ 이름이 삭제 항목으로 남는다.
+            var changes = StateTracker.ReconcileWithDatabase(
+                tracker.BuildChangeSet(folded, null),
+                existingQualifiedNames: new[] { "dbo.Table_3" },
+                hasRepositoryFile: path => path == "dbo/Tables/Table_3.sql");
+
+            Assert.That(changes.Select(c => c.ObjectName), Is.EqualTo(new[] { "Table_3" }),
+                "Tmp_ 테이블은 존재한 적이 없는 이름이라 목록에 남으면 안 된다");
+            Assert.That(changes.Single().State, Is.EqualTo("Modified"),
+                "살아 있는 테이블이 삭제로 뜨면 커밋 시점에 저장소에서 .sql이 지워진다");
+        }
+
+        // ---------- DB 대조 ----------
+
+        private static ChangeRecord Record(string name, string state, long logId = 1)
+            => new ChangeRecord
+            {
+                Schema = "dbo", ObjectName = name, ObjectType = "TABLE", State = state,
+                QualifiedName = "dbo." + name, RelativePath = "dbo/Tables/" + name + ".sql", LastLogId = logId
+            };
+
+        /// <summary>
+        /// 살아 있는 객체는 삭제일 수 없다. v4 이전에 쌓인 디자이너 재작성 행이 정확히 이 모양이다.
+        /// </summary>
+        [Test]
+        public void ReconcileWithDatabase_TurnsDeletedIntoModified_WhenTheObjectStillExists()
+        {
+            var reconciled = StateTracker.ReconcileWithDatabase(
+                new[] { Record("Table_3", "Deleted") },
+                existingQualifiedNames: new[] { "dbo.Table_3" },
+                hasRepositoryFile: _ => true);
+
+            Assert.That(reconciled.Single().State, Is.EqualTo("Modified"));
+        }
+
+        /// <summary>
+        /// DB에도 없고 저장소에도 없으면 보여 줄 것도 커밋할 것도 없다. 비교창이 빈 채로 뜬다.
+        /// </summary>
+        [Test]
+        public void ReconcileWithDatabase_DropsRecords_ThatExistInNeitherTheDatabaseNorTheRepository()
+        {
+            var reconciled = StateTracker.ReconcileWithDatabase(
+                new[] { Record("Tmp_Table_3", "Modified") },
+                existingQualifiedNames: System.Array.Empty<string>(),
+                hasRepositoryFile: _ => false);
+
+            Assert.That(reconciled, Is.Empty);
+        }
+
+        /// <summary>
+        /// 진짜로 지워진 객체는 DB에 없지만 저장소에는 .sql이 남아 있다. 그것까지 걷어내면
+        /// 삭제가 영영 커밋되지 않는다.
+        /// </summary>
+        [Test]
+        public void ReconcileWithDatabase_KeepsDeletedRecords_WhenTheRepositoryStillHasTheFile()
+        {
+            var reconciled = StateTracker.ReconcileWithDatabase(
+                new[] { Record("Gone", "Deleted") },
+                existingQualifiedNames: System.Array.Empty<string>(),
+                hasRepositoryFile: _ => true);
+
+            Assert.That(reconciled.Single().State, Is.EqualTo("Deleted"));
+        }
+
         // ---------- 변경 집합 구성 ----------
 
         [Test]
@@ -401,11 +576,11 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
-        public void RequiredSchemaVersion_IsThree()
+        public void RequiredSchemaVersion_IsFour()
         {
             // 설치 스크립트가 심는 값과 같아야 한다. 어긋나면 모든 사용자에게 업데이트 배너가 계속 뜨거나
             // 구버전이 최신으로 읽힌다. 스크립트 쪽 값은 InstallScriptSyncTests가 대조한다.
-            Assert.That(StateTracker.RequiredSchemaVersion, Is.EqualTo(3));
+            Assert.That(StateTracker.RequiredSchemaVersion, Is.EqualTo(4));
         }
 
         [Test]
