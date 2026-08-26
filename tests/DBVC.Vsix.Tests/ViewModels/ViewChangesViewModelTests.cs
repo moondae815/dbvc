@@ -803,7 +803,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             failed.FailedPaths.Add("dbo/Tables/Users.sql");
             _cleaner.Setup(c => c.RemoveDeletedObjectFiles(It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()))
                 .Returns(failed);
-            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(true);
+            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(GitCommitResult.Committed);
 
             var vm = NewConnectedViewModel();
             vm.Changes.Single(c => c.ObjectName == "dbo.Users").IsSelected = true; // 다시 체크
@@ -833,7 +833,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             failed.FailedPaths.Add("dbo/Tables/Users.sql");
             _cleaner.Setup(c => c.RemoveDeletedObjectFiles(It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()))
                 .Returns(failed);
-            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(true);
+            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(GitCommitResult.Committed);
 
             var vm = NewConnectedViewModel();
             vm.Changes.Single(c => c.ObjectName == "dbo.Users").IsSelected = true; // 다시 체크
@@ -1384,7 +1384,7 @@ namespace DBVC.Vsix.Tests.ViewModels
                 Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql"),
                 Record("dbo", "Orders", "Modified", "dbo/Tables/Orders.sql")
             });
-            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(true);
+            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(GitCommitResult.Committed);
             var vm = NewConnectedViewModel();
             vm.RefreshCommand.Execute(null);
 
@@ -1405,7 +1405,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             {
                 Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql")
             });
-            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(true);
+            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(GitCommitResult.Committed);
             var vm = NewConnectedViewModel();
             vm.RefreshCommand.Execute(null);
             vm.Changes[0].IsSelected = true;
@@ -1428,7 +1428,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             {
                 Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql")
             });
-            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(true);
+            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(GitCommitResult.Committed);
             _git.SetupSequence(g => g.GetHistory(Server, Database, It.Is<string?>(p => string.IsNullOrWhiteSpace(p))))
                 .Returns(new List<CommitInfo>())
                 .Returns(new List<CommitInfo>())
@@ -1895,7 +1895,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             _stateTracker.Setup(s => s.GetPendingChanges(Server, Database))
                 .Returns(new List<ChangeRecord> { Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql") });
             _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
-                .Returns(true);
+                .Returns(GitCommitResult.Committed);
 
             var vm = NewConnectedViewModel(scheduler);
             vm.RefreshCommand.Execute(null);
@@ -2384,11 +2384,57 @@ namespace DBVC.Vsix.Tests.ViewModels
                 Record(parts[0], parts[1], "Modified", $"{parts[0]}/StoredProcedures/{parts[1]}.sql")
             });
             _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
-                .Returns(true);
+                .Returns(GitCommitResult.Committed);
 
             var vm = NewConnectedViewModel();
             vm.Changes.Single(ch => ch.ObjectName == qualifiedName).IsSelected = true;
             return vm;
+        }
+
+        [Test]
+        public void Commit_ClosesTheLogRows_WhenTheFilesAlreadyMatchTheRepository()
+        {
+            // 남이 만진 행이 내 커밋에 이미 담긴 내용과 같으면 스테이징할 차이가 없다.
+            // 그때 로그 행을 닫지 않으면 그 항목은 전체 보기에 영원히 남는다 - 다시 커밋해도
+            // 또 차이가 없어 "커밋할 변경사항이 없습니다"만 반복되고, 지울 방법이 없다.
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                Record("dbo", "Orders", "Modified", "dbo/Tables/Orders.sql")
+            });
+            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+                .Returns(GitCommitResult.NothingToCommit);
+
+            var vm = NewConnectedViewModel();
+            vm.Changes.Single(c => c.ObjectName == "dbo.Orders").IsSelected = true;
+            vm.CommitMessage = "이미 같은 내용";
+
+            vm.CommitCommand.Execute(null);
+
+            _stateTracker.Verify(s => s.MarkProcessed(Server, Database,
+                It.Is<IEnumerable<ChangeRecord>>(records => records.Any(r => r.QualifiedName == "dbo.Orders"))),
+                Times.Once);
+        }
+
+        [Test]
+        public void Commit_DoesNotCloseTheLogRows_WhenTheRepositoryCannotBeFound()
+        {
+            // "커밋할 것이 없다"와 "커밋할 수 없다"를 같이 다루면, 매핑이 끊긴 상태에서 누른
+            // 커밋이 로그를 닫아 버려 그 변경이 어디에도 기록되지 않은 채 사라진다.
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                Record("dbo", "Orders", "Modified", "dbo/Tables/Orders.sql")
+            });
+            _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+                .Returns(GitCommitResult.NotMapped);
+
+            var vm = NewConnectedViewModel();
+            vm.Changes.Single(c => c.ObjectName == "dbo.Orders").IsSelected = true;
+            vm.CommitMessage = "매핑 없음";
+
+            vm.CommitCommand.Execute(null);
+
+            _stateTracker.Verify(s => s.MarkProcessed(Server, Database, It.IsAny<IEnumerable<ChangeRecord>>()),
+                Times.Never);
         }
 
         [Test]

@@ -81,7 +81,7 @@ namespace DBVC.Core
         string GetStatusForDatabase(string serverName, string databaseName);
         IReadOnlyList<string> GetChangedFiles(string repoPath);
         IReadOnlyDictionary<string, string> GetChangedFileStates(string repoPath);
-        bool CommitChanges(string serverName, string databaseName, string message, IEnumerable<string>? relativePaths = null);
+        GitCommitResult CommitChanges(string serverName, string databaseName, string message, IEnumerable<string>? relativePaths = null);
         PullResult PullChanges(string serverName, string databaseName);
         PushResult PushChanges(string serverName, string databaseName);
         bool HasCommitsToPush(string serverName, string databaseName);

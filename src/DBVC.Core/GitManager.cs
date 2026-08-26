@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -185,10 +185,10 @@ namespace DBVC.Core
         /// 커밋할 파일의 저장소 상대 경로. <c>null</c>이면 모든 변경을 스테이징한다.
         /// </param>
         /// <returns>커밋이 생성되면 true, 매핑이 없거나 스테이징할 변경이 없으면 false.</returns>
-        public bool CommitChanges(string serverName, string databaseName, string message, IEnumerable<string>? relativePaths = null)
+        public GitCommitResult CommitChanges(string serverName, string databaseName, string message, IEnumerable<string>? relativePaths = null)
         {
             var repoPath = ResolveRepoPath(serverName, databaseName);
-            if (repoPath == null) return false;
+            if (repoPath == null) return GitCommitResult.NotMapped;
 
             using var repo = new Repository(repoPath);
 
@@ -199,20 +199,21 @@ namespace DBVC.Core
             }
             else
             {
-                if (paths.Count == 0) return false;
+                if (paths.Count == 0) return GitCommitResult.NothingSelected;
                 Commands.Stage(repo, paths);
             }
 
             if (!HasStagedChanges(repo))
             {
-                // 빈 커밋은 LibGit2Sharp에서 EmptyCommitException을 던진다.
-                // UI에서 예외로 노출할 일이 아니므로 false로 알린다.
-                return false;
+                // 빈 커밋은 LibGit2Sharp에서 EmptyCommitException을 던진다. 예외로 노출할 일이
+                // 아니고, "못 했다"와도 다르다 - 저장소가 이미 DB와 같다는 뜻이라 호출자는
+                // 그 객체의 로그 행을 닫아야 한다.
+                return GitCommitResult.NothingToCommit;
             }
 
             var signature = BuildSignature(repo);
             repo.Commit(message ?? string.Empty, signature, signature);
-            return true;
+            return GitCommitResult.Committed;
         }
 
         /// <summary>

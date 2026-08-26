@@ -5,6 +5,7 @@ using System.Linq;
 using Microsoft.Data.SqlClient;
 using NUnit.Framework;
 using DBVC.Core;
+using DBVC.Core.Models;
 
 namespace DBVC.Core.Tests
 {
@@ -569,6 +570,67 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
 
             Assert.That(stillOpen, Is.EqualTo(0),
                 "옛 이름으로 기록된 행이 닫히지 않으면 같은 항목이 매번 다시 올라오고, 지울 방법이 없다");
+        }
+
+        /// <summary>
+        /// 남이 만진 행이 내 커밋에 이미 담긴 내용과 같아지는 경우. 공용 계정 환경에서 흔하다 -
+        /// 남이 고친 위에 내가 또 고치고 내가 먼저 커밋하면, 남의 행이 가리키는 코드는 이미
+        /// 저장소에 들어가 있다.
+        ///
+        /// 그때 스테이징할 차이가 없어 커밋이 만들어지지 않는데, 그것을 "커밋할 수 없다"와
+        /// 같이 다루면 그 행이 영원히 열린 채 남는다. 전체 보기에 계속 뜨고, 다시 커밋해도
+        /// 또 차이가 없어 아무 일도 일어나지 않아 사용자가 지울 방법이 없다.
+        /// </summary>
+        [Test]
+        public void MarkProcessed_ClosesTheOtherAuthorsRow_WhenTheRepositoryAlreadyHasThatCode()
+        {
+            _db!.Execute("CREATE PROCEDURE dbo.LeftoverProbe AS SELECT 1");
+            _db.ExecuteWithWorkstationId("OTHER-PC", "ALTER PROCEDURE dbo.LeftoverProbe AS SELECT 2");
+            // 내가 그 위에 또 고친다. 이 상태로 내가 커밋하면 남의 변경까지 저장소에 담긴다.
+            _db.Execute("ALTER PROCEDURE dbo.LeftoverProbe AS SELECT 3");
+
+            var repoPath = Path.Combine(Path.GetTempPath(), "dbvc_repo_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var relative = ObjectPathConvention.GetRelativePath("dbo", "PROCEDURE", "LeftoverProbe");
+                var full = Path.Combine(repoPath, relative.Replace('/', Path.DirectorySeparatorChar));
+                CommitFile(repoPath, full, "CREATE OR ALTER PROCEDURE dbo.LeftoverProbe AS SELECT 3");
+
+                var config = NewConfig();
+                config.AddMapping(SqlServerTestDatabase.ServerName, _db.Name, repoPath);
+                var tracker = new StateTracker(config);
+                var git = new GitManager(config);
+
+                // 내 보기로 먼저 커밋한다. 이래야 남의 행만 남아 실제 순서와 같아진다.
+                tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: false);
+                tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name,
+                    tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name)
+                        .Where(c => c.ObjectName == "LeftoverProbe").ToList());
+
+                // 전체 보기. 이제 남의 행만 남아 있고, 그 코드는 이미 저장소에 들어가 있다.
+                tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
+                var records = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name)
+                    .Where(c => c.ObjectName == "LeftoverProbe").ToList();
+                Assert.That(records, Has.Count.EqualTo(1), "이 테스트의 전제가 성립해야 한다");
+
+                var result = git.CommitChanges(SqlServerTestDatabase.ServerName, _db.Name, "이미 같음",
+                    records.Select(r => r.RelativePath).ToList());
+                Assert.That(result, Is.EqualTo(GitCommitResult.NothingToCommit),
+                    "저장소가 이미 그 코드를 갖고 있으므로 담을 것이 없어야 한다");
+
+                tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name, records);
+
+                tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
+                Assert.That(
+                    tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name)
+                        .Select(c => c.ObjectName),
+                    Does.Not.Contain("LeftoverProbe"),
+                    "닫히지 않으면 전체 보기에 영원히 남고, 다시 커밋해도 또 차이가 없어 지울 수 없다");
+            }
+            finally
+            {
+                TryDeleteRepo(repoPath);
+            }
         }
 
         /// <summary>커밋된 파일이 있는 저장소를 만든다. 미추적 파일은 지워도 Git이 "삭제됨"으로 보지 않는다.</summary>
