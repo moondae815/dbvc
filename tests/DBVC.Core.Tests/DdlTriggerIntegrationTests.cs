@@ -435,6 +435,73 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
         }
 
         /// <summary>
+        /// 작업자 필터가 실제로 새던 자리. 좁히기는 로그 쪽에서 제대로 돌지만, 추출이 작업자를
+        /// 가리지 않으므로 남의 객체도 .sql이 써지고 그 파일이 Git에서 더럽게 보인다. 그러면
+        /// "DDL 로그에 없지만 Git에서 변경된 파일"을 구제하는 폴백이 방금 걸러낸 것을 도로 넣었다.
+        ///
+        /// 위의 RefreshState_ExcludesOtherWorkstationsChanges는 저장소가 아닌 경로를 매핑해
+        /// Git 상태가 늘 비어 있으므로 이 경로를 밟지 못한다. 여기서는 진짜 저장소를 만들고
+        /// 남의 객체 파일을 실제로 놓아 둔다.
+        /// </summary>
+        [Test]
+        public void RefreshState_StillExcludesOtherWorkstationsChanges_WhenTheirFileIsDirtyInGit()
+        {
+            _db!.ExecuteWithWorkstationId("OTHER-PC", "CREATE PROCEDURE dbo.OtherPcDirtyProbe AS SELECT 1");
+            // 내 것이 하나는 남아야 한다. 필터가 전부를 걸러내도 아래 Does.Not.Contain이
+            // 통과해 버리면 테스트가 아무것도 보장하지 않는다.
+            _db.Execute("CREATE PROCEDURE dbo.MyPcDirtyProbe AS SELECT 1");
+
+            var repoPath = Path.Combine(Path.GetTempPath(), "dbvc_repo_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                LibGit2Sharp.Repository.Init(repoPath);
+
+                // 새로고침이 남의 객체까지 추출한 뒤의 모습이다. 미추적 파일이라 Git이 더럽다고 본다.
+                var relative = ObjectPathConvention.GetRelativePath("dbo", "PROCEDURE", "OtherPcDirtyProbe");
+                var full = Path.Combine(repoPath, relative.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                File.WriteAllText(full, "CREATE OR ALTER PROCEDURE dbo.OtherPcDirtyProbe AS SELECT 1");
+
+                var config = NewConfig();
+                config.AddMapping(SqlServerTestDatabase.ServerName, _db.Name, repoPath);
+                var tracker = new StateTracker(config);
+
+                tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: false);
+                var mine = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name);
+
+                Assert.That(mine.Select(c => c.ObjectName), Does.Contain("MyPcDirtyProbe"),
+                    "내 변경은 남아야 한다");
+                Assert.That(mine.Select(c => c.ObjectName), Does.Not.Contain("OtherPcDirtyProbe"),
+                    "파일이 더럽다는 이유로 남의 변경이 목록에 돌아오면 필터가 아무것도 막지 못한다");
+
+                tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
+                var all = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name);
+
+                Assert.That(all.Select(c => c.ObjectName), Does.Contain("OtherPcDirtyProbe"),
+                    "전체 보기에서는 보여야 한다");
+            }
+            finally
+            {
+                TryDeleteRepo(repoPath);
+            }
+        }
+
+        /// <summary>.git 안에는 읽기 전용 파일이 있어 그냥 지우면 실패한다. 지우지 못해도 테스트를 깨지 않는다.</summary>
+        private static void TryDeleteRepo(string path)
+        {
+            if (!Directory.Exists(path)) return;
+            try
+            {
+                foreach (var file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
+                {
+                    try { File.SetAttributes(file, FileAttributes.Normal); } catch { }
+                }
+                Directory.Delete(path, true);
+            }
+            catch { }
+        }
+
+        /// <summary>
         /// SSMS 테이블 디자이너로 열 형식을 바꾸면 SQL Server가 테이블을 재작성한다 —
         /// Tmp_ 테이블을 만들고, 데이터를 옮기고, 원본을 DROP한 뒤, 이름을 바꾼다.
         /// 그러면 원본 이름의 최신 이벤트가 DROP_TABLE이라 살아 있는 테이블이 삭제로 뜨고,
