@@ -48,20 +48,6 @@ WHERE IsProcessed = 0
 ORDER BY PostTime DESC, Id DESC";
 
         /// <summary>
-        /// 지금 이 접속의 작업자가 낸 이벤트만 읽는다. 기본 화면이 쓰는 쿼리다.
-        ///
-        /// 두 쿼리를 문자열 결합 대신 따로 두는 이유는 읽기와 테스트 때문이다 -
-        /// WHERE를 조립하면 어느 조합이 실제로 나가는지 눈으로 확인할 수 없다.
-        /// </summary>
-        internal const string PendingChangesByAuthorQuery = @"
-SELECT Id, SchemaName, ObjectName, ObjectType, EventType, TargetObjectName, TargetObjectType, LoginName, HostName
-FROM dbo.DBVC_ChangeLog
-WHERE IsProcessed = 0
-  AND ISNULL(LoginName, N'') = ISNULL(@login, N'')
-  AND ISNULL(HostName, N'') = ISNULL(@host, N'')
-ORDER BY PostTime DESC, Id DESC";
-
-        /// <summary>
         /// "나는 누구인가"를 서버에게 묻는다. 클라이언트에서 Environment.MachineName으로 유도하면
         /// 접속 문자열의 Workstation ID를 누가 바꿔 두었을 때 트리거가 기록한 값과 달라지고,
         /// 필터가 전부를 걸러내 목록이 항상 빈다.
@@ -283,12 +269,22 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             }
 
             List<ChangeLogRow> rows;
+            IReadOnlyCollection<string> foreignPaths = Array.Empty<string>();
             try
             {
                 var connectionString = BuildConnectionString(serverName, databaseName);
-                rows = ReadPendingRows(
-                    connectionString,
-                    includeAllAuthors ? null : (ValueTuple<string?, string?>?)ReadCurrentAuthor(connectionString));
+
+                // 좁힐 때도 전체를 읽는다. 남이 만진 경로가 무엇인지 알아야 Git 폴백이 그것을
+                // 도로 넣지 않는다 - 추출은 작업자를 가리지 않으므로 남의 .sql도 더럽게 보인다.
+                rows = ReadPendingRows(connectionString);
+
+                if (!includeAllAuthors)
+                {
+                    var current = ReadCurrentAuthor(connectionString);
+                    var partitioned = PartitionByAuthor(rows, current.Login, current.Host);
+                    rows = partitioned.Mine;
+                    foreignPaths = partitioned.ForeignPaths;
+                }
             }
             catch (Exception ex)
             {
@@ -297,7 +293,7 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             }
 
             var gitStates = _gitManager.GetChangedFileStates(mapping.GitPath);
-            ApplyChangeSet(serverName, databaseName, BuildChangeSet(rows, gitStates));
+            ApplyChangeSet(serverName, databaseName, BuildChangeSet(rows, gitStates, foreignPaths));
             return true;
         }
 
@@ -320,7 +316,7 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             {
                 // 추출 대상은 작업자로 좁히지 않는다. 파일을 쓰는 것과 커밋에 담는 것은 다른 문제이고,
                 // 남의 변경을 추출에서 빼면 그 객체의 파일이 낡은 채로 남아 다음 커밋에 섞여 들어간다.
-                return ToQualifiedNames(ReadPendingRows(BuildConnectionString(serverName, databaseName), null));
+                return ToQualifiedNames(ReadPendingRows(BuildConnectionString(serverName, databaseName)));
             }
             catch (Exception ex)
             {
@@ -393,25 +389,14 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             return names;
         }
 
-        /// <param name="author">null이면 전체를 읽는다(전체 보기).</param>
-        private static List<ChangeLogRow> ReadPendingRows(string connectionString, (string? Login, string? Host)? author)
+        private static List<ChangeLogRow> ReadPendingRows(string connectionString)
         {
             var rows = new List<ChangeLogRow>();
 
             using var conn = new SqlConnection(connectionString);
             conn.Open();
             using var cmd = conn.CreateCommand();
-
-            if (author == null)
-            {
-                cmd.CommandText = PendingChangesQuery;
-            }
-            else
-            {
-                cmd.CommandText = PendingChangesByAuthorQuery;
-                cmd.Parameters.AddWithValue("@login", (object?)author.Value.Login ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@host", (object?)author.Value.Host ?? DBNull.Value);
-            }
+            cmd.CommandText = PendingChangesQuery;
 
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
@@ -432,6 +417,50 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
 
             return rows;
         }
+
+        /// <summary>
+        /// 로그 행을 "내 것"과 "남의 것"으로 가른다.
+        ///
+        /// 이전에는 SQL의 WHERE가 하던 일이다. 메모리로 옮긴 이유는 남이 만진 경로까지
+        /// 알아야 하기 때문이다 - 추출은 작업자를 가리지 않으므로 남의 객체도 .sql이 써지고,
+        /// 그 파일이 Git에서 더럽게 보인다. 그 목록을 넘기지 않으면 BuildChangeSet의 Git 폴백이
+        /// 방금 걸러낸 항목을 그대로 도로 넣어 필터가 통째로 샌다.
+        ///
+        /// 비교 규칙은 SQL이 하던 ISNULL 비교와 같아야 한다. v3 이전에 쌓인 행은 HostName이
+        /// NULL이라, 이것을 빈 문자열과 다르게 보면 판정이 달라진다.
+        /// </summary>
+        internal static (List<ChangeLogRow> Mine, IReadOnlyCollection<string> ForeignPaths) PartitionByAuthor(
+            IEnumerable<ChangeLogRow> rows, string? login, string? host)
+        {
+            var mine = new List<ChangeLogRow>();
+            var minePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var foreignPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var row in rows ?? Enumerable.Empty<ChangeLogRow>())
+            {
+                if (row == null || string.IsNullOrWhiteSpace(row.ObjectName)) continue;
+
+                var path = ObjectPathConvention.GetRelativePath(row.SchemaName, row.ObjectType, row.ObjectName);
+
+                if (SameAuthorValue(row.LoginName, login) && SameAuthorValue(row.HostName, host))
+                {
+                    mine.Add(row);
+                    minePaths.Add(path);
+                }
+                else
+                {
+                    foreignPaths.Add(path);
+                }
+            }
+
+            // 같은 객체를 둘이 만졌으면 내 것이다. 목록에서 지우는 대신 커밋 시점의 확인
+            // 대화상자가 남도 만졌다는 사실을 알린다.
+            foreignPaths.ExceptWith(minePaths);
+            return (mine, foreignPaths);
+        }
+
+        private static bool SameAuthorValue(string? left, string? right)
+            => string.Equals(left ?? string.Empty, right ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// 지금 이 접속이 서버에서 어떻게 보이는지 읽는다. 트리거가 기록하는 값과 같은 함수를
@@ -455,9 +484,13 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
         /// DDL 로그 행과 Git 작업 트리 상태를 종합해 객체별 최종 변경 목록을 만든다.
         /// 로그 행은 최신순으로 정렬되어 있다고 가정한다.
         /// </summary>
+        /// <param name="foreignPaths">
+        /// 남의 미처리 로그 행만 가리키는 경로. Git 폴백이 이것을 다시 넣으면 작업자 필터가 샌다.
+        /// </param>
         internal IReadOnlyList<ChangeRecord> BuildChangeSet(
             IEnumerable<ChangeLogRow> rows,
-            IReadOnlyDictionary<string, string>? gitStates)
+            IReadOnlyDictionary<string, string>? gitStates,
+            IReadOnlyCollection<string>? foreignPaths = null)
         {
             var byPath = new Dictionary<string, ChangeRecord>(StringComparer.OrdinalIgnoreCase);
 
@@ -490,9 +523,18 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             // DDL 로그에 없지만 Git에서 변경된 파일도 포함한다(트리거 설치 이전의 변경 등).
             if (gitStates != null)
             {
+                var excluded = foreignPaths == null || foreignPaths.Count == 0
+                    ? null
+                    : new HashSet<string>(foreignPaths, StringComparer.OrdinalIgnoreCase);
+
                 foreach (var pair in gitStates)
                 {
                     if (byPath.ContainsKey(pair.Key)) continue;
+
+                    // 로그에 주인이 있고 그 주인이 내가 아니면 폴백의 대상이 아니다.
+                    // 폴백은 "로그에 아무 근거도 없는 파일"을 구제하려고 있는 것이다.
+                    if (excluded != null && excluded.Contains(pair.Key)) continue;
+
                     if (!ObjectPathConvention.TryParseRelativePath(pair.Key, out var schema, out var objectType, out var objectName)) continue;
 
                     byPath[pair.Key] = new ChangeRecord
@@ -567,8 +609,8 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
                 var connectionString = BuildConnectionString(serverName, databaseName);
                 var current = ReadCurrentAuthor(connectionString);
 
-                // 필터 없이 읽는다. "내 변경만" 상태에서도 남이 만졌다는 사실은 알려야 한다.
-                var rows = ReadPendingRows(connectionString, author: null);
+                // "내 변경만" 상태에서도 남이 만졌다는 사실은 알려야 한다.
+                var rows = ReadPendingRows(connectionString);
 
                 return CoAuthorDetector.Detect(rows, qualifiedNames, current.Login, current.Host);
             }

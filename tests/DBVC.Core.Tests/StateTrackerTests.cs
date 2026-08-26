@@ -61,6 +61,61 @@ namespace DBVC.Core.Tests
             Assert.That(StateTracker.MapEventTypeToState("SOMETHING_ELSE"), Is.EqualTo("Modified"));
         }
 
+        // ---------- 작업자 분리 ----------
+
+        private static ChangeLogRow RowBy(long id, string name, string? login, string? host)
+            => new ChangeLogRow
+            {
+                Id = id, SchemaName = "dbo", ObjectName = name, ObjectType = "TABLE",
+                EventType = "ALTER_TABLE", LoginName = login, HostName = host
+            };
+
+        [Test]
+        public void PartitionByAuthor_KeepsOnlyTheRowsOfTheCurrentAuthor()
+        {
+            var result = StateTracker.PartitionByAuthor(
+                new[] { RowBy(1, "Mine", "sa", "PC-A"), RowBy(2, "Theirs", "sa", "PC-B") }, "sa", "PC-A");
+
+            Assert.That(result.Mine.Select(r => r.ObjectName), Is.EqualTo(new[] { "Mine" }));
+        }
+
+        /// <summary>
+        /// 남의 것으로 판정된 경로를 따로 내야 하는 이유: 추출은 작업자를 가리지 않으므로 남의
+        /// 객체도 .sql이 써지고, 그 파일이 Git에서 더럽게 보인다. 그 목록이 없으면
+        /// BuildChangeSet의 Git 폴백이 방금 걸러낸 것을 그대로 도로 넣는다.
+        /// </summary>
+        [Test]
+        public void PartitionByAuthor_ReportsPathsThatOnlyOthersTouched()
+        {
+            var result = StateTracker.PartitionByAuthor(
+                new[] { RowBy(1, "Mine", "sa", "PC-A"), RowBy(2, "Theirs", "sa", "PC-B") }, "sa", "PC-A");
+
+            Assert.That(result.ForeignPaths, Is.EqualTo(new[] { "dbo/Tables/Theirs.sql" }));
+        }
+
+        [Test]
+        public void PartitionByAuthor_DoesNotReportAPath_WhenTheCurrentAuthorTouchedItToo()
+        {
+            // 같은 객체를 둘이 만졌으면 내 목록에 남아야 한다. 커밋 시점의 확인 대화상자가
+            // 그 사실을 알리는 자리이지, 목록에서 지워 버릴 일이 아니다.
+            var result = StateTracker.PartitionByAuthor(
+                new[] { RowBy(1, "Shared", "sa", "PC-B"), RowBy(2, "Shared", "sa", "PC-A") }, "sa", "PC-A");
+
+            Assert.That(result.ForeignPaths, Is.Empty);
+        }
+
+        [Test]
+        public void PartitionByAuthor_TreatsNullAndEmptyAsTheSameValue()
+        {
+            // v3 이전에 쌓인 행은 HostName이 NULL이다. 이 판정은 이전에 SQL의
+            // ISNULL(HostName, N'') = ISNULL(@host, N'') 이 하던 것과 같아야 한다.
+            var result = StateTracker.PartitionByAuthor(
+                new[] { RowBy(1, "Legacy", "sa", null) }, "sa", "");
+
+            Assert.That(result.Mine, Has.Count.EqualTo(1));
+            Assert.That(result.ForeignPaths, Is.Empty);
+        }
+
         // ---------- 변경 집합 구성 ----------
 
         [Test]
@@ -109,6 +164,22 @@ namespace DBVC.Core.Tests
             Assert.That(changes[0].QualifiedName, Is.EqualTo("dbo.vw_Legacy"));
             Assert.That(changes[0].State, Is.EqualTo("Added"));
             Assert.That(changes[0].RelativePath, Is.EqualTo("dbo/Views/vw_Legacy.sql"));
+        }
+
+        /// <summary>
+        /// Git 폴백이 작업자 필터를 새게 하던 자리. 남의 미처리 변경도 추출되어 파일이 더러워지므로,
+        /// 폴백을 그대로 두면 걸러낸 항목이 전부 목록으로 돌아왔다.
+        /// </summary>
+        [Test]
+        public void BuildChangeSet_OmitsDirtyFiles_WhenTheirOnlyLogRowsBelongToSomeoneElse()
+        {
+            var tracker = NewTracker();
+            var gitStates = new Dictionary<string, string> { ["dbo/Tables/Theirs.sql"] = "Modified" };
+
+            var changes = tracker.BuildChangeSet(
+                System.Array.Empty<ChangeLogRow>(), gitStates, new[] { "dbo/Tables/Theirs.sql" });
+
+            Assert.That(changes, Is.Empty);
         }
 
         [Test]
@@ -338,12 +409,17 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
-        public void PendingChangesByAuthorQuery_FiltersByBothLoginAndHost()
+        [TestCase("other", "PC-A", TestName = "PartitionByAuthor_SeparatesByLogin")]
+        [TestCase("sa", "PC-B", TestName = "PartitionByAuthor_SeparatesByHost")]
+        public void PartitionByAuthor_UsesBothLoginAndHost(string rowLogin, string rowHost)
         {
             // 공용 계정 환경에서는 LoginName이 상수라 HostName이 일을 한다.
             // 계정을 사람별로 나눈 환경에서는 둘 다 의미가 있다. 규칙을 두 번 만들지 않는다.
-            Assert.That(StateTracker.PendingChangesByAuthorQuery, Does.Contain("@login"));
-            Assert.That(StateTracker.PendingChangesByAuthorQuery, Does.Contain("@host"));
+            var result = StateTracker.PartitionByAuthor(
+                new[] { RowBy(1, "T", rowLogin, rowHost) }, "sa", "PC-A");
+
+            Assert.That(result.Mine, Is.Empty);
+            Assert.That(result.ForeignPaths, Has.Count.EqualTo(1));
         }
 
         [Test]
