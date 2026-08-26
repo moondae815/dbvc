@@ -58,6 +58,10 @@ ORDER BY PostTime DESC, Id DESC";
         /// 지금 DB에 실제로 있는 사용자 객체. 로그만 믿으면 존재하지 않는 객체가 목록에 남고,
         /// 살아 있는 객체가 삭제로 뜬다(디자이너가 테이블을 재작성한 뒤가 그렇다).
         /// 사용자 정의 형식은 sys.objects에 없어 sys.types를 함께 읽는다.
+        ///
+        /// 이름만 보고 타입은 보지 않는다. 그래서 같은 이름의 테이블과 사용자 정의 형식이
+        /// 함께 있을 때 테이블만 지우면 그 삭제가 가려진다 - 드물고, 놓치는 쪽이 "삭제를
+        /// 늦게 안다"라서 파일을 잘못 지우는 것보다 안전한 방향이라 그대로 둔다.
         /// </summary>
         internal const string ExistingObjectsQuery = @"
 SELECT SCHEMA_NAME(schema_id) + N'.' + name FROM sys.objects WHERE is_ms_shipped = 0
