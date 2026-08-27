@@ -134,6 +134,32 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void ScanRepositoryScriptPaths_ReportsComplete_WhenTheWholeTreeWasRead()
+        {
+            var root = NewTempDir();
+            Directory.CreateDirectory(Path.Combine(root, "dbo", "Tables"));
+            File.WriteAllText(Path.Combine(root, "dbo", "Tables", "Users.sql"), "-- t");
+
+            var scan = SchemaComparison.ScanRepositoryScriptPaths(root);
+
+            Assert.That(scan.IsComplete, Is.True);
+            Assert.That(scan.Paths, Is.EquivalentTo(new[] { "dbo/Tables/Users.sql" }));
+        }
+
+        [Test]
+        public void ScanRepositoryScriptPaths_ReportsIncomplete_WhenTheDirectoryCannotBeRead()
+        {
+            // 브랜치의 내용을 하나도 읽지 못했는데 빈 목록만 돌려주면, 화면은 그것을
+            // "브랜치와 일치합니다"로 옮긴다 - 이 기능이 막으려는 바로 그 문장이다.
+            var missing = Path.Combine(Path.GetTempPath(), "dbvc_absent_" + Guid.NewGuid().ToString("N"));
+
+            var scan = SchemaComparison.ScanRepositoryScriptPaths(missing);
+
+            Assert.That(scan.Paths, Is.Empty);
+            Assert.That(scan.IsComplete, Is.False);
+        }
+
+        [Test]
         public void ComparisonResult_IsInSync_WhenThereAreNoDifferences()
         {
             var result = new ComparisonResult { ComparedCount = 12 };

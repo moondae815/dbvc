@@ -304,12 +304,34 @@ namespace DBVC.Vsix.ViewModels
         /// 말해 버린다. 스크립팅 실패는 "차이 없음"이 아니라 "모른다"이므로, 판정하지 못한
         /// 객체가 하나라도 있으면 요약에 그 사실을 반드시 함께 적는다 — 오류 대화상자를 닫고
         /// 요약만 본 사용자가 "배포 완료"로 읽지 않도록.
+        ///
+        /// 저장소 스캔이 중간에 끊긴 경우는 한 걸음 더 나간다. 그때는 "브랜치에만 있음" 판정이
+        /// 아예 일부만 이루어진 것이라 <b>일치를 주장할 근거 자체가 없다</b> — 문장에 덧붙이는
+        /// 것이 아니라 일치 주장을 걷어낸다.
         /// </summary>
         private static string BuildSummaryText(ComparisonResult result)
         {
-            var comparedText = result.Differences.Count == 0
-                ? $"대상 {result.ComparedCount}개를 검사했습니다. 브랜치와 일치합니다."
-                : $"대상 {result.ComparedCount}개 중 {result.Differences.Count}개가 다릅니다.";
+            string comparedText;
+
+            if (result.Differences.Count > 0)
+            {
+                comparedText = $"대상 {result.ComparedCount}개 중 {result.Differences.Count}개가 다릅니다.";
+            }
+            else if (!result.RepositoryScanCompleted)
+            {
+                comparedText =
+                    $"대상 {result.ComparedCount}개를 검사했습니다. " +
+                    "저장소를 전부 읽지 못해 브랜치와 일치하는지 판단할 수 없습니다.";
+            }
+            else
+            {
+                comparedText = $"대상 {result.ComparedCount}개를 검사했습니다. 브랜치와 일치합니다.";
+            }
+
+            if (result.Differences.Count > 0 && !result.RepositoryScanCompleted)
+            {
+                comparedText += " 저장소를 전부 읽지 못해 목록이 일부일 수 있습니다.";
+            }
 
             return result.FailedObjects.Count == 0
                 ? comparedText

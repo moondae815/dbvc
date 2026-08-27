@@ -194,6 +194,24 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
+        public void CompareCommand_DoesNotClaimMatch_WhenTheRepositoryScanWasIncomplete()
+        {
+            // 권한 없는 폴더 하나를 만나면 Directory.EnumerateFiles가 순회를 통째로 멈춘다.
+            // 그 아래의 "브랜치에만 있음"이 전부 사라진 채 "일치합니다"가 뜨면, 이 기능이
+            // 믿을 수 있게 만들려던 유일한 문장이 거짓말이 된다.
+            var vm = NewViewModel(MappingMode.Audit, out _);
+            var result = ResultWith();
+            result.RepositoryScanCompleted = false;
+            _smo.Setup(s => s.CompareWithRepository(Server, Database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns(result);
+
+            vm.CompareCommand.Execute(null);
+
+            Assert.That(vm.SummaryText, Does.Not.Contain("일치합니다"));
+            Assert.That(vm.SummaryText, Does.Contain("저장소를 전부 읽지 못"));
+        }
+
+        [Test]
         public void CompareCommand_SkipsThePull_WhenTheRepositoryHasNoRemote()
         {
             // 원격 없이 기존 폴더를 배포 클론으로 채택하는 것은 대화상자가 안내하는 정상

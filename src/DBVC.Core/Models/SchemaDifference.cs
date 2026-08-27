@@ -51,6 +51,18 @@ namespace DBVC.Core.Models
         /// <summary>대상 DB에서 훑은 객체 수. "n개 중 m개 차이"의 분모다.</summary>
         public int ComparedCount { get; set; }
 
+        /// <summary>
+        /// 저장소 스캔이 끝까지 돌았는지. <c>false</c>면 "브랜치에만 있음" 판정이 일부만
+        /// 이루어진 것이라 <see cref="Differences"/>가 비어 있어도 일치를 뜻하지 않는다.
+        /// </summary>
+        public bool RepositoryScanCompleted { get; set; } = true;
+
+        /// <summary>
+        /// 차이가 없다. <b>일치한다는 뜻이 아니다</b> — 판정하지 못한 객체
+        /// (<see cref="FailedObjects"/>)와 다 읽지 못한 저장소
+        /// (<see cref="RepositoryScanCompleted"/>)는 여기에 들어오지 않는다.
+        /// 화면 요약은 그 둘을 반드시 함께 말해야 한다.
+        /// </summary>
         public bool IsInSync => Differences.Count == 0;
     }
 }

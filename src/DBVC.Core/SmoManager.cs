@@ -160,12 +160,15 @@ namespace DBVC.Core
                 progress,
                 cancellationToken);
 
+            var scan = SchemaComparison.ScanRepositoryScriptPaths(repositoryPath);
+
             return BuildComparison(
                 differences,
                 extracted,
-                SchemaComparison.EnumerateRepositoryScriptPaths(repositoryPath),
+                scan.Paths,
                 scriptResult.FailedObjects,
-                scriptResult.SucceededCount + scriptResult.FailedObjects.Count);
+                scriptResult.SucceededCount + scriptResult.FailedObjects.Count,
+                scan.IsComplete);
         }
 
         /// <summary>
@@ -205,9 +208,14 @@ namespace DBVC.Core
             ISet<string> extractedPaths,
             System.Collections.Generic.IReadOnlyList<string> repositoryPaths,
             System.Collections.Generic.IReadOnlyList<string> failedObjects,
-            int comparedCount)
+            int comparedCount,
+            bool repositoryScanCompleted = true)
         {
-            var result = new ComparisonResult { ComparedCount = comparedCount };
+            var result = new ComparisonResult
+            {
+                ComparedCount = comparedCount,
+                RepositoryScanCompleted = repositoryScanCompleted
+            };
             result.Differences.AddRange(scriptedDifferences);
             result.FailedObjects.AddRange(failedObjects);
 
