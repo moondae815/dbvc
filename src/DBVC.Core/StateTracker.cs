@@ -192,6 +192,14 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             if (string.IsNullOrWhiteSpace(serverName)) throw new ArgumentException("Invalid server name", nameof(serverName));
             if (string.IsNullOrWhiteSpace(databaseName)) throw new ArgumentException("Invalid database name", nameof(databaseName));
 
+            var mapping = _configManager.TryGetMapping(serverName, databaseName);
+            if (mapping != null && !MappingPolicy.IsAllowed(mapping.Mode, DbvcOperation.InstallTracker))
+            {
+                // 운영 DB에는 DDL 트리거를 설치할 수 없다. 화면이 오버레이를 띄우지 않지만
+                // 그것만으로는 코드 경로가 하나 늘 때 조용히 다시 열린다.
+                throw new OperationNotAllowedException(mapping.Mode, DbvcOperation.InstallTracker);
+            }
+
             var batches = SplitSqlBatches(ReadInstallScript());
 
             using var conn = new SqlConnection(_connectionFactory.Build(serverName, databaseName));

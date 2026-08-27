@@ -293,6 +293,14 @@ namespace DBVC.Core
             var repoPath = ResolveRepoPath(serverName, databaseName);
             if (repoPath == null) return GitCommitResult.NotMapped;
 
+            // 테스트 DB에서 나온 추출물은 새 변경이 아니라 배포 결과다. 커밋하면 develop에
+            // 자기 자신을 되먹이고, 배포가 덜 된 상태였다면 그것을 정답으로 굳혀 버린다.
+            var mapping = _configManager?.TryGetMapping(serverName, databaseName);
+            if (mapping != null && !MappingPolicy.IsAllowed(mapping.Mode, DbvcOperation.Commit))
+            {
+                throw new OperationNotAllowedException(mapping.Mode, DbvcOperation.Commit);
+            }
+
             using var repo = new Repository(repoPath);
 
             var paths = relativePaths?.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
@@ -477,6 +485,14 @@ namespace DBVC.Core
         {
             var repoPath = ResolveRepoPath(serverName, databaseName);
             if (repoPath == null) return PushResult.NoMapping;
+
+            // 커밋을 막아도 그 전에 만들어진 로컬 커밋이 남아 있을 수 있다 - Push까지 막지
+            // 않으면 커밋 차단이 우회로를 하나 남기는 셈이다.
+            var mapping = _configManager?.TryGetMapping(serverName, databaseName);
+            if (mapping != null && !MappingPolicy.IsAllowed(mapping.Mode, DbvcOperation.Push))
+            {
+                throw new OperationNotAllowedException(mapping.Mode, DbvcOperation.Push);
+            }
 
             using var repo = new Repository(repoPath);
 

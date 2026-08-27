@@ -489,6 +489,32 @@ namespace DBVC.Core.Tests
                 "같은 커밋에 포함된 수정 내용도 그대로 반영되어야 합니다");
         }
 
+        [Test]
+        public void CommitChanges_Throws_WhenModeIsDeploy()
+        {
+            // 테스트 DB에서 나온 추출물은 새 변경이 아니라 배포 결과다. 커밋하면
+            // develop에 자기 자신을 되먹이고, 배포가 덜 된 상태였다면 그것을 정답으로 굳힌다.
+            var repoPath = NewRepositoryWithCommit(out _, out var git, MappingMode.Deploy);
+            File.WriteAllText(Path.Combine(repoPath, "new.sql"), "-- x");
+
+            var ex = Assert.Throws<OperationNotAllowedException>(
+                () => git.CommitChanges(Server, Database, "메시지"));
+
+            Assert.That(ex!.Operation, Is.EqualTo(DbvcOperation.Commit));
+            Assert.That(ex.Message, Does.Contain("배포"));
+        }
+
+        [Test]
+        public void CommitChanges_Succeeds_WhenModeIsWrite()
+        {
+            var repoPath = NewRepositoryWithCommit(out _, out var git, MappingMode.Write);
+            File.WriteAllText(Path.Combine(repoPath, "new.sql"), "-- x");
+
+            var result = git.CommitChanges(Server, Database, "메시지");
+
+            Assert.That(result, Is.EqualTo(GitCommitResult.Committed));
+        }
+
         // ---------- GetHistory ----------
 
         [Test]
@@ -980,6 +1006,17 @@ namespace DBVC.Core.Tests
             var git = new GitManager(new ConfigManager(configPath));
 
             Assert.That(git.PushChanges("localhost", "testdb"), Is.EqualTo(PushResult.NoMapping));
+        }
+
+        [Test]
+        public void PushChanges_Throws_WhenModeIsAudit()
+        {
+            NewRepositoryWithCommit(out _, out var git, MappingMode.Audit);
+
+            var ex = Assert.Throws<OperationNotAllowedException>(
+                () => git.PushChanges(Server, Database));
+
+            Assert.That(ex!.Operation, Is.EqualTo(DbvcOperation.Push));
         }
 
         [Test]

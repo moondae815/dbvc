@@ -54,6 +54,18 @@ namespace DBVC.Core
             IProgress<ExtractionProgress>? progress = null,
             CancellationToken cancellationToken = default)
         {
+            // TryGetMapping은 빈 입력에 ArgumentException을 던진다 - OpenScriptingSession은 그
+            // 경우를 null 반환으로 흡수해 왔으므로, mode를 묻기 전에 같은 가드를 먼저 거친다.
+            if (!string.IsNullOrWhiteSpace(serverName) && !string.IsNullOrWhiteSpace(databaseName))
+            {
+                var mapping = _configManager.TryGetMapping(serverName, databaseName);
+                if (mapping != null && !MappingPolicy.IsAllowed(mapping.Mode, DbvcOperation.Extract))
+                {
+                    // 배포·감사 클론은 저장소에 쓸 일이 없다. 차이 검사는 파일을 만들지 않는다.
+                    throw new OperationNotAllowedException(mapping.Mode, DbvcOperation.Extract);
+                }
+            }
+
             using var session = OpenScriptingSession(serverName, databaseName, objectNames);
             if (session == null) return null;
 
