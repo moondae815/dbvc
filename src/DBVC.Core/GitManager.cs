@@ -408,6 +408,50 @@ namespace DBVC.Core
         }
 
         /// <summary>
+        /// 원격 상태를 부수효과 없이 읽는다. (설계 3.11)
+        ///
+        /// 수동 버튼으로만 불린다. 새로고침에 붙이면 응답 없는 원격이 변경 목록을 보는 일까지
+        /// 느리게 만든다.
+        /// </summary>
+        public RemoteStatus FetchRemoteStatus(string serverName, string databaseName)
+        {
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null)
+            {
+                throw new InvalidOperationException(
+                    $"'{serverName}.{databaseName}'에 연결된 Git 저장소가 없어 원격을 확인할 수 없습니다.");
+            }
+
+            using var repo = new Repository(repoPath);
+
+            // 원격 없음·추적 브랜치 없음의 안내는 Pull·Push가 쓰는 것을 그대로 쓴다.
+            var guidance = ValidateRemoteAndBuildGuidance(repo, repoPath, "원격 확인");
+            var remoteName = repo.Head.RemoteName;
+
+            try
+            {
+                var fetchOptions = new FetchOptions
+                {
+                    CredentialsProvider = (url, usernameFromUrl, types) => ResolveCredentials(types, out _)
+                };
+
+                // 빈 refspec은 "원격에 설정된 기본 refspec을 쓰라"는 뜻이다.
+                Commands.Fetch(repo, remoteName, Array.Empty<string>(), fetchOptions, null);
+            }
+            catch (Exception ex)
+            {
+                var message = guidance == null
+                    ? ex.Message
+                    : ex.Message + Environment.NewLine + Environment.NewLine + guidance;
+
+                throw new GitRemoteException(message, ex);
+            }
+
+            var details = repo.Head.TrackingDetails;
+            return new RemoteStatus(details.AheadBy ?? 0, details.BehindBy ?? 0);
+        }
+
+        /// <summary>
         /// 현재 브랜치의 커밋을 추적 중인 원격 브랜치에 올린다.
         /// 원격이 ref 갱신을 거부하면 <see cref="GitPushRejectedException"/>을,
         /// 원격이 사용자 자격 증명을 요구하면 <see cref="GitAuthenticationException"/>을,

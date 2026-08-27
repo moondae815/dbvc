@@ -1478,6 +1478,80 @@ namespace DBVC.Core.Tests
             }
         }
 
+        // ---------- 원격 확인 ----------
+
+        /// <summary>저장소에 커밋 하나를 더한다.</summary>
+        private void CommitTo(string repoPath, string fileName, string content, string message)
+        {
+            var full = Path.Combine(repoPath, fileName.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+            File.WriteAllText(full, content);
+
+            using var repo = new Repository(repoPath);
+            Commands.Stage(repo, "*");
+            repo.Commit(message, TestSignature, TestSignature);
+        }
+
+        [Test]
+        public void FetchRemoteStatus_ReportsBehind_WhenTheRemoteHasNewCommits()
+        {
+            var originPath = NewRepoWithCommit();
+            var localPath = NewTempDir();
+            new GitManager().CloneRepository(originPath, localPath, null, CancellationToken.None);
+
+            CommitTo(originPath, "dbo/Views/V1.sql", "CREATE OR ALTER VIEW V1 AS SELECT 1 AS X;", "add view");
+
+            var status = NewGitManager("localhost", "testdb", localPath)
+                .FetchRemoteStatus("localhost", "testdb");
+
+            Assert.That(status.BehindBy, Is.EqualTo(1));
+            Assert.That(status.AheadBy, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void FetchRemoteStatus_ReportsAhead_WhenLocalHasUnpushedCommits()
+        {
+            var originPath = NewRepoWithCommit();
+            var localPath = NewTempDir();
+            new GitManager().CloneRepository(originPath, localPath, null, CancellationToken.None);
+
+            CommitTo(localPath, "dbo/Views/V2.sql", "CREATE OR ALTER VIEW V2 AS SELECT 2 AS X;", "local only");
+
+            var status = NewGitManager("localhost", "testdb", localPath)
+                .FetchRemoteStatus("localhost", "testdb");
+
+            Assert.That(status.AheadBy, Is.EqualTo(1));
+            Assert.That(status.BehindBy, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void FetchRemoteStatus_ExplainsInKorean_WhenTheCurrentBranchHasNoUpstream()
+        {
+            // Pull·Push와 글자 그대로 같은 검사를 재사용하는지 고정한다.
+            // 복제본을 만들면 한쪽 문구만 고쳐지는 일이 실제로 일어난다.
+            var originPath = NewRepoWithCommit();
+            var localPath = NewRepoWithCommit();
+            using (var local = new Repository(localPath))
+            {
+                local.Network.Remotes.Add("origin", originPath);
+            }
+
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var ex = Assert.Throws<InvalidOperationException>(() => git.FetchRemoteStatus("localhost", "testdb"));
+
+            Assert.That(ex!.Message, Does.Contain("추적"));
+            Assert.That(ex.Message, Does.Not.Contain("tracking information"));
+        }
+
+        [Test]
+        public void FetchRemoteStatus_Throws_WhenTheDatabaseIsNotMapped()
+        {
+            var git = NewGitManager("localhost", "other", NewRepoWithCommit());
+
+            Assert.Throws<InvalidOperationException>(() => git.FetchRemoteStatus("localhost", "testdb"));
+        }
+
         // ---------- Constructor ----------
 
         [Test]

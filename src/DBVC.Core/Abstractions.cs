@@ -102,6 +102,12 @@ namespace DBVC.Core
         PullResult PullChanges(string serverName, string databaseName);
         PushResult PushChanges(string serverName, string databaseName);
         bool HasCommitsToPush(string serverName, string databaseName);
+
+        /// <summary>
+        /// 원격을 받아 앞섬·뒤처짐을 센다. 참조만 갱신하고 작업 트리는 건드리지 않는다.
+        /// 매핑이 없거나 원격·추적 브랜치가 없으면 한국어 안내를 담은 예외를 던진다.
+        /// </summary>
+        RemoteStatus FetchRemoteStatus(string serverName, string databaseName);
         /// <summary><paramref name="relativeFilePath"/>가 비면 저장소 전체 이력을 반환한다.</summary>
         IReadOnlyList<CommitInfo> GetHistory(string serverName, string databaseName, string? relativeFilePath);
         string? GetFileContentAtHead(string serverName, string databaseName, string relativeFilePath);
