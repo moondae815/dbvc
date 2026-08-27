@@ -128,6 +128,19 @@ namespace DBVC.Core
             List<string>? objectNames = null,
             IProgress<ExtractionProgress>? progress = null,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// 대상 DB와 저장소 작업 트리의 차이를 판정한다. <b>저장소에 아무것도 쓰지 않는다</b> —
+        /// 그래서 실패하거나 취소해도 되돌릴 것이 없다.
+        ///
+        /// 매핑이 없거나 접속에 실패하면 <c>null</c>이다. mode가 허용하지 않으면
+        /// <see cref="OperationNotAllowedException"/>을 던진다.
+        /// </summary>
+        ComparisonResult? CompareWithRepository(
+            string serverName,
+            string databaseName,
+            IProgress<ExtractionProgress>? progress = null,
+            CancellationToken cancellationToken = default);
     }
 
     /// <summary>

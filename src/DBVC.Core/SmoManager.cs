@@ -54,6 +54,141 @@ namespace DBVC.Core
             IProgress<ExtractionProgress>? progress = null,
             CancellationToken cancellationToken = default)
         {
+            using var session = OpenScriptingSession(serverName, databaseName, objectNames);
+            if (session == null) return null;
+
+            try
+            {
+                return ScriptAll(session.Targets, session.RepositoryPath, session.ScriptOne, progress, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // 사용자가 멈춘 것이다. null로 뭉개면 호출자가 "추출 실패"로 알린다.
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"Error during SMO scripting for '{serverName}.{databaseName}': {ex}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 대상 DB와 저장소 작업 트리의 차이를 판정한다. <b>저장소에 아무것도 쓰지 않는다</b> —
+        /// 그래서 실패하거나 취소해도 되돌릴 것이 없다.
+        /// </summary>
+        public ComparisonResult? CompareWithRepository(
+            string serverName,
+            string databaseName,
+            IProgress<ExtractionProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            var mapping = _configManager.TryGetMapping(serverName, databaseName);
+            if (mapping == null) return null;
+
+            // 개발 클론에서 부르면 차이 전체가 잡음이다. 화면이 이미 막지만, 코드 경로가
+            // 하나 늘 때 조용히 다시 열리지 않도록 여기서도 확인한다.
+            if (!MappingPolicy.IsAllowed(mapping.Mode, DbvcOperation.Compare))
+            {
+                throw new OperationNotAllowedException(mapping.Mode, DbvcOperation.Compare);
+            }
+
+            using var session = OpenScriptingSession(serverName, databaseName, objectNames: null);
+            if (session == null) return null;
+
+            var differences = new List<SchemaDifference>();
+            var extracted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var scriptResult = RunScriptingLoop(
+                session.Targets,
+                mapping.GitPath,
+                session.ScriptOne,
+                (target, stagingPath, outputPath) =>
+                {
+                    extracted.Add(target.RelativePath);
+
+                    // HasSameBytes는 대상이 없을 때도 false를 돌려주므로 존재 여부를 먼저 가른다.
+                    // 두 경우는 사용자가 할 일이 완전히 다르다.
+                    if (!File.Exists(outputPath))
+                    {
+                        differences.Add(new SchemaDifference(
+                            target.QualifiedName, target.RelativePath, target.ObjectType, ObjectDiffState.MissingInBranch));
+                    }
+                    else if (!HasSameBytes(stagingPath, outputPath))
+                    {
+                        differences.Add(new SchemaDifference(
+                            target.QualifiedName, target.RelativePath, target.ObjectType, ObjectDiffState.Modified));
+                    }
+                },
+                progress,
+                cancellationToken);
+
+            // OperationCanceledException은 RunScriptingLoop에서 그대로 전파된다.
+            // ScriptObjectsDetailed와 같은 관례이므로 여기서 잡지 않는다.
+
+            return BuildComparison(
+                differences,
+                extracted,
+                SchemaComparison.EnumerateRepositoryScriptPaths(mapping.GitPath),
+                scriptResult.FailedObjects,
+                scriptResult.SucceededCount + scriptResult.FailedObjects.Count);
+        }
+
+        /// <summary>
+        /// 추출 루프가 모은 판정과 저장소 스캔이 찾은 "브랜치에만 있음"을 합친다.
+        /// DB에 닿지 않으므로 조합 자체는 DB 없이 테스트된다.
+        /// </summary>
+        internal static ComparisonResult BuildComparison(
+            System.Collections.Generic.IReadOnlyList<SchemaDifference> scriptedDifferences,
+            ISet<string> extractedPaths,
+            System.Collections.Generic.IReadOnlyList<string> repositoryPaths,
+            System.Collections.Generic.IReadOnlyList<string> failedObjects,
+            int comparedCount)
+        {
+            var result = new ComparisonResult { ComparedCount = comparedCount };
+            result.Differences.AddRange(scriptedDifferences);
+            result.Differences.AddRange(SchemaComparison.FindMissingInDatabase(repositoryPaths, extractedPaths));
+            result.FailedObjects.AddRange(failedObjects);
+            return result;
+        }
+
+        /// <summary>접속·열거를 한 번만 하고 세 진입점이 나눠 쓴다. 복사하면 SetDefaultInitFields
+        /// 튜닝이 한쪽에만 남아 다른 쪽이 객체당 수 초를 낸다.</summary>
+        private sealed class ScriptingSession : IDisposable
+        {
+            // ScriptOne이 실제로 스크립팅을 하는 시점은 이 세션을 돌려받은 뒤, 호출자가
+            // 자기 루프를 도는 동안이다. 그때까지 SqlConnection이 열려 있지 않으면
+            // "연결이 끊어졌다"로 스크립팅이 실패하므로, 여기서 붙들고 있다가 세션과
+            // 함께 닫는다 — 호출부는 using으로 세션을 감싸는 것으로 충분하다.
+            private readonly SqlConnection _connection;
+
+            public ScriptingSession(SqlConnection connection)
+            {
+                _connection = connection;
+            }
+
+            public IEnumerable<ScriptTargetInfo> Targets { get; set; } = Enumerable.Empty<ScriptTargetInfo>();
+
+            /// <summary>(target, stagingPath) — TextMode 해제와 Scripter 호출을 감싼다.</summary>
+            public Action<ScriptTargetInfo, string> ScriptOne { get; set; } = (t, p) => { };
+
+            /// <summary>매핑된 저장소 경로. 규약 경로 계산에만 쓰인다.</summary>
+            public string RepositoryPath { get; set; } = string.Empty;
+
+            public void Dispose() => _connection.Dispose();
+        }
+
+        /// <summary>
+        /// 접속하고 대상을 열거해 세 진입점(<see cref="ScriptObjectsDetailed"/>,
+        /// <see cref="CompareWithRepository"/>, 그리고 후속 작업의 ScriptObjectToText)이 나눠 쓸
+        /// 세션을 만든다. 실패하면 <c>null</c>이다 — 지금까지 <see cref="ScriptObjectsDetailed"/>가
+        /// null로 뭉개던 모든 자리와 같은 규칙이다.
+        ///
+        /// 반환한 세션은 호출자가 반드시 Dispose해야 한다(using) — SqlConnection을 세션이
+        /// 붙들고 있기 때문이다.
+        /// </summary>
+        private ScriptingSession? OpenScriptingSession(string serverName, string databaseName, List<string>? objectNames)
+        {
             if (string.IsNullOrWhiteSpace(serverName) || string.IsNullOrWhiteSpace(databaseName))
             {
                 return null;
@@ -76,11 +211,12 @@ namespace DBVC.Core
                 return null;
             }
 
+            SqlConnection? sqlConn = null;
             try
             {
                 var connStr = _connectionFactory.Build(serverName, databaseName);
 
-                using var sqlConn = new SqlConnection(connStr);
+                sqlConn = new SqlConnection(connStr);
                 var conn = new ServerConnection(sqlConn);
                 var server = new Server(conn);
                 ConfigureBulkEnumeration(server);
@@ -89,6 +225,7 @@ namespace DBVC.Core
                 if (db == null)
                 {
                     Trace.WriteLine($"Database '{databaseName}' not found on server '{serverName}'.");
+                    sqlConn.Dispose();
                     return null;
                 }
 
@@ -101,28 +238,29 @@ namespace DBVC.Core
                 var textObjects = new Dictionary<string, ITextObject>();
                 var targets = EnumerateTargets(db, textObjects).Where(t => ShouldInclude(t, filter));
 
-                return ScriptAll(targets, localGitPath!, (target, outputPath) =>
+                return new ScriptingSession(sqlConn)
                 {
-                    var urn = (Urn)target.Tag!;
-
-                    // 필터를 통과해 실제로 쓰는 객체만 끈다. 열거 중에 끄면 걸러질 객체까지
-                    // 전부 비용을 내고, 그러면 "바뀐 것만 추출한다"는 빠른 경로가 사라진다.
-                    if (textObjects.TryGetValue(urn.ToString(), out var textObject))
+                    Targets = targets,
+                    RepositoryPath = localGitPath!,
+                    ScriptOne = (target, outputPath) =>
                     {
-                        DisableTextMode(textObject);
-                    }
+                        var urn = (Urn)target.Tag!;
 
-                    scripter.Options.FileName = outputPath;
-                    scripter.Script(new[] { urn });
-                }, progress, cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                // 사용자가 멈춘 것이다. null로 뭉개면 호출자가 "추출 실패"로 알린다.
-                throw;
+                        // 필터를 통과해 실제로 쓰는 객체만 끈다. 열거 중에 끄면 걸러질 객체까지
+                        // 전부 비용을 내고, 그러면 "바뀐 것만 추출한다"는 빠른 경로가 사라진다.
+                        if (textObjects.TryGetValue(urn.ToString(), out var textObject))
+                        {
+                            DisableTextMode(textObject);
+                        }
+
+                        scripter.Options.FileName = outputPath;
+                        scripter.Script(new[] { urn });
+                    }
+                };
             }
             catch (Exception ex)
             {
+                sqlConn?.Dispose();
                 Trace.WriteLine($"Error during SMO scripting for '{serverName}.{databaseName}': {ex}");
                 return null;
             }

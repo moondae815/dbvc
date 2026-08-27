@@ -539,6 +539,60 @@ namespace DBVC.Core.Tests
             Assert.That(SmoManager.ShouldInclude(Target("dbo", "Table", "Users"), filter), Is.True);
         }
 
+        // ---------- BuildComparison: 두 갈래의 차이를 한 목록으로 합친다 ----------
+
+        [Test]
+        public void BuildComparison_MergesScriptedDifferencesWithMissingInDatabase()
+        {
+            var scripted = new List<SchemaDifference>
+            {
+                new SchemaDifference("dbo.Users", "dbo/Tables/Users.sql", "Table", ObjectDiffState.Modified)
+            };
+            var extracted = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "dbo/Tables/Users.sql" };
+            var repoPaths = new List<string> { "dbo/Tables/Users.sql", "dbo/Views/ActiveUsers.sql" };
+
+            var result = SmoManager.BuildComparison(scripted, extracted, repoPaths, new List<string>(), comparedCount: 1);
+
+            Assert.That(result.ComparedCount, Is.EqualTo(1));
+            Assert.That(result.IsInSync, Is.False);
+            Assert.That(result.Differences.Select(d => d.QualifiedName),
+                Is.EquivalentTo(new[] { "dbo.Users", "dbo.ActiveUsers" }));
+            Assert.That(result.Differences.Single(d => d.QualifiedName == "dbo.ActiveUsers").State,
+                Is.EqualTo(ObjectDiffState.MissingInDatabase));
+        }
+
+        [Test]
+        public void BuildComparison_ReportsInSync_WhenNothingDiffers()
+        {
+            var extracted = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "dbo/Tables/Users.sql" };
+            var repoPaths = new List<string> { "dbo/Tables/Users.sql" };
+
+            var result = SmoManager.BuildComparison(
+                new List<SchemaDifference>(), extracted, repoPaths, new List<string>(), comparedCount: 1);
+
+            Assert.That(result.IsInSync, Is.True);
+            Assert.That(result.ComparedCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void BuildComparison_CarriesFailedObjects_SeparatelyFromDifferences()
+        {
+            // 스크립팅에 실패한 객체는 "차이가 없다"가 아니라 "모른다"이다.
+            // 차이 목록에 섞으면 사용자가 배포 대상으로 읽는다.
+            var result = SmoManager.BuildComparison(
+                new List<SchemaDifference>(),
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                new List<string>(),
+                new List<string> { "dbo.Broken" },
+                comparedCount: 1);
+
+            Assert.That(result.Differences, Is.Empty);
+            Assert.That(result.FailedObjects, Is.EquivalentTo(new[] { "dbo.Broken" }));
+
+            // IsInSync는 차이만 본다. 실패가 있으면 화면이 따로 알린다.
+            Assert.That(result.IsInSync, Is.True);
+        }
+
         private static string NewTempDir()
         {
             var path = Path.Combine(Path.GetTempPath(), "dbvc_smo_" + System.Guid.NewGuid().ToString("N"));
