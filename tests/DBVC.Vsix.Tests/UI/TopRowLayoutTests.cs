@@ -217,6 +217,28 @@ namespace DBVC.Vsix.Tests.UI
                 "오버레이가 아니라 그 아래 요소가 잡혔다 - 덮여 보이기만 하고 클릭은 통과한다");
         }
 
+        /// <summary>
+        /// 도구 줄의 체크박스는 셸이 칠한 배경 위에 얹히는데, 그 WrapPanel은 위쪽 StackPanel의
+        /// TextElement.Foreground 상속을 받지 못하는 자리에 있다. 버튼은 VS가 자기 스타일로
+        /// 칠해 주지만 맨 CheckBox는 WPF 기본값(검정)이라, 테마를 어둡게 두면 어두운 바탕에
+        /// 검은 글씨로 사라진다 - SSMS에서 실제로 그렇게 나왔다.
+        /// </summary>
+        [Test]
+        public void AuthorToggle_TakesItsForegroundFromTheShellTheme()
+        {
+            // WPF 기본 전경도 검정이라, 셸이 주는 색이 검정이면 안 고쳐도 통과해 버린다.
+            // 기본값과 절대 겹치지 않는 색을 주어 "받았는지"만 가른다.
+            var themeText = Brushes.Magenta;
+            var control = NewControl();
+            control.Resources[Microsoft.VisualStudio.Shell.VsBrushes.ToolWindowTextKey] = themeText;
+
+            LayoutAt(control, 600);
+
+            var toggle = (System.Windows.Controls.CheckBox)control.FindName("AuthorToggle");
+            Assert.That(toggle.Foreground, Is.SameAs(themeText),
+                "셸이 준 ToolWindowText 브러시를 받아야 한다. 기본값이면 어두운 테마에서 묻힌다.");
+        }
+
         private static bool IsInside(DependencyObject? node, DependencyObject ancestor)
         {
             while (node != null)

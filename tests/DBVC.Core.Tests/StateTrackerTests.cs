@@ -61,6 +61,306 @@ namespace DBVC.Core.Tests
             Assert.That(StateTracker.MapEventTypeToState("SOMETHING_ELSE"), Is.EqualTo("Modified"));
         }
 
+        // ---------- 작업자 분리 ----------
+
+        private static ChangeLogRow RowBy(long id, string name, string? login, string? host)
+            => new ChangeLogRow
+            {
+                Id = id, SchemaName = "dbo", ObjectName = name, ObjectType = "TABLE",
+                EventType = "ALTER_TABLE", LoginName = login, HostName = host
+            };
+
+        [Test]
+        public void PartitionByAuthor_KeepsOnlyTheRowsOfTheCurrentAuthor()
+        {
+            var result = StateTracker.PartitionByAuthor(
+                new[] { RowBy(1, "Mine", "sa", "PC-A"), RowBy(2, "Theirs", "sa", "PC-B") }, "sa", "PC-A");
+
+            Assert.That(result.Mine.Select(r => r.ObjectName), Is.EqualTo(new[] { "Mine" }));
+        }
+
+        /// <summary>
+        /// 남의 것으로 판정된 경로를 따로 내야 하는 이유: 추출은 작업자를 가리지 않으므로 남의
+        /// 객체도 .sql이 써지고, 그 파일이 Git에서 더럽게 보인다. 그 목록이 없으면
+        /// BuildChangeSet의 Git 폴백이 방금 걸러낸 것을 그대로 도로 넣는다.
+        /// </summary>
+        [Test]
+        public void PartitionByAuthor_ReportsPathsThatOnlyOthersTouched()
+        {
+            var result = StateTracker.PartitionByAuthor(
+                new[] { RowBy(1, "Mine", "sa", "PC-A"), RowBy(2, "Theirs", "sa", "PC-B") }, "sa", "PC-A");
+
+            Assert.That(result.ForeignPaths, Is.EqualTo(new[] { "dbo/Tables/Theirs.sql" }));
+        }
+
+        [Test]
+        public void PartitionByAuthor_DoesNotReportAPath_WhenTheCurrentAuthorTouchedItToo()
+        {
+            // 같은 객체를 둘이 만졌으면 내 목록에 남아야 한다. 커밋 시점의 확인 대화상자가
+            // 그 사실을 알리는 자리이지, 목록에서 지워 버릴 일이 아니다.
+            var result = StateTracker.PartitionByAuthor(
+                new[] { RowBy(1, "Shared", "sa", "PC-B"), RowBy(2, "Shared", "sa", "PC-A") }, "sa", "PC-A");
+
+            Assert.That(result.ForeignPaths, Is.Empty);
+        }
+
+        [Test]
+        public void PartitionByAuthor_TreatsNullAndEmptyAsTheSameValue()
+        {
+            // v3 이전에 쌓인 행은 HostName이 NULL이다. 이 판정은 이전에 SQL의
+            // ISNULL(HostName, N'') = ISNULL(@host, N'') 이 하던 것과 같아야 한다.
+            var result = StateTracker.PartitionByAuthor(
+                new[] { RowBy(1, "Legacy", "sa", null) }, "sa", "");
+
+            Assert.That(result.Mine, Has.Count.EqualTo(1));
+            Assert.That(result.ForeignPaths, Is.Empty);
+        }
+
+        // ---------- 이름 변경 접기 ----------
+
+        private static ChangeLogRow TableRow(long id, string name, string eventType, string? newName = null)
+            => new ChangeLogRow
+            {
+                Id = id, SchemaName = "dbo", ObjectName = name, ObjectType = "TABLE",
+                EventType = eventType, NewObjectName = newName
+            };
+
+        /// <summary>
+        /// RENAME은 옛 이름으로 기록된다. 그대로 두면 존재하지 않는 객체가 목록에 뜨고,
+        /// 정작 바뀐 객체는 로그에 없어 추출되지 않는다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_MovesTheRenameEventToTheNewName()
+        {
+            var folded = StateTracker.FoldRenames(new[] { TableRow(1, "p_old", "RENAME", "p_new") });
+
+            Assert.That(folded.Single(r => r.EventType == "RENAME").ObjectName, Is.EqualTo("p_new"));
+        }
+
+        /// <summary>
+        /// 이름이 바뀌기 전에 그 객체에 일어난 일도 새 이름의 이력이다. 옮기지 않으면
+        /// 사라진 이름이 목록에 남는다 - SSMS 테이블 디자이너의 Tmp_ 테이블이 그것이다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_MovesEarlierEventsOfTheOldNameToTheNewName()
+        {
+            var folded = StateTracker.FoldRenames(new[]
+            {
+                TableRow(2, "Tmp_T", "RENAME", "T"),
+                TableRow(1, "Tmp_T", "CREATE_TABLE")
+            });
+
+            Assert.That(folded.Where(r => !r.EventType.StartsWith("DROP")).Select(r => r.ObjectName),
+                Is.All.EqualTo("T"));
+        }
+
+        /// <summary>
+        /// 이름이 바뀌면 저장소의 옛 .sql은 남을 이유가 없다. 삭제 행을 내지 않으면
+        /// 그 파일이 영영 고아로 남는다. 저장소에 없던 이름(Tmp_ 테이블)이면 뒤따르는
+        /// DB 대조가 이 행을 걷어낸다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_EmitsADeletionForTheOldName()
+        {
+            var folded = StateTracker.FoldRenames(new[] { TableRow(1, "p_old", "RENAME", "p_new") });
+
+            var vanished = folded.Single(r => r.ObjectName == "p_old");
+            Assert.That(StateTracker.MapEventTypeToState(vanished.EventType), Is.EqualTo("Deleted"));
+        }
+
+        [Test]
+        public void FoldRenames_FollowsAChainOfRenames()
+        {
+            var folded = StateTracker.FoldRenames(new[]
+            {
+                TableRow(3, "B", "RENAME", "C"),
+                TableRow(2, "A", "RENAME", "B"),
+                TableRow(1, "A", "CREATE_TABLE")
+            });
+
+            Assert.That(folded.Where(r => !r.EventType.StartsWith("DROP")).Select(r => r.ObjectName), Is.All.EqualTo("C"));
+        }
+
+        /// <summary>
+        /// 같은 이름이 두 번 쓰이면 홉을 고를 때 순서가 갈린다. 옛 이름의 행은 그 이름이
+        /// <em>처음</em> 비워졌을 때 따라가야 한다 - 나중의 이름 변경은 그때 만들어진 다른
+        /// 객체의 이야기다. 최신 것을 먼저 집으면 서로 다른 두 객체가 한 항목으로 뭉친다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_FollowsTheEarliestRename_WhenTheOldNameWasReused()
+        {
+            var folded = StateTracker.FoldRenames(new[]
+            {
+                TableRow(30, "A", "RENAME", "C"),
+                TableRow(20, "A", "CREATE_TABLE"),
+                TableRow(10, "A", "RENAME", "B"),
+                TableRow(5, "A", "ALTER_TABLE")
+            });
+
+            Assert.That(folded.Single(r => r.Id == 5 && r.EventType == "ALTER_TABLE").ObjectName,
+                Is.EqualTo("B"), "Id 10에서 B가 된 원래 객체의 이력이다");
+            Assert.That(folded.Single(r => r.Id == 20).ObjectName,
+                Is.EqualTo("C"), "Id 20에서 새로 만든 객체는 Id 30에서 C가 된다");
+        }
+
+        /// <summary>
+        /// 컬럼 이름 변경은 부모 테이블의 수정으로 정규화된다. 그때 컬럼의 새 이름이 따라
+        /// 올라오면 테이블이 컬럼 이름으로 접힌다 - 지금은 NormalizeRow가 그 속성을 옮기지
+        /// 않는 것으로만 지켜지고 있어, 복사 헬퍼로 바뀌면 조용히 깨진다.
+        /// </summary>
+        [Test]
+        public void NormalizeRow_DoesNotCarryTheNewNameToTheParent_ForAColumnRename()
+        {
+            var normalized = StateTracker.NormalizeRow(new ChangeLogRow
+            {
+                Id = 1, SchemaName = "dbo", ObjectName = "OldColumn", ObjectType = "COLUMN",
+                EventType = "RENAME", NewObjectName = "NewColumn",
+                TargetObjectName = "Orders", TargetObjectType = "TABLE"
+            });
+
+            Assert.That(normalized.ObjectName, Is.EqualTo("Orders"));
+            Assert.That(normalized.NewObjectName, Is.Null,
+                "컬럼의 새 이름을 테이블 행에 남기면 FoldRenames가 테이블을 컬럼 이름으로 접는다");
+        }
+
+        /// <summary>
+        /// 입력 행을 제자리에서 고치면 두 번 부를 때 두 번 접힌다. 호출자가 같은 목록을
+        /// 다시 쓰는 것을 막을 방법이 없으므로 새 행을 낸다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_DoesNotMutateTheRowsItWasGiven()
+        {
+            var input = new[] { TableRow(1, "p_old", "RENAME", "p_new") };
+
+            StateTracker.FoldRenames(input);
+
+            Assert.That(input[0].ObjectName, Is.EqualTo("p_old"));
+        }
+
+        /// <summary>
+        /// 이름이 비어 있는 행 하나가 새로고침 전체를 무너뜨려서는 안 된다.
+        /// 다른 소비자들은 모두 먼저 걸러 낸다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_SkipsRowsWithNoObjectName()
+        {
+            Assert.DoesNotThrow(() => StateTracker.FoldRenames(new[]
+            {
+                TableRow(2, "T", "RENAME", "U"),
+                TableRow(1, "   ", "ALTER_TABLE")
+            }));
+        }
+
+        /// <summary>
+        /// v4 이전에 쌓인 RENAME 행은 새 이름을 담고 있지 않다. 지어낼 근거가 없으므로 둔다 -
+        /// 그런 행이 남긴 유령 항목은 DB 대조(ReconcileWithDatabase)가 걷어낸다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_LeavesTheRowAlone_WhenTheNewNameIsUnknown()
+        {
+            var folded = StateTracker.FoldRenames(new[] { TableRow(1, "Tmp_T", "RENAME") });
+
+            Assert.That(folded.Single().ObjectName, Is.EqualTo("Tmp_T"),
+                "새 이름을 모르면 옮길 곳도, 삭제로 볼 근거도 없다");
+        }
+
+        /// <summary>
+        /// 이름을 비운 뒤 같은 이름으로 새 객체를 만들 수 있다. 그 뒤의 행까지 옮기면
+        /// 서로 다른 두 객체가 한 항목으로 뭉친다.
+        /// </summary>
+        [Test]
+        public void FoldRenames_DoesNotMoveRowsRecordedAfterTheRename()
+        {
+            var folded = StateTracker.FoldRenames(new[]
+            {
+                TableRow(3, "A", "CREATE_TABLE"),
+                TableRow(2, "A", "RENAME", "B")
+            });
+
+            Assert.That(folded.Single(r => r.EventType == "CREATE_TABLE").ObjectName, Is.EqualTo("A"));
+        }
+
+        /// <summary>
+        /// 실제로 터진 경로. SSMS 테이블 디자이너로 열 형식만 바꾸면 이 네 행이 남는다.
+        /// 접기가 없으면 Table_3의 최신 이벤트가 DROP_TABLE이라 살아 있는 테이블이 삭제로 뜨고,
+        /// 커밋하면 WorkingTreeCleaner가 저장소에서 그 .sql을 지운다.
+        /// </summary>
+        [Test]
+        public void BuildChangeSet_ReportsTheLiveTableAsModified_WhenTheDesignerRebuiltIt()
+        {
+            var tracker = NewTracker();
+            var folded = StateTracker.FoldRenames(new[]
+            {
+                TableRow(17, "Tmp_Table_3", "RENAME", "Table_3"),
+                TableRow(16, "Table_3", "DROP_TABLE"),
+                TableRow(15, "Tmp_Table_3", "ALTER_TABLE"),
+                TableRow(14, "Tmp_Table_3", "CREATE_TABLE")
+            });
+
+            // 생산 흐름과 같은 순서다. 대조가 없으면 사라진 Tmp_ 이름이 삭제 항목으로 남는다.
+            var changes = StateTracker.ReconcileWithDatabase(
+                tracker.BuildChangeSet(folded, null),
+                existingQualifiedNames: new[] { "dbo.Table_3" },
+                hasRepositoryFile: path => path == "dbo/Tables/Table_3.sql");
+
+            Assert.That(changes.Select(c => c.ObjectName), Is.EqualTo(new[] { "Table_3" }),
+                "Tmp_ 테이블은 존재한 적이 없는 이름이라 목록에 남으면 안 된다");
+            Assert.That(changes.Single().State, Is.EqualTo("Modified"),
+                "살아 있는 테이블이 삭제로 뜨면 커밋 시점에 저장소에서 .sql이 지워진다");
+        }
+
+        // ---------- DB 대조 ----------
+
+        private static ChangeRecord Record(string name, string state, long logId = 1)
+            => new ChangeRecord
+            {
+                Schema = "dbo", ObjectName = name, ObjectType = "TABLE", State = state,
+                QualifiedName = "dbo." + name, RelativePath = "dbo/Tables/" + name + ".sql", LastLogId = logId
+            };
+
+        /// <summary>
+        /// 살아 있는 객체는 삭제일 수 없다. v4 이전에 쌓인 디자이너 재작성 행이 정확히 이 모양이다.
+        /// </summary>
+        [Test]
+        public void ReconcileWithDatabase_TurnsDeletedIntoModified_WhenTheObjectStillExists()
+        {
+            var reconciled = StateTracker.ReconcileWithDatabase(
+                new[] { Record("Table_3", "Deleted") },
+                existingQualifiedNames: new[] { "dbo.Table_3" },
+                hasRepositoryFile: _ => true);
+
+            Assert.That(reconciled.Single().State, Is.EqualTo("Modified"));
+        }
+
+        /// <summary>
+        /// DB에도 없고 저장소에도 없으면 보여 줄 것도 커밋할 것도 없다. 비교창이 빈 채로 뜬다.
+        /// </summary>
+        [Test]
+        public void ReconcileWithDatabase_DropsRecords_ThatExistInNeitherTheDatabaseNorTheRepository()
+        {
+            var reconciled = StateTracker.ReconcileWithDatabase(
+                new[] { Record("Tmp_Table_3", "Modified") },
+                existingQualifiedNames: System.Array.Empty<string>(),
+                hasRepositoryFile: _ => false);
+
+            Assert.That(reconciled, Is.Empty);
+        }
+
+        /// <summary>
+        /// 진짜로 지워진 객체는 DB에 없지만 저장소에는 .sql이 남아 있다. 그것까지 걷어내면
+        /// 삭제가 영영 커밋되지 않는다.
+        /// </summary>
+        [Test]
+        public void ReconcileWithDatabase_KeepsDeletedRecords_WhenTheRepositoryStillHasTheFile()
+        {
+            var reconciled = StateTracker.ReconcileWithDatabase(
+                new[] { Record("Gone", "Deleted") },
+                existingQualifiedNames: System.Array.Empty<string>(),
+                hasRepositoryFile: _ => true);
+
+            Assert.That(reconciled.Single().State, Is.EqualTo("Deleted"));
+        }
+
         // ---------- 변경 집합 구성 ----------
 
         [Test]
@@ -109,6 +409,22 @@ namespace DBVC.Core.Tests
             Assert.That(changes[0].QualifiedName, Is.EqualTo("dbo.vw_Legacy"));
             Assert.That(changes[0].State, Is.EqualTo("Added"));
             Assert.That(changes[0].RelativePath, Is.EqualTo("dbo/Views/vw_Legacy.sql"));
+        }
+
+        /// <summary>
+        /// Git 폴백이 작업자 필터를 새게 하던 자리. 남의 미처리 변경도 추출되어 파일이 더러워지므로,
+        /// 폴백을 그대로 두면 걸러낸 항목이 전부 목록으로 돌아왔다.
+        /// </summary>
+        [Test]
+        public void BuildChangeSet_OmitsDirtyFiles_WhenTheirOnlyLogRowsBelongToSomeoneElse()
+        {
+            var tracker = NewTracker();
+            var gitStates = new Dictionary<string, string> { ["dbo/Tables/Theirs.sql"] = "Modified" };
+
+            var changes = tracker.BuildChangeSet(
+                System.Array.Empty<ChangeLogRow>(), gitStates, new[] { "dbo/Tables/Theirs.sql" });
+
+            Assert.That(changes, Is.Empty);
         }
 
         [Test]
@@ -330,20 +646,25 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
-        public void RequiredSchemaVersion_IsThree()
+        public void RequiredSchemaVersion_IsFour()
         {
             // 설치 스크립트가 심는 값과 같아야 한다. 어긋나면 모든 사용자에게 업데이트 배너가 계속 뜨거나
             // 구버전이 최신으로 읽힌다. 스크립트 쪽 값은 InstallScriptSyncTests가 대조한다.
-            Assert.That(StateTracker.RequiredSchemaVersion, Is.EqualTo(3));
+            Assert.That(StateTracker.RequiredSchemaVersion, Is.EqualTo(4));
         }
 
         [Test]
-        public void PendingChangesByAuthorQuery_FiltersByBothLoginAndHost()
+        [TestCase("other", "PC-A", TestName = "PartitionByAuthor_SeparatesByLogin")]
+        [TestCase("sa", "PC-B", TestName = "PartitionByAuthor_SeparatesByHost")]
+        public void PartitionByAuthor_UsesBothLoginAndHost(string rowLogin, string rowHost)
         {
             // 공용 계정 환경에서는 LoginName이 상수라 HostName이 일을 한다.
             // 계정을 사람별로 나눈 환경에서는 둘 다 의미가 있다. 규칙을 두 번 만들지 않는다.
-            Assert.That(StateTracker.PendingChangesByAuthorQuery, Does.Contain("@login"));
-            Assert.That(StateTracker.PendingChangesByAuthorQuery, Does.Contain("@host"));
+            var result = StateTracker.PartitionByAuthor(
+                new[] { RowBy(1, "T", rowLogin, rowHost) }, "sa", "PC-A");
+
+            Assert.That(result.Mine, Is.Empty);
+            Assert.That(result.ForeignPaths, Has.Count.EqualTo(1));
         }
 
         [Test]

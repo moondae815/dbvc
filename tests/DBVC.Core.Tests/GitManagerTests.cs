@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -305,12 +305,13 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
-        public void CommitChanges_ReturnsFalse_WhenDatabaseIsNotMapped()
+        public void CommitChanges_ReportsNotMapped_WhenDatabaseIsNotMapped()
         {
             var configPath = Path.Combine(NewTempDir(), "mappings.json");
             var git = new GitManager(new ConfigManager(configPath));
 
-            Assert.That(git.CommitChanges("localhost", "testdb", "test"), Is.False);
+            Assert.That(git.CommitChanges("localhost", "testdb", "test"),
+                Is.EqualTo(GitCommitResult.NotMapped));
         }
 
         [Test]
@@ -322,20 +323,36 @@ namespace DBVC.Core.Tests
 
             var result = git.CommitChanges("localhost", "testdb", "Add Orders");
 
-            Assert.That(result, Is.True);
+            Assert.That(result, Is.EqualTo(GitCommitResult.Committed));
             using var repo = new Repository(repoPath);
             Assert.That(repo.Head.Tip.Message.TrimEnd(), Is.EqualTo("Add Orders"));
         }
 
         [Test]
-        public void CommitChanges_ReturnsFalse_WhenThereIsNothingToCommit()
+        public void CommitChanges_ReportsNothingToCommit_WhenTheFilesAlreadyMatchTheRepository()
         {
             var repoPath = NewRepoWithCommit();
             var git = NewGitManager("localhost", "testdb", repoPath);
 
             var result = git.CommitChanges("localhost", "testdb", "empty");
 
-            Assert.That(result, Is.False, "스테이징할 변경이 없으면 예외 대신 false를 반환해야 합니다");
+            // "커밋할 것이 없다"와 "커밋할 수 없다"는 다르다. 전자는 저장소가 이미 DB와 같다는
+            // 뜻이라 그 로그 행은 닫아야 하고, 후자는 아무것도 건드리면 안 된다.
+            Assert.That(result, Is.EqualTo(GitCommitResult.NothingToCommit),
+                "스테이징할 변경이 없으면 예외 대신 NothingToCommit이어야 합니다");
+        }
+
+        [Test]
+        public void CommitChanges_ReportsNothingSelected_WhenTheCallerPassesNoPaths()
+        {
+            var repoPath = NewRepoWithCommit();
+            WriteRepoFile(repoPath, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);");
+            var git = NewGitManager("localhost", "testdb", repoPath);
+
+            // 더러운 파일이 있어도 아무것도 고르지 않았으면 커밋할 것이 없는 것과 다르다.
+            var result = git.CommitChanges("localhost", "testdb", "none", new string[0]);
+
+            Assert.That(result, Is.EqualTo(GitCommitResult.NothingSelected));
         }
 
         [Test]
@@ -348,7 +365,7 @@ namespace DBVC.Core.Tests
 
             var result = git.CommitChanges("localhost", "testdb", "Only orders", new[] { "dbo/Tables/Orders.sql" });
 
-            Assert.That(result, Is.True);
+            Assert.That(result, Is.EqualTo(GitCommitResult.Committed));
             using var repo = new Repository(repoPath);
             var committedPaths = repo.Diff
                 .Compare<TreeChanges>(repo.Head.Tip.Parents.First().Tree, repo.Head.Tip.Tree)
@@ -371,7 +388,7 @@ namespace DBVC.Core.Tests
 
             var result = git.CommitChanges("localhost", "testdb", "Drop Users", new[] { "dbo/Tables/Users.sql" });
 
-            Assert.That(result, Is.True);
+            Assert.That(result, Is.EqualTo(GitCommitResult.Committed));
             using var repo = new Repository(repoPath);
             Assert.That(repo.Head.Tip.Tree["dbo/Tables/Users.sql"], Is.Null,
                 "삭제된 파일이 새 HEAD 트리에는 남아 있으면 안 됩니다");
@@ -398,7 +415,7 @@ namespace DBVC.Core.Tests
             var result = git.CommitChanges("localhost", "testdb", "Drop Users, modify Orders",
                 new[] { "dbo/Tables/Users.sql", "dbo/Tables/Orders.sql" });
 
-            Assert.That(result, Is.True);
+            Assert.That(result, Is.EqualTo(GitCommitResult.Committed));
             using var repo = new Repository(repoPath);
             Assert.That(repo.Head.Tip.Tree["dbo/Tables/Users.sql"], Is.Null,
                 "삭제는 함께 커밋된 수정과 무관하게 반영되어야 합니다");

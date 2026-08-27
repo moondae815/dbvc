@@ -19,7 +19,7 @@ namespace DBVC.Core
     public class StateTracker : IStateTracker
     {
         /// <summary>설치 스크립트가 심는 스키마 버전. 이 값보다 낮으면 도구 창이 업데이트를 안내한다.</summary>
-        public const int RequiredSchemaVersion = 3;
+        public const int RequiredSchemaVersion = 4;
 
         /// <summary>
         /// 설치 상태를 한 번의 왕복으로 판정한다.
@@ -42,23 +42,9 @@ END";
         /// 아직 처리(커밋)되지 않은 DDL 이벤트만 최신순으로 읽는다. 전체 보기용이다.
         /// </summary>
         internal const string PendingChangesQuery = @"
-SELECT Id, SchemaName, ObjectName, ObjectType, EventType, TargetObjectName, TargetObjectType, LoginName, HostName
+SELECT Id, SchemaName, ObjectName, ObjectType, EventType, TargetObjectName, TargetObjectType, LoginName, HostName, NewObjectName
 FROM dbo.DBVC_ChangeLog
 WHERE IsProcessed = 0
-ORDER BY PostTime DESC, Id DESC";
-
-        /// <summary>
-        /// 지금 이 접속의 작업자가 낸 이벤트만 읽는다. 기본 화면이 쓰는 쿼리다.
-        ///
-        /// 두 쿼리를 문자열 결합 대신 따로 두는 이유는 읽기와 테스트 때문이다 -
-        /// WHERE를 조립하면 어느 조합이 실제로 나가는지 눈으로 확인할 수 없다.
-        /// </summary>
-        internal const string PendingChangesByAuthorQuery = @"
-SELECT Id, SchemaName, ObjectName, ObjectType, EventType, TargetObjectName, TargetObjectType, LoginName, HostName
-FROM dbo.DBVC_ChangeLog
-WHERE IsProcessed = 0
-  AND ISNULL(LoginName, N'') = ISNULL(@login, N'')
-  AND ISNULL(HostName, N'') = ISNULL(@host, N'')
 ORDER BY PostTime DESC, Id DESC";
 
         /// <summary>
@@ -67,6 +53,20 @@ ORDER BY PostTime DESC, Id DESC";
         /// 필터가 전부를 걸러내 목록이 항상 빈다.
         /// </summary>
         internal const string CurrentAuthorQuery = "SELECT SUSER_SNAME(), HOST_NAME()";
+
+        /// <summary>
+        /// 지금 DB에 실제로 있는 사용자 객체. 로그만 믿으면 존재하지 않는 객체가 목록에 남고,
+        /// 살아 있는 객체가 삭제로 뜬다(디자이너가 테이블을 재작성한 뒤가 그렇다).
+        /// 사용자 정의 형식은 sys.objects에 없어 sys.types를 함께 읽는다.
+        ///
+        /// 이름만 보고 타입은 보지 않는다. 그래서 같은 이름의 테이블과 사용자 정의 형식이
+        /// 함께 있을 때 테이블만 지우면 그 삭제가 가려진다 - 드물고, 놓치는 쪽이 "삭제를
+        /// 늦게 안다"라서 파일을 잘못 지우는 것보다 안전한 방향이라 그대로 둔다.
+        /// </summary>
+        internal const string ExistingObjectsQuery = @"
+SELECT SCHEMA_NAME(schema_id) + N'.' + name FROM sys.objects WHERE is_ms_shipped = 0
+UNION ALL
+SELECT SCHEMA_NAME(schema_id) + N'.' + name FROM sys.types WHERE is_user_defined = 1";
 
         /// <summary>
         /// <see cref="NormalizeRow"/>가 부모 객체의 수정으로 바꿔치우는 자식 이벤트 타입.
@@ -283,12 +283,22 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             }
 
             List<ChangeLogRow> rows;
+            IReadOnlyCollection<string> foreignPaths = Array.Empty<string>();
             try
             {
                 var connectionString = BuildConnectionString(serverName, databaseName);
-                rows = ReadPendingRows(
-                    connectionString,
-                    includeAllAuthors ? null : (ValueTuple<string?, string?>?)ReadCurrentAuthor(connectionString));
+
+                // 좁힐 때도 전체를 읽는다. 남이 만진 경로가 무엇인지 알아야 Git 폴백이 그것을
+                // 도로 넣지 않는다 - 추출은 작업자를 가리지 않으므로 남의 .sql도 더럽게 보인다.
+                rows = ReadPendingRows(connectionString);
+
+                if (!includeAllAuthors)
+                {
+                    var current = ReadCurrentAuthor(connectionString);
+                    var partitioned = PartitionByAuthor(rows, current.Login, current.Host);
+                    rows = partitioned.Mine;
+                    foreignPaths = partitioned.ForeignPaths;
+                }
             }
             catch (Exception ex)
             {
@@ -297,7 +307,28 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             }
 
             var gitStates = _gitManager.GetChangedFileStates(mapping.GitPath);
-            ApplyChangeSet(serverName, databaseName, BuildChangeSet(rows, gitStates));
+            var records = BuildChangeSet(rows, gitStates, foreignPaths);
+
+            try
+            {
+                records = ReconcileWithDatabase(
+                    records,
+                    ReadExistingObjectNames(BuildConnectionString(serverName, databaseName)),
+                    // Git을 먼저 본다. WorkingTreeCleaner가 첫 새로고침 끝에 삭제된 객체의 .sql을
+                    // 지우므로, 파일 존재만 보면 두 번째 새로고침에서 그 삭제가 목록에서 사라진다 -
+                    // 선택할 수 없으니 커밋에도 담기지 않아 저장소에 .sql이 영영 남는다.
+                    // Git은 그 파일을 여전히 "삭제됨"으로 보고 있다.
+                    relativePath => (gitStates != null && gitStates.ContainsKey(relativePath))
+                        || File.Exists(Path.Combine(
+                            mapping.GitPath, relativePath.Replace('/', Path.DirectorySeparatorChar))));
+            }
+            catch (Exception ex)
+            {
+                // 대조하지 못하는 것이 새로고침을 무너뜨릴 이유는 되지 않는다. 보정 없이 간다.
+                Debug.WriteLine($"StateTracker.ReconcileWithDatabase skipped for '{serverName}.{databaseName}': {ex.Message}");
+            }
+
+            ApplyChangeSet(serverName, databaseName, records);
             return true;
         }
 
@@ -320,7 +351,7 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             {
                 // 추출 대상은 작업자로 좁히지 않는다. 파일을 쓰는 것과 커밋에 담는 것은 다른 문제이고,
                 // 남의 변경을 추출에서 빼면 그 객체의 파일이 낡은 채로 남아 다음 커밋에 섞여 들어간다.
-                return ToQualifiedNames(ReadPendingRows(BuildConnectionString(serverName, databaseName), null));
+                return ToQualifiedNames(ReadPendingRows(BuildConnectionString(serverName, databaseName)));
             }
             catch (Exception ex)
             {
@@ -363,6 +394,8 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
                 // 압도적으로 테이블이라 틀릴 확률이 가장 낮은 추측이다.
                 ObjectType = string.IsNullOrWhiteSpace(row.TargetObjectType) ? "TABLE" : row.TargetObjectType!.Trim(),
                 EventType = "ALTER_TABLE",
+                // NewObjectName은 옮기지 않는다. 컬럼 이름 변경에서 그것은 새 "컬럼" 이름이지
+                // 테이블의 새 이름이 아니다 - 옮기면 테이블이 컬럼 이름으로 접힌다.
                 TargetObjectName = row.TargetObjectName,
                 TargetObjectType = row.TargetObjectType,
                 LoginName = row.LoginName,
@@ -393,25 +426,14 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             return names;
         }
 
-        /// <param name="author">null이면 전체를 읽는다(전체 보기).</param>
-        private static List<ChangeLogRow> ReadPendingRows(string connectionString, (string? Login, string? Host)? author)
+        private static List<ChangeLogRow> ReadPendingRows(string connectionString)
         {
             var rows = new List<ChangeLogRow>();
 
             using var conn = new SqlConnection(connectionString);
             conn.Open();
             using var cmd = conn.CreateCommand();
-
-            if (author == null)
-            {
-                cmd.CommandText = PendingChangesQuery;
-            }
-            else
-            {
-                cmd.CommandText = PendingChangesByAuthorQuery;
-                cmd.Parameters.AddWithValue("@login", (object?)author.Value.Login ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@host", (object?)author.Value.Host ?? DBNull.Value);
-            }
+            cmd.CommandText = PendingChangesQuery;
 
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
@@ -426,17 +448,246 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
                     TargetObjectName = reader.IsDBNull(5) ? null : reader.GetString(5),
                     TargetObjectType = reader.IsDBNull(6) ? null : reader.GetString(6),
                     LoginName = reader.IsDBNull(7) ? null : reader.GetString(7),
-                    HostName = reader.IsDBNull(8) ? null : reader.GetString(8)
+                    HostName = reader.IsDBNull(8) ? null : reader.GetString(8),
+                    NewObjectName = reader.IsDBNull(9) ? null : reader.GetString(9)
                 }));
             }
 
-            return rows;
+            // 이름 변경 접기는 행을 가로질러 보아야 하므로 읽기가 끝난 뒤에 한 번 돈다.
+            // 여기서 하는 이유는 추출 대상과 화면 목록이 같은 입구를 쓰기 때문이다 -
+            // 한쪽만 접으면 목록은 새 이름을 보여 주는데 추출은 옛 이름을 찾는다.
+            return FoldRenames(rows);
         }
+
+        /// <summary>
+        /// <c>RENAME</c> 행이 가리키는 옛 이름을 새 이름으로 옮긴다.
+        ///
+        /// sp_rename은 ObjectName에 옛 이름만 남긴다. 그대로 두면 두 가지가 동시에 깨진다 -
+        /// 존재하지 않는 이름이 목록에 유령으로 뜨고, 정작 바뀐 객체는 로그 어디에도 없어
+        /// 추출되지 않는다. SSMS 테이블 디자이너가 열 형식을 바꿀 때 내는
+        /// "Tmp_ 테이블을 만들고 원본을 DROP한 뒤 이름을 바꾼다"가 이 경로를 매번 밟는다.
+        /// 그때 원본의 최신 이벤트는 DROP_TABLE이라, 접지 않으면 살아 있는 테이블이 삭제로
+        /// 뜨고 커밋 시점에 저장소에서 .sql이 지워진다.
+        ///
+        /// 옮기는 것은 이름이 바뀌기 전(Id가 그 이하)의 행뿐이다. 이름을 비운 뒤 같은 이름으로
+        /// 새로 만든 객체는 다른 객체이므로 함께 접으면 둘이 한 항목으로 뭉친다.
+        ///
+        /// 옛 이름에는 삭제 행을 하나 남긴다. 저장소에 그 이름의 .sql이 있었다면 지워야 하고,
+        /// 없었다면(Tmp_ 테이블이 그렇다) 뒤따르는 DB 대조가 그 행을 걷어낸다.
+        /// </summary>
+        internal static List<ChangeLogRow> FoldRenames(IEnumerable<ChangeLogRow> newestFirst)
+        {
+            var rows = (newestFirst ?? Enumerable.Empty<ChangeLogRow>()).Where(r => r != null).ToList();
+
+            var renames = rows
+                .Where(r => string.Equals(r.EventType?.Trim(), "RENAME", StringComparison.OrdinalIgnoreCase)
+                            && !string.IsNullOrWhiteSpace(r.NewObjectName)
+                            && !string.IsNullOrWhiteSpace(r.ObjectName))
+                .Select(r => new RenameHop
+                {
+                    OldPath = RelativePathOf(r),
+                    Id = r.Id,
+                    NewName = r.NewObjectName!.Trim(),
+                    Vanished = new ChangeLogRow
+                    {
+                        Id = r.Id,
+                        SchemaName = r.SchemaName,
+                        ObjectName = r.ObjectName,
+                        ObjectType = r.ObjectType,
+                        // 이름이 바뀌면 옛 이름의 객체는 더 이상 없다. 상태 판정이 쓰는 것은
+                        // 접두사뿐이므로 원래 타입을 붙여 사람이 읽을 수 있게 둔다.
+                        EventType = "DROP_" + (r.ObjectType ?? string.Empty).Trim(),
+                        LoginName = r.LoginName,
+                        HostName = r.HostName
+                    }
+                })
+                // 오래된 것부터 본다. 한 이름이 두 번 쓰였을 때 옛 행은 그 이름이 "처음"
+                // 비워졌을 때를 따라가야 한다 - 나중의 이름 변경은 그때 만들어진 다른 객체다.
+                .OrderBy(x => x.Id)
+                .ToList();
+
+            if (renames.Count == 0) return rows;
+
+            var folded = new List<ChangeLogRow>(rows.Count + renames.Count);
+
+            foreach (var row in rows)
+            {
+                // 이름이 없는 행은 경로를 물을 수 없다. 하나 때문에 새로고침 전체가 무너지지 않게 둔다.
+                if (string.IsNullOrWhiteSpace(row.ObjectName))
+                {
+                    folded.Add(row);
+                    continue;
+                }
+
+                var name = row.ObjectName;
+                var since = row.Id;
+
+                // 이름 변경이 이어질 수 있다(A->B->C). 홉 수는 이름 변경 개수를 넘지 않는다.
+                for (var hop = 0; hop < renames.Count; hop++)
+                {
+                    var path = ObjectPathConvention.GetRelativePath(row.SchemaName, row.ObjectType, name);
+                    var next = renames.FirstOrDefault(
+                        x => x.Id >= since && string.Equals(x.OldPath, path, StringComparison.OrdinalIgnoreCase));
+                    if (next == null) break;
+
+                    name = next.NewName;
+                    // 워터마크를 올린다. 그러지 않으면 이 홉보다 앞선 이름 변경으로 되돌아간다.
+                    since = next.Id;
+                }
+
+                folded.Add(string.Equals(name, row.ObjectName, StringComparison.Ordinal) ? row : WithName(row, name));
+            }
+
+            folded.AddRange(renames.Select(x => x.Vanished));
+            return folded;
+        }
+
+        private sealed class RenameHop
+        {
+            public string OldPath { get; set; } = string.Empty;
+            public long Id { get; set; }
+            public string NewName { get; set; } = string.Empty;
+            public ChangeLogRow Vanished { get; set; } = new ChangeLogRow();
+        }
+
+        /// <summary>
+        /// 이름만 바꾼 사본. 입력 행을 제자리에서 고치면 두 번 부를 때 두 번 접힌다.
+        /// 로그에 실제로 저장된 이름은 <see cref="ChangeLogRow.SourceObjectName"/>에 남긴다 -
+        /// 커밋 뒤 그 행을 닫으려면 물리 이름이 필요하다.
+        /// </summary>
+        private static ChangeLogRow WithName(ChangeLogRow row, string name)
+            => new ChangeLogRow
+            {
+                Id = row.Id,
+                SchemaName = row.SchemaName,
+                ObjectName = name,
+                ObjectType = row.ObjectType,
+                EventType = row.EventType,
+                TargetObjectName = row.TargetObjectName,
+                TargetObjectType = row.TargetObjectType,
+                SourceObjectName = row.SourceObjectName ?? row.ObjectName,
+                NewObjectName = row.NewObjectName,
+                LoginName = row.LoginName,
+                HostName = row.HostName
+            };
+
+        private static string RelativePathOf(ChangeLogRow row)
+            => ObjectPathConvention.GetRelativePath(row.SchemaName, row.ObjectType, row.ObjectName);
+
+        /// <summary>
+        /// 변경 목록을 DB의 실제 모습과 대조해 보정한다.
+        ///
+        /// 로그는 과거의 기록이라 지금과 어긋날 수 있다. 두 가지만 고친다:
+        /// 살아 있는 객체는 삭제일 수 없고, DB에도 저장소에도 없는 이름은 보여 줄 것도
+        /// 커밋할 것도 없다. 후자를 저장소 유무까지 보고 판단하는 이유는, 진짜로 지워진 객체는
+        /// DB에 없지만 저장소에는 .sql이 남아 있기 때문이다 - 그것까지 걷어내면 삭제가 영영
+        /// 커밋되지 않는다.
+        ///
+        /// v4 이전에 쌓인 RENAME 행은 새 이름을 담고 있지 않아 접을 수 없다. 그런 행이 남긴
+        /// 유령 항목을 걷어내는 것도 여기다.
+        /// </summary>
+        internal static IReadOnlyList<ChangeRecord> ReconcileWithDatabase(
+            IEnumerable<ChangeRecord> records,
+            IEnumerable<string> existingQualifiedNames,
+            Func<string, bool> hasRepositoryFile)
+        {
+            var existing = new HashSet<string>(
+                existingQualifiedNames ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+
+            var kept = new List<ChangeRecord>();
+
+            foreach (var record in records ?? Enumerable.Empty<ChangeRecord>())
+            {
+                if (record == null) continue;
+
+                if (existing.Contains(record.QualifiedName))
+                {
+                    if (string.Equals(record.State, "Deleted", StringComparison.OrdinalIgnoreCase))
+                    {
+                        record.State = "Modified";
+                    }
+
+                    kept.Add(record);
+                    continue;
+                }
+
+                if (hasRepositoryFile != null && hasRepositoryFile(record.RelativePath))
+                {
+                    kept.Add(record);
+                }
+            }
+
+            return kept;
+        }
+
+        /// <summary>
+        /// 로그 행을 "내 것"과 "남의 것"으로 가른다.
+        ///
+        /// 이전에는 SQL의 WHERE가 하던 일이다. 메모리로 옮긴 이유는 남이 만진 경로까지
+        /// 알아야 하기 때문이다 - 추출은 작업자를 가리지 않으므로 남의 객체도 .sql이 써지고,
+        /// 그 파일이 Git에서 더럽게 보인다. 그 목록을 넘기지 않으면 BuildChangeSet의 Git 폴백이
+        /// 방금 걸러낸 항목을 그대로 도로 넣어 필터가 통째로 샌다.
+        ///
+        /// 비교 규칙은 SQL이 하던 ISNULL 비교를 따른다. v3 이전에 쌓인 행은 HostName이
+        /// NULL이라, 이것을 빈 문자열과 다르게 보면 판정이 달라진다. 다만 정확히 같지는 않다 -
+        /// 데이터 정렬과 달리 후행 공백을 무시하지 않고, 대소문자는 항상 무시한다. 어긋나는
+        /// 쪽이 "내 것"이므로 남의 것을 내 것으로 볼 뿐 그 반대는 없다.
+        /// </summary>
+        internal static (List<ChangeLogRow> Mine, IReadOnlyCollection<string> ForeignPaths) PartitionByAuthor(
+            IEnumerable<ChangeLogRow> rows, string? login, string? host)
+        {
+            var mine = new List<ChangeLogRow>();
+            var minePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var foreignPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var row in rows ?? Enumerable.Empty<ChangeLogRow>())
+            {
+                if (row == null || string.IsNullOrWhiteSpace(row.ObjectName)) continue;
+
+                var path = ObjectPathConvention.GetRelativePath(row.SchemaName, row.ObjectType, row.ObjectName);
+
+                if (SameAuthorValue(row.LoginName, login) && SameAuthorValue(row.HostName, host))
+                {
+                    mine.Add(row);
+                    minePaths.Add(path);
+                }
+                else
+                {
+                    foreignPaths.Add(path);
+                }
+            }
+
+            // 같은 객체를 둘이 만졌으면 내 것이다. 목록에서 지우는 대신 커밋 시점의 확인
+            // 대화상자가 남도 만졌다는 사실을 알린다.
+            foreignPaths.ExceptWith(minePaths);
+            return (mine, foreignPaths);
+        }
+
+        private static bool SameAuthorValue(string? left, string? right)
+            => string.Equals(left ?? string.Empty, right ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// 지금 이 접속이 서버에서 어떻게 보이는지 읽는다. 트리거가 기록하는 값과 같은 함수를
         /// 같은 접속에서 부르므로 정의상 일치한다.
         /// </summary>
+        private static List<string> ReadExistingObjectNames(string connectionString)
+        {
+            var names = new List<string>();
+
+            using var conn = new SqlConnection(connectionString);
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = ExistingObjectsQuery;
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                if (!reader.IsDBNull(0)) names.Add(reader.GetString(0));
+            }
+
+            return names;
+        }
+
         private static (string? Login, string? Host) ReadCurrentAuthor(string connectionString)
         {
             using var conn = new SqlConnection(connectionString);
@@ -455,17 +706,38 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
         /// DDL 로그 행과 Git 작업 트리 상태를 종합해 객체별 최종 변경 목록을 만든다.
         /// 로그 행은 최신순으로 정렬되어 있다고 가정한다.
         /// </summary>
+        /// <param name="foreignPaths">
+        /// 남의 미처리 로그 행만 가리키는 경로. Git 폴백이 이것을 다시 넣으면 작업자 필터가 샌다.
+        /// </param>
         internal IReadOnlyList<ChangeRecord> BuildChangeSet(
             IEnumerable<ChangeLogRow> rows,
-            IReadOnlyDictionary<string, string>? gitStates)
+            IReadOnlyDictionary<string, string>? gitStates,
+            IReadOnlyCollection<string>? foreignPaths = null)
         {
             var byPath = new Dictionary<string, ChangeRecord>(StringComparer.OrdinalIgnoreCase);
+            var sourceNames = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var row in rows ?? Enumerable.Empty<ChangeLogRow>())
             {
                 if (string.IsNullOrWhiteSpace(row.ObjectName)) continue;
 
                 var relativePath = ObjectPathConvention.GetRelativePath(row.SchemaName, row.ObjectType, row.ObjectName);
+
+                // 물리 이름은 채택 여부와 무관하게 전부 모은다. 접힌 행이 로그에서 어떤 이름을
+                // 갖고 있는지 알아야 커밋 뒤에 그 행을 닫을 수 있다.
+                if (!string.IsNullOrWhiteSpace(row.SourceObjectName))
+                {
+                    if (!sourceNames.TryGetValue(relativePath, out var names))
+                    {
+                        names = new List<string>();
+                        sourceNames[relativePath] = names;
+                    }
+
+                    if (!names.Contains(row.SourceObjectName!, StringComparer.OrdinalIgnoreCase))
+                    {
+                        names.Add(row.SourceObjectName!);
+                    }
+                }
 
                 // 최신 이벤트가 먼저 오므로 처음 본 것만 채택한다.
                 if (byPath.ContainsKey(relativePath)) continue;
@@ -490,9 +762,18 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             // DDL 로그에 없지만 Git에서 변경된 파일도 포함한다(트리거 설치 이전의 변경 등).
             if (gitStates != null)
             {
+                var excluded = foreignPaths == null || foreignPaths.Count == 0
+                    ? null
+                    : new HashSet<string>(foreignPaths, StringComparer.OrdinalIgnoreCase);
+
                 foreach (var pair in gitStates)
                 {
                     if (byPath.ContainsKey(pair.Key)) continue;
+
+                    // 로그에 주인이 있고 그 주인이 내가 아니면 폴백의 대상이 아니다.
+                    // 폴백은 "로그에 아무 근거도 없는 파일"을 구제하려고 있는 것이다.
+                    if (excluded != null && excluded.Contains(pair.Key)) continue;
+
                     if (!ObjectPathConvention.TryParseRelativePath(pair.Key, out var schema, out var objectType, out var objectName)) continue;
 
                     byPath[pair.Key] = new ChangeRecord
@@ -506,6 +787,11 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
                         LastLogId = 0
                     };
                 }
+            }
+
+            foreach (var pair in sourceNames)
+            {
+                if (byPath.TryGetValue(pair.Key, out var record)) record.SourceObjectNames = pair.Value;
             }
 
             return byPath.Values
@@ -559,6 +845,17 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
 
         // ---------- 조회 ----------
 
+        /// <summary>화면의 이름과, 접히기 전 로그에 저장된 이름들.</summary>
+        internal static IEnumerable<string> NamesToClose(ChangeRecord record)
+        {
+            yield return record.ObjectName;
+
+            foreach (var name in record.SourceObjectNames ?? new List<string>())
+            {
+                if (!string.Equals(name, record.ObjectName, StringComparison.OrdinalIgnoreCase)) yield return name;
+            }
+        }
+
         public IReadOnlyList<CoAuthorWarning> GetCoAuthorWarnings(
             string serverName, string databaseName, IEnumerable<string> qualifiedNames)
         {
@@ -567,8 +864,8 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
                 var connectionString = BuildConnectionString(serverName, databaseName);
                 var current = ReadCurrentAuthor(connectionString);
 
-                // 필터 없이 읽는다. "내 변경만" 상태에서도 남이 만졌다는 사실은 알려야 한다.
-                var rows = ReadPendingRows(connectionString, author: null);
+                // "내 변경만" 상태에서도 남이 만졌다는 사실은 알려야 한다.
+                var rows = ReadPendingRows(connectionString);
 
                 return CoAuthorDetector.Detect(rows, qualifiedNames, current.Login, current.Host);
             }
@@ -617,16 +914,21 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
 
                 foreach (var record in targets)
                 {
-                    using var cmd = conn.CreateCommand();
-                    cmd.CommandText = MarkProcessedCommand;
-                    cmd.Parameters.AddWithValue("@lastLogId", record.LastLogId);
-                    cmd.Parameters.AddWithValue("@objectName", record.ObjectName);
-                    cmd.Parameters.AddWithValue("@schemaName", record.Schema ?? ObjectPathConvention.DefaultSchema);
-                    // 현재 사용자가 아니라 레코드의 작업자로 좁힌다. 전체 보기에서 남의 변경을
-                    // 대신 커밋하는 경로가 있고, 현재 사용자로 좁히면 그 행이 영원히 닫히지 않는다.
-                    cmd.Parameters.AddWithValue("@login", (object?)record.Author ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@host", (object?)record.HostName ?? DBNull.Value);
-                    cmd.ExecuteNonQuery();
+                    // 화면의 이름 하나로는 부족하다. 이름 변경을 접었으면 로그의 행은 옛 이름을
+                    // 그대로 갖고 있어, 그것으로도 닫지 않으면 영원히 열린 채 매번 다시 올라온다.
+                    foreach (var name in NamesToClose(record))
+                    {
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = MarkProcessedCommand;
+                        cmd.Parameters.AddWithValue("@lastLogId", record.LastLogId);
+                        cmd.Parameters.AddWithValue("@objectName", name);
+                        cmd.Parameters.AddWithValue("@schemaName", record.Schema ?? ObjectPathConvention.DefaultSchema);
+                        // 현재 사용자가 아니라 레코드의 작업자로 좁힌다. 전체 보기에서 남의 변경을
+                        // 대신 커밋하는 경로가 있고, 현재 사용자로 좁히면 그 행이 영원히 닫히지 않는다.
+                        cmd.Parameters.AddWithValue("@login", (object?)record.Author ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@host", (object?)record.HostName ?? DBNull.Value);
+                        cmd.ExecuteNonQuery();
+                    }
                 }
             }
             catch (Exception ex)

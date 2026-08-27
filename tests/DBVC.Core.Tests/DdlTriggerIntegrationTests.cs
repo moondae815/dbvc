@@ -5,6 +5,7 @@ using System.Linq;
 using Microsoft.Data.SqlClient;
 using NUnit.Framework;
 using DBVC.Core;
+using DBVC.Core.Models;
 
 namespace DBVC.Core.Tests
 {
@@ -432,6 +433,308 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
             var all = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name);
 
             Assert.That(all.Select(c => c.ObjectName), Does.Contain("OtherPcProbe"));
+        }
+
+        /// <summary>
+        /// 작업자 필터가 실제로 새던 자리. 좁히기는 로그 쪽에서 제대로 돌지만, 추출이 작업자를
+        /// 가리지 않으므로 남의 객체도 .sql이 써지고 그 파일이 Git에서 더럽게 보인다. 그러면
+        /// "DDL 로그에 없지만 Git에서 변경된 파일"을 구제하는 폴백이 방금 걸러낸 것을 도로 넣었다.
+        ///
+        /// 위의 RefreshState_ExcludesOtherWorkstationsChanges는 저장소가 아닌 경로를 매핑해
+        /// Git 상태가 늘 비어 있으므로 이 경로를 밟지 못한다. 여기서는 진짜 저장소를 만들고
+        /// 남의 객체 파일을 실제로 놓아 둔다.
+        /// </summary>
+        [Test]
+        public void RefreshState_StillExcludesOtherWorkstationsChanges_WhenTheirFileIsDirtyInGit()
+        {
+            _db!.ExecuteWithWorkstationId("OTHER-PC", "CREATE PROCEDURE dbo.OtherPcDirtyProbe AS SELECT 1");
+            // 내 것이 하나는 남아야 한다. 필터가 전부를 걸러내도 아래 Does.Not.Contain이
+            // 통과해 버리면 테스트가 아무것도 보장하지 않는다.
+            _db.Execute("CREATE PROCEDURE dbo.MyPcDirtyProbe AS SELECT 1");
+
+            var repoPath = Path.Combine(Path.GetTempPath(), "dbvc_repo_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                LibGit2Sharp.Repository.Init(repoPath);
+
+                // 새로고침이 남의 객체까지 추출한 뒤의 모습이다. 미추적 파일이라 Git이 더럽다고 본다.
+                var relative = ObjectPathConvention.GetRelativePath("dbo", "PROCEDURE", "OtherPcDirtyProbe");
+                var full = Path.Combine(repoPath, relative.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                File.WriteAllText(full, "CREATE OR ALTER PROCEDURE dbo.OtherPcDirtyProbe AS SELECT 1");
+
+                var config = NewConfig();
+                config.AddMapping(SqlServerTestDatabase.ServerName, _db.Name, repoPath);
+                var tracker = new StateTracker(config);
+
+                tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: false);
+                var mine = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name);
+
+                Assert.That(mine.Select(c => c.ObjectName), Does.Contain("MyPcDirtyProbe"),
+                    "내 변경은 남아야 한다");
+                Assert.That(mine.Select(c => c.ObjectName), Does.Not.Contain("OtherPcDirtyProbe"),
+                    "파일이 더럽다는 이유로 남의 변경이 목록에 돌아오면 필터가 아무것도 막지 못한다");
+
+                tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
+                var all = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name);
+
+                Assert.That(all.Select(c => c.ObjectName), Does.Contain("OtherPcDirtyProbe"),
+                    "전체 보기에서는 보여야 한다");
+            }
+            finally
+            {
+                TryDeleteRepo(repoPath);
+            }
+        }
+
+        /// <summary>
+        /// 삭제는 새로고침 한 번으로 끝나지 않는다. WorkingTreeCleaner가 첫 새로고침 끝에
+        /// 그 .sql을 지우므로, 두 번째 새로고침에서는 파일이 이미 없다. 존재 확인을
+        /// File.Exists로만 하면 그때 이 항목이 목록에서 사라지고 - 선택할 수 없으니
+        /// 커밋에도 담기지 않아 - 저장소에는 없어진 객체의 .sql이 영원히 남는다.
+        ///
+        /// Git은 그 파일을 "삭제됨"으로 보고 있다. 근거를 파일 시스템이 아니라 Git에서 받아야 한다.
+        /// </summary>
+        [Test]
+        public void RefreshState_KeepsTheDeletion_WhenTheCleanerAlreadyRemovedTheFile()
+        {
+            _db!.Execute("CREATE PROCEDURE dbo.DropTwiceProbe AS SELECT 1");
+            _db.Execute("DROP PROCEDURE dbo.DropTwiceProbe");
+
+            var repoPath = Path.Combine(Path.GetTempPath(), "dbvc_repo_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var relative = ObjectPathConvention.GetRelativePath("dbo", "PROCEDURE", "DropTwiceProbe");
+                var full = Path.Combine(repoPath, relative.Replace('/', Path.DirectorySeparatorChar));
+                CommitFile(repoPath, full, "CREATE OR ALTER PROCEDURE dbo.DropTwiceProbe AS SELECT 1");
+
+                var config = NewConfig();
+                config.AddMapping(SqlServerTestDatabase.ServerName, _db.Name, repoPath);
+                var tracker = new StateTracker(config);
+
+                tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
+                Assert.That(
+                    tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name)
+                        .SingleOrDefault(c => c.ObjectName == "DropTwiceProbe")?.State,
+                    Is.EqualTo("Deleted"), "첫 새로고침에서 삭제로 떠야 한다");
+
+                // WorkingTreeCleaner가 하는 일이다. 커밋하지 않은 채 다시 새로고침하는 것은
+                // 흔한 흐름이다 - 커밋을 취소했거나 실패했을 때가 그렇다.
+                File.Delete(full);
+
+                tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
+                var second = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name)
+                    .SingleOrDefault(c => c.ObjectName == "DropTwiceProbe");
+
+                Assert.That(second, Is.Not.Null,
+                    "삭제가 목록에서 사라지면 선택할 수 없고, 커밋에 담기지 않아 저장소에 .sql이 영영 남는다");
+                Assert.That(second!.State, Is.EqualTo("Deleted"));
+            }
+            finally
+            {
+                TryDeleteRepo(repoPath);
+            }
+        }
+
+        /// <summary>
+        /// 이름을 접으면 화면의 이름과 로그에 저장된 이름이 달라진다. MarkProcessed가 화면의
+        /// 이름으로만 좁히면 옛 이름으로 기록된 행이 영원히 열린 채 남아, 매번 새로고침마다
+        /// 같은 항목이 다시 올라온다 - 이번에는 비교창이 빈 유령이 아니라 살아 있는 테이블의
+        /// "수정"으로. 게다가 .sql은 이미 같아졌으니 다시 커밋해서 지울 수도 없다.
+        /// </summary>
+        [Test]
+        public void MarkProcessed_ClosesTheRowsRecordedUnderTheOldName_AfterARenameWasFolded()
+        {
+            _db!.Execute("CREATE TABLE dbo.CloseFoldedProbe (Id int NOT NULL, Name nvarchar(50) NULL)");
+
+            _db.ExecuteInOneSession(
+                "CREATE TABLE dbo.Tmp_CloseFoldedProbe (Id int NOT NULL, Name nvarchar(200) NULL) ON [PRIMARY]",
+                "ALTER TABLE dbo.Tmp_CloseFoldedProbe SET (LOCK_ESCALATION = TABLE)",
+                "DROP TABLE dbo.CloseFoldedProbe",
+                "EXECUTE sp_rename N'dbo.Tmp_CloseFoldedProbe', N'CloseFoldedProbe', 'OBJECT'");
+
+            var config = NewConfig();
+            config.AddMapping(SqlServerTestDatabase.ServerName, _db.Name,
+                Path.Combine(Path.GetTempPath(), "dbvc_repo_" + Guid.NewGuid().ToString("N")));
+            var tracker = new StateTracker(config);
+
+            tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
+            var records = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name)
+                .Where(c => c.ObjectName == "CloseFoldedProbe").ToList();
+            Assert.That(records, Has.Count.EqualTo(1), "접힌 뒤에는 항목이 하나여야 한다");
+
+            tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name, records);
+
+            var stillOpen = _db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE IsProcessed = 0 AND ObjectName = N'Tmp_CloseFoldedProbe'");
+
+            Assert.That(stillOpen, Is.EqualTo(0),
+                "옛 이름으로 기록된 행이 닫히지 않으면 같은 항목이 매번 다시 올라오고, 지울 방법이 없다");
+        }
+
+        /// <summary>
+        /// 남이 만진 행이 내 커밋에 이미 담긴 내용과 같아지는 경우. 공용 계정 환경에서 흔하다 -
+        /// 남이 고친 위에 내가 또 고치고 내가 먼저 커밋하면, 남의 행이 가리키는 코드는 이미
+        /// 저장소에 들어가 있다.
+        ///
+        /// 그때 스테이징할 차이가 없어 커밋이 만들어지지 않는데, 그것을 "커밋할 수 없다"와
+        /// 같이 다루면 그 행이 영원히 열린 채 남는다. 전체 보기에 계속 뜨고, 다시 커밋해도
+        /// 또 차이가 없어 아무 일도 일어나지 않아 사용자가 지울 방법이 없다.
+        /// </summary>
+        [Test]
+        public void MarkProcessed_ClosesTheOtherAuthorsRow_WhenTheRepositoryAlreadyHasThatCode()
+        {
+            _db!.Execute("CREATE PROCEDURE dbo.LeftoverProbe AS SELECT 1");
+            _db.ExecuteWithWorkstationId("OTHER-PC", "ALTER PROCEDURE dbo.LeftoverProbe AS SELECT 2");
+            // 내가 그 위에 또 고친다. 이 상태로 내가 커밋하면 남의 변경까지 저장소에 담긴다.
+            _db.Execute("ALTER PROCEDURE dbo.LeftoverProbe AS SELECT 3");
+
+            var repoPath = Path.Combine(Path.GetTempPath(), "dbvc_repo_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var relative = ObjectPathConvention.GetRelativePath("dbo", "PROCEDURE", "LeftoverProbe");
+                var full = Path.Combine(repoPath, relative.Replace('/', Path.DirectorySeparatorChar));
+                CommitFile(repoPath, full, "CREATE OR ALTER PROCEDURE dbo.LeftoverProbe AS SELECT 3");
+
+                var config = NewConfig();
+                config.AddMapping(SqlServerTestDatabase.ServerName, _db.Name, repoPath);
+                var tracker = new StateTracker(config);
+                var git = new GitManager(config);
+
+                // 내 보기로 먼저 커밋한다. 이래야 남의 행만 남아 실제 순서와 같아진다.
+                tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: false);
+                tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name,
+                    tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name)
+                        .Where(c => c.ObjectName == "LeftoverProbe").ToList());
+
+                // 전체 보기. 이제 남의 행만 남아 있고, 그 코드는 이미 저장소에 들어가 있다.
+                tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
+                var records = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name)
+                    .Where(c => c.ObjectName == "LeftoverProbe").ToList();
+                Assert.That(records, Has.Count.EqualTo(1), "이 테스트의 전제가 성립해야 한다");
+
+                var result = git.CommitChanges(SqlServerTestDatabase.ServerName, _db.Name, "이미 같음",
+                    records.Select(r => r.RelativePath).ToList());
+                Assert.That(result, Is.EqualTo(GitCommitResult.NothingToCommit),
+                    "저장소가 이미 그 코드를 갖고 있으므로 담을 것이 없어야 한다");
+
+                tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name, records);
+
+                tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
+                Assert.That(
+                    tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name)
+                        .Select(c => c.ObjectName),
+                    Does.Not.Contain("LeftoverProbe"),
+                    "닫히지 않으면 전체 보기에 영원히 남고, 다시 커밋해도 또 차이가 없어 지울 수 없다");
+            }
+            finally
+            {
+                TryDeleteRepo(repoPath);
+            }
+        }
+
+        /// <summary>커밋된 파일이 있는 저장소를 만든다. 미추적 파일은 지워도 Git이 "삭제됨"으로 보지 않는다.</summary>
+        private static void CommitFile(string repoPath, string fullPath, string content)
+        {
+            LibGit2Sharp.Repository.Init(repoPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+            File.WriteAllText(fullPath, content);
+
+            using var repo = new LibGit2Sharp.Repository(repoPath);
+            LibGit2Sharp.Commands.Stage(repo, "*");
+            var who = new LibGit2Sharp.Signature("Test", "test@example.com", DateTimeOffset.UtcNow);
+            repo.Commit("초기", who, who, new LibGit2Sharp.CommitOptions());
+        }
+
+        /// <summary>.git 안에는 읽기 전용 파일이 있어 그냥 지우면 실패한다. 지우지 못해도 테스트를 깨지 않는다.</summary>
+        private static void TryDeleteRepo(string path)
+        {
+            if (!Directory.Exists(path)) return;
+            try
+            {
+                foreach (var file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
+                {
+                    try { File.SetAttributes(file, FileAttributes.Normal); } catch { }
+                }
+                Directory.Delete(path, true);
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// SSMS 테이블 디자이너로 열 형식을 바꾸면 SQL Server가 테이블을 재작성한다 —
+        /// Tmp_ 테이블을 만들고, 데이터를 옮기고, 원본을 DROP한 뒤, 이름을 바꾼다.
+        /// 그러면 원본 이름의 최신 이벤트가 DROP_TABLE이라 살아 있는 테이블이 삭제로 뜨고,
+        /// 커밋하면 WorkingTreeCleaner가 저장소에서 그 .sql을 지운다.
+        ///
+        /// PK를 더할 때는 뒤에 ALTER가 하나 더 붙어 우연히 가려지므로, 그것이 붙지 않는
+        /// 열 형식 변경으로 재현한다. 아래 스크립트는 디자이너가 실제로 내보내는 것이다.
+        /// </summary>
+        [Test]
+        public void RefreshState_ReportsTheLiveTableAsModified_WhenTheDesignerRebuiltIt()
+        {
+            _db!.Execute("CREATE TABLE dbo.RebuiltProbe (Id int NOT NULL, Name nvarchar(50) NULL)");
+
+            _db.ExecuteInOneSession(
+                @"CREATE TABLE dbo.Tmp_RebuiltProbe
+                    (
+                    Id int NOT NULL,
+                    Name nvarchar(200) NULL
+                    )  ON [PRIMARY]",
+                "ALTER TABLE dbo.Tmp_RebuiltProbe SET (LOCK_ESCALATION = TABLE)",
+                @"IF EXISTS(SELECT * FROM dbo.RebuiltProbe)
+                     EXEC('INSERT INTO dbo.Tmp_RebuiltProbe (Id, Name) SELECT Id, Name FROM dbo.RebuiltProbe WITH (HOLDLOCK TABLOCKX)')",
+                "DROP TABLE dbo.RebuiltProbe",
+                "EXECUTE sp_rename N'dbo.Tmp_RebuiltProbe', N'RebuiltProbe', 'OBJECT'");
+
+            // 매핑된 폴더는 비어 있다. 사라진 Tmp_ 이름은 DB에도 저장소에도 없으므로 걷힌다.
+            var config = NewConfig();
+            config.AddMapping(SqlServerTestDatabase.ServerName, _db.Name,
+                Path.Combine(Path.GetTempPath(), "dbvc_repo_" + Guid.NewGuid().ToString("N")));
+            var tracker = new StateTracker(config);
+
+            Assert.That(tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true),
+                Is.True);
+            var changes = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name);
+
+            var rebuilt = changes.SingleOrDefault(c => c.ObjectName == "RebuiltProbe");
+            Assert.That(rebuilt, Is.Not.Null, "재작성된 테이블은 목록에 있어야 한다");
+            Assert.That(rebuilt!.State, Is.EqualTo("Modified"),
+                "살아 있는 테이블이 삭제로 뜨면 커밋 시점에 저장소에서 .sql이 지워진다");
+
+            Assert.That(changes.Select(c => c.ObjectName), Does.Not.Contain("Tmp_RebuiltProbe"),
+                "존재한 적 없는 이름이 목록에 남으면 비교창이 빈 채로 뜬다");
+        }
+
+        /// <summary>
+        /// sp_rename은 ObjectName에 옛 이름만 남긴다. 접지 않으면 새 이름이 로그 어디에도
+        /// 없어 그 객체가 영영 추출되지 않는다 - 목록에서 사라지는 것이 아니라, 바뀐 코드가
+        /// 저장소에 반영되지 않는 쪽이라 눈에 띄지 않는다.
+        ///
+        /// 추출 대상 목록(GetChangedObjectNames)까지 보는 이유가 그것이다. 화면만 고치면
+        /// 목록은 새 이름을 보여 주는데 SMO는 옛 이름을 찾는다.
+        /// </summary>
+        [Test]
+        public void Rename_MovesTheChangeToTheNewName_InBothTheListAndTheExtractionTargets()
+        {
+            _db!.Execute("CREATE PROCEDURE dbo.RenameProbeOld AS SELECT 1");
+            _db.Execute("EXEC sp_rename N'dbo.RenameProbeOld', N'RenameProbeNew', 'OBJECT'");
+
+            var config = NewConfig();
+            config.AddMapping(SqlServerTestDatabase.ServerName, _db.Name,
+                Path.Combine(Path.GetTempPath(), "dbvc_repo_" + Guid.NewGuid().ToString("N")));
+            var tracker = new StateTracker(config);
+
+            var targets = tracker.GetChangedObjectNames(SqlServerTestDatabase.ServerName, _db.Name);
+            Assert.That(targets, Does.Contain("dbo.RenameProbeNew"),
+                "새 이름이 추출 대상에 없으면 바뀐 코드가 저장소에 반영되지 않는다");
+
+            tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
+            var changes = tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name);
+
+            Assert.That(changes.Select(c => c.ObjectName), Does.Contain("RenameProbeNew"));
+            Assert.That(changes.Select(c => c.ObjectName), Does.Not.Contain("RenameProbeOld"),
+                "옛 이름은 DB에도 저장소에도 없으므로 걷혀야 한다");
         }
     }
 }

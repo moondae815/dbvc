@@ -1202,13 +1202,23 @@ namespace DBVC.Vsix.ViewModels
                         }
                     }
 
-                    if (!_gitManager.CommitChanges(server, database, message, selectedPaths))
+                    var result = _gitManager.CommitChanges(server, database, message, selectedPaths);
+
+                    // 매핑이 없거나 아무것도 고르지 않았으면 아무것도 건드리지 않는다.
+                    // 그때 로그를 닫으면 기록되지 않은 변경이 조용히 사라진다.
+                    if (result != GitCommitResult.Committed && result != GitCommitResult.NothingToCommit)
                     {
                         return new CommitOutcome();
                     }
 
+                    // NothingToCommit도 닫는다. 저장소가 이미 DB와 같다는 뜻이라 담을 것이 없고,
+                    // 닫지 않으면 그 항목이 목록에 영원히 남는다 - 다시 커밋해도 또 차이가 없어
+                    // 사용자가 지울 방법이 없다. 남이 만진 변경이 내 커밋에 이미 담겼을 때가 그렇다.
+                    //
+                    // 추출이 조용히 실패해 파일이 낡은 채로 깨끗한 경우까지 닫히는 것은 감수한다.
+                    // 사용자가 그 항목을 골라 커밋을 누른 결과이고, 다음 실제 변경이 다시 기록된다.
                     _stateTracker.MarkProcessed(server, database, committedRecords);
-                    return new CommitOutcome { Committed = true };
+                    return new CommitOutcome { Committed = true, WroteACommit = result == GitCommitResult.Committed };
                 },
                 outcome =>
                 {
@@ -1232,6 +1242,13 @@ namespace DBVC.Vsix.ViewModels
                         return;
                     }
 
+                    if (!outcome.WroteACommit)
+                    {
+                        // 커밋은 만들어지지 않았다. 목록에서만 사라지므로 그 사실을 말해야
+                        // 사용자가 "커밋했는데 이력에 없다"로 읽지 않는다.
+                        WarningMessage = "선택한 항목은 저장소와 이미 같아 커밋할 것이 없었습니다. 목록에서만 정리했습니다.";
+                    }
+
                     CommitMessage = string.Empty;
                     Refresh();
                 },
@@ -1247,7 +1264,11 @@ namespace DBVC.Vsix.ViewModels
         /// </summary>
         private sealed class CommitOutcome
         {
+            /// <summary>로그 행을 닫았는지. 커밋이 만들어지지 않았어도 참일 수 있다.</summary>
             public bool Committed { get; set; }
+
+            /// <summary>실제로 커밋이 만들어졌는지. 거짓이면 저장소가 이미 같아 목록만 정리한 것이다.</summary>
+            public bool WroteACommit { get; set; }
 
             /// <summary>null이 아니면 커밋하지 않았고 사용자 확인이 필요하다는 뜻이다.</summary>
             public IReadOnlyList<CoAuthorWarning>? CoAuthors { get; set; }
