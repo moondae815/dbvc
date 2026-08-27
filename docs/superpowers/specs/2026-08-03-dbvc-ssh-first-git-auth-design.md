@@ -49,6 +49,10 @@ Kerberos를 붙이려면 `gitlab-kerberos`를 따로 구성해야 하며 LDAP만
 
 아래는 **폐쇄망 방화벽이 열리지 않는 경우에만** 필요하다. 열리면 영영 필요 없으므로 지금 만들지 않는다.
 
+> **2026-08-27 갱신: 조건이 해제됐다.** 폐쇄망 SSH(22) 승인이 나면서 이 세 항목은 연기가 아니라
+> **소멸했다.** 형상 관리 2차의 범위에서 빠졌다
+> ([2026-08-24-dbvc-git-workflow-design.md](2026-08-24-dbvc-git-workflow-design.md) §3.11, §7.2).
+
 * **HTTPS + PAT 인증.** 토큰 입력 UI, DPAPI 기반 보관, 만료 시 재입력 흐름이 딸린 별도 서브시스템이다.
 * **사설 CA 인증서 처리(`FetchOptions.CertificateCheck`).** 사내 GitLab이 자체 서명 인증서를 쓸 때 필요하다.
   SSH는 TLS를 타지 않으므로 SSH 경로에서는 발생하지 않는다.

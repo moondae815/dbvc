@@ -82,7 +82,8 @@ DDL 트리거가 설치된다.** 되돌릴 수 있지만 일어나면 안 되는
 `ConnectRepository`는 이미 `git init`된 폴더만 받는다(`ViewChangesViewModel.cs:757`). 클론도,
 init도, remote 추가도, upstream 설정도 없다. 첫 Push는 "`git push -u origin <branch>`를 직접
 실행하세요"라고 안내한다(`GitManager.cs:403-404`). Git 인증은 SSH 전용이라 HTTPS만 여는 사내
-GitLab에서는 도입 자체가 막힌다.
+GitLab에서는 도입 자체가 막힌다. (2026-08-27: 폐쇄망 SSH 승인으로 이 마지막 위험은 실현되지
+않았다 — 3.11 참조. 외부 클라이언트 의존은 남아 있고, 그것이 2차의 대상이다.)
 
 ## 2. 결정
 
@@ -365,15 +366,68 @@ DBVC의 접속은 SSMS 개체 탐색기에서 오므로(`ObjectExplorerConnectio
 | 연산 | 왜 필요한가 |
 |---|---|
 | `Clone` | 도구 안에서 시작할 수 있어야 한다. 지금은 외부 클라이언트가 필수다(1.5) |
-| `Init` + `Remote` 추가 + upstream 설정 | 첫 저장소를 만드는 경로. 첫 Push의 외부 의존을 없앤다 |
+| ~~`Init` + `Remote` 추가 + upstream 설정~~ | **뺀다.** clone하면 추적 브랜치가 자동으로 붙어 `git push -u` 안내 경로를 애초에 밟지 않는다 |
 | `Fetch` | 원격 상태를 부수효과 없이 읽는다. 지금은 Pull하거나 Push가 거부돼야 안다 |
 | 브랜치 목록·현재 브랜치·체크아웃 | 개발 클론은 브랜치를 전환한다 |
 | 브랜치 간 파일 내용 조회 | 3.10 경고 A와 차이 검사의 재료. `GetFileContentAtHead`를 브랜치 인자를 받도록 넓힌다 |
-| HTTPS 원격 + PAT | 사내 GitLab이 HTTPS만 열면 SSH 전용으로는 도입 자체가 막힌다 |
+| ~~HTTPS 원격 + PAT~~ | **소멸했다.** 폐쇄망 SSH(22) 승인이 났다. SSH 우선 설계가 이 항목을 "방화벽이 열리지 않는 경우에만 필요하다"로 조건부 연기해 둔 것이라, 조건이 해제된 것이 아니라 사라졌다. 사설 CA 인증서·프록시도 같이 사라진다 — SSH는 TLS를 타지 않는다 |
 
 브랜치 전환·stash·충돌 해결 UI는 이번 범위에서 **후순위다.** 개발자는 `master`에서 분기한
 자기 브랜치와 `develop`을 오갈 뿐이고, 감사·배포 클론은 브랜치를 고정한 채 커밋하지 않으므로
 충돌이 날 자리가 거의 없다.
+
+#### 2차가 실제로 만드는 것 (2026-08-27 확정)
+
+위 표를 **`Clone`과 `Fetch` 둘로 좁힌다.** 남는 것은 `IGitManager`의 메서드 두 개뿐이고
+`IConfigManager`는 건드리지 않는다.
+
+```
+string CloneRepository(string remoteUrl, string targetPath,
+                       IProgress<CloneProgress>? progress, CancellationToken cancellationToken);
+RemoteStatus FetchRemoteStatus(string serverName, string databaseName);
+```
+
+clone은 **매핑이 생기기 전에** 일어나므로 다른 API와 달리 `(serverName, databaseName)`을 받을
+수 없다. 반대로 원격 확인은 매핑된 뒤의 일이라 기존 서명 관례를 그대로 따른다.
+
+**`targetPath`는 없는 폴더만 받는다.** 이미 있으면 시작 전에 거부한다. 이 제약 하나가 실패·취소
+뒤처리를 자명하게 만든다 — 존재하는 폴더는 전부 DBVC가 만든 것이므로 **지워도 되는 것과 안 되는
+것을 구분할 필요가 없다.** 빈 폴더를 허용하면 "이 폴더를 내가 만들었나"를 기억해야 하고, 그
+기억이 틀리는 날 남의 폴더를 지운다. 폴더 이름은 순수 함수가 URL에서 뽑아 제안하고(`.../
+db-schema-sales.git` → `db-schema-sales`) 사용자가 고칠 수 있다. 사용자가 고르는 것은 부모
+폴더다.
+
+**안내 문구를 새로 만들지 않는다.** 실패는 예외로, 취소는 `OperationCanceledException`으로
+전파하며(`ScriptObjectsDetailed`의 관례) 문구는 `RemoteDiagnostics.Explain`을 그대로 쓴다.
+HTTPS URL은 네트워크를 타기 전에 `Classify`로 걸러 즉시 거부한다. clone 시점에는 `repo.Config`가
+없지만 `Configuration.BuildFrom(null)`로 전역 `core.sshCommand`를 읽을 수 있어 Pull·Push와 같은
+판정이 나온다.
+
+**취소는 반쪽이다. 감추지 않는다.** LibGit2Sharp 0.32.0을 리플렉션으로 실측한 결과
+`TransferProgressHandler`는 `bool`을 반환해 전송을 끊을 수 있지만 `CheckoutProgressHandler`는
+`void`다 — **받는 동안에만 취소되고 펼치는 동안에는 취소되지 않는다.** 취소 버튼은 전송
+단계에서만 살아 있고 checkout으로 넘어가면 스스로 잠긴다. 이미 있는
+`_cancellableWorkOutstanding`이 그 자리를 담당한다.
+
+취소·실패하면 만든 폴더를 지우고 **매핑은 만들지 않는다.** 절반만 받아진 저장소가 매핑되면
+이후 모든 동작이 조용히 이상해진다.
+
+**Fetch는 수동 버튼으로만 돈다.** 새로고침에 붙이면 응답 없는 원격이 변경 목록을 보는 일까지
+느리게 만든다. 결과(`받을 커밋 n개 · 올릴 커밋 n개`)는 누르기 전에는 뜨지 않고, 대상이 바뀌면
+현재 브랜치와 함께 지워진다 — 낡은 숫자를 최신인 척 보여주지 않기 위해서다. 원격이 없거나 추적
+브랜치가 없을 때의 안내는 Pull·Push가 쓰는 검사를 그대로 재사용한다. 세 번째 복제본을 만들면
+한쪽 문구만 고쳐지는 일이 실제로 일어난다.
+
+**화면**은 도구 줄의 "저장소 연결..." 버튼 하나를 두 갈래로 넓힌다(`이미 받아둔 폴더 연결` /
+`원격에서 받기`). 주입되는 대화상자 하나가 완성된 요청을 돌려주고, VM은 갈래에 따라 매핑을 바로
+만들거나 백그라운드 clone 뒤에 만든다. 대화상자는 URL을 검증하지 않는다 — 검증을 두 곳에 두면
+같은 판정이 갈라진다.
+
+**여전히 남는 외부 의존이 하나 있다.** libgit2는 SSH를 시스템 `ssh.exe`에 위임하고 그
+`ssh.exe`는 SSMS 안에서 대화형 입력을 받을 수 없다. 처음 보는 호스트는 `known_hosts` 확인에서
+그대로 실패한다. 자동 등록은 SSH 우선 설계가 중간자 공격을 이유로 거부했고 그 판단은 유효하다.
+따라서 **`ssh-keygen`과 `ssh -T`는 도입 체크리스트에 그대로 남는다.** 2차가 없애는 것은
+`git clone` 한 줄이지 터미널 전체가 아니다.
 
 ### 3.12 화면 변화
 
@@ -491,9 +545,11 @@ DBVC는 누가 무엇을 만졌는지 기록하고 알릴 뿐, 막지 못한다.
 
 ### 7.2 2차 — 도구 안에서 시작할 수 있게 한다
 
-- 3.11의 `Clone`·`Init`·`Remote`·upstream 설정
-- HTTPS 원격 + PAT
-- `Fetch`
+- 3.11의 `Clone` — 진행률·취소·실패 시 폴더 정리 포함
+- 3.11의 `Fetch` — 수동 "원격 확인" 버튼
+
+`Init`·`Remote` 추가·upstream 설정은 **뺀다**(clone이 추적 브랜치를 만든다). HTTPS 원격 + PAT는
+폐쇄망 SSH 승인으로 **소멸했다**. 둘 다 근거는 3.11에 있다.
 
 1차와 순서를 바꿔도 된다. 다만 **저장소를 실제로 만드는 시점보다 3.5가 앞서야 한다**는
 제약만 지키면 된다.
