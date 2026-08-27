@@ -98,7 +98,38 @@ namespace DBVC.Core
             options.FetchOptions.CredentialsProvider =
                 (url, usernameFromUrl, types) => ResolveCredentials(types, out _);
 
-            Repository.Clone(remoteUrl, targetPath, options);
+            // 취소가 이미 걸려 있으면 폴더를 만들지도 않는다.
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                Repository.Clone(remoteUrl, targetPath, options);
+
+                // checkout 단계는 libgit2가 중단을 받지 않으므로, 그 사이에 눌린 취소는
+                // 여기서 처리한다. 사용자가 취소를 눌렀는데 저장소가 남아 있으면
+                // 다음 시도가 '이미 있음'으로 막혀 무엇을 해야 하는지 알 수 없게 된다.
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch (Exception ex)
+            {
+                // 우리가 만든 폴더만 존재할 수 있다(위 가드가 보장한다). 지워도 안전하다.
+                DeleteDirectoryTree(targetPath);
+
+                if (ex is OperationCanceledException) throw;
+
+                // 콜백이 false를 반환해 끊긴 경우다. 실패가 아니라 사용자가 누른 것이다.
+                if (ex is UserCancelledException)
+                {
+                    throw new OperationCanceledException("원격 저장소 받기를 취소했습니다.", ex, cancellationToken);
+                }
+
+                var guidance = RemoteDiagnostics.Explain(remoteUrl, IsSshAvailableWithoutRepository());
+                var message = guidance == null
+                    ? ex.Message
+                    : ex.Message + Environment.NewLine + Environment.NewLine + guidance;
+
+                throw new GitRemoteException(message, ex);
+            }
 
             // Repository.Clone의 반환값은 .git 디렉터리 경로다. 매핑에 들어갈 것은 작업 트리다.
             return targetPath;
@@ -765,6 +796,32 @@ namespace DBVC.Core
                 // config를 못 읽는 것이 clone 실패의 원인은 아니다. 안내만 덜 정확해진다.
                 Debug.WriteLine($"GitManager.IsSshAvailableWithoutRepository failed: {ex.Message}");
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// 폴더를 통째로 지운다. .git 내부에는 읽기 전용 파일(pack 등)이 있어
+        /// 속성을 먼저 풀지 않으면 Directory.Delete가 거부된다.
+        ///
+        /// 지우지 못해도 예외를 밖으로 내지 않는다 — 호출자는 이미 실패를 보고하는 중이고,
+        /// 정리 실패로 원래 원인이 가려지면 사용자가 무엇을 고쳐야 하는지 알 수 없다.
+        /// </summary>
+        private static void DeleteDirectoryTree(string path)
+        {
+            if (!Directory.Exists(path)) return;
+
+            try
+            {
+                foreach (var file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
+                {
+                    try { File.SetAttributes(file, FileAttributes.Normal); } catch { }
+                }
+
+                Directory.Delete(path, true);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"GitManager.DeleteDirectoryTree failed for '{path}': {ex.Message}");
             }
         }
     }

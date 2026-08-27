@@ -1268,6 +1268,50 @@ namespace DBVC.Core.Tests
                 () => new GitManager().CloneRepository("  ", NewTempDir(), null, CancellationToken.None));
         }
 
+        [Test]
+        public void CloneRepository_RemovesTheFolderItCreated_WhenTheRemoteDoesNotExist()
+        {
+            // 절반만 받아진 폴더가 남으면 다음 시도가 '이미 있음'으로 막힌다.
+            var missingOrigin = Path.Combine(Path.GetTempPath(), "dbvc_no_such_" + Guid.NewGuid().ToString("N"));
+            var targetPath = NewTempDir();
+
+            Assert.Throws<GitRemoteException>(
+                () => new GitManager().CloneRepository(missingOrigin, targetPath, null, CancellationToken.None));
+
+            Assert.That(Directory.Exists(targetPath), Is.False);
+        }
+
+        [Test]
+        public void CloneRepository_RemovesTheFolderItCreated_WhenCancelledWhileRunning()
+        {
+            var originPath = NewRepoWithCommit();
+            var targetPath = NewTempDir();
+            using var cts = new CancellationTokenSource();
+
+            // 첫 보고에서 취소한다. 미리 취소된 토큰을 넘기면 폴더가 만들어지기도 전에 끝나
+            // 정리 경로를 지나가지 않는다.
+            var progress = new RecordingProgress<CloneProgress>(_ => cts.Cancel());
+
+            Assert.Throws<OperationCanceledException>(
+                () => new GitManager().CloneRepository(originPath, targetPath, progress, cts.Token));
+
+            Assert.That(Directory.Exists(targetPath), Is.False);
+        }
+
+        [Test]
+        public void CloneRepository_ThrowsCancellation_WhenTheTokenIsAlreadyCancelled()
+        {
+            var originPath = NewRepoWithCommit();
+            var targetPath = NewTempDir();
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(
+                () => new GitManager().CloneRepository(originPath, targetPath, null, cts.Token));
+
+            Assert.That(Directory.Exists(targetPath), Is.False);
+        }
+
         /// <summary>
         /// <see cref="PushStatusError"/>의 기본 생성자는 protected이고 <c>Reference</c>·<c>Message</c>는
         /// virtual get-only 프로퍼티다(리플렉션으로 확인함 - 두 프로퍼티 모두 setter가 없다).
