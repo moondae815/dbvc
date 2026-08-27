@@ -127,6 +127,56 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
+        public void CompareCommand_KeepsFailedObjectsOutOfDifferences_AndReportsThemSeparately()
+        {
+            // FailedObjects는 "차이가 없다"가 아니라 "모른다"이다. 목록에 섞이면 배포 대상으로 읽힌다.
+            var vm = NewViewModel(MappingMode.Deploy, out _);
+            var result = ResultWith(new SchemaDifference("dbo.A", "dbo/Views/A.sql", "View", ObjectDiffState.Modified));
+            result.FailedObjects.Add("dbo.Broken");
+            _smo.Setup(s => s.CompareWithRepository(Server, Database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns(result);
+
+            vm.CompareCommand.Execute(null);
+
+            Assert.That(vm.Differences.Select(d => d.QualifiedName), Does.Not.Contain("dbo.Broken"));
+            Assert.That(vm.Differences.Count, Is.EqualTo(1));
+            Assert.That(_notifier.Errors.Any(m => m.Contains("dbo.Broken")), Is.True);
+        }
+
+        [Test]
+        public void CompareCommand_DoesNotClaimMatch_WhenObjectsFailedButNoDifferencesFound()
+        {
+            // 판정하지 못한 객체가 있는데 "일치합니다"만 읽히면 사용자는 배포가 끝났다고 착각한다.
+            var vm = NewViewModel(MappingMode.Deploy, out _);
+            var result = ResultWith();
+            result.FailedObjects.Add("dbo.Broken1");
+            result.FailedObjects.Add("dbo.Broken2");
+            _smo.Setup(s => s.CompareWithRepository(Server, Database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns(result);
+
+            vm.CompareCommand.Execute(null);
+
+            Assert.That(vm.SummaryText, Is.Not.EqualTo("대상 10개를 검사했습니다. 브랜치와 일치합니다."));
+            Assert.That(vm.SummaryText, Does.Contain("2"));
+            Assert.That(vm.SummaryText, Does.Contain("판정하지 못했습니다"));
+        }
+
+        [Test]
+        public void CompareCommand_ReportsBothDifferencesAndFailures_WhenBothArePresent()
+        {
+            var vm = NewViewModel(MappingMode.Deploy, out _);
+            var result = ResultWith(new SchemaDifference("dbo.A", "dbo/Views/A.sql", "View", ObjectDiffState.Modified));
+            result.FailedObjects.Add("dbo.Broken");
+            _smo.Setup(s => s.CompareWithRepository(Server, Database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns(result);
+
+            vm.CompareCommand.Execute(null);
+
+            Assert.That(vm.SummaryText, Does.Contain("1개가 다릅니다"));
+            Assert.That(vm.SummaryText, Does.Contain("1개는 판정하지 못했습니다"));
+        }
+
+        [Test]
         public void CompareCommand_StopsAndReports_WhenPullFails()
         {
             var vm = NewViewModel(MappingMode.Deploy, out _);

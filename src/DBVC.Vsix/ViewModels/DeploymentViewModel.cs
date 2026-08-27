@@ -208,9 +208,7 @@ namespace DBVC.Vsix.ViewModels
                 Differences.Add(new DifferenceItemViewModel(difference, mode));
             }
 
-            SummaryText = result.IsInSync
-                ? $"대상 {result.ComparedCount}개를 검사했습니다. 브랜치와 일치합니다."
-                : $"대상 {result.ComparedCount}개 중 {result.Differences.Count}개가 다릅니다.";
+            SummaryText = BuildSummaryText(result);
 
             if (result.FailedObjects.Count > 0)
             {
@@ -222,6 +220,24 @@ namespace DBVC.Vsix.ViewModels
 
             OnPropertyChanged(nameof(HasResult));
             RaiseCanExecuteChanged();
+        }
+
+        /// <summary>
+        /// ComparisonResult.IsInSync는 Differences만 본다 — Core 계층에서는 그것이 맞는 뜻이다.
+        /// 그러나 화면 요약에서 그대로 쓰면 판정 실패(FailedObjects)가 있어도 "일치합니다"라고
+        /// 말해 버린다. 스크립팅 실패는 "차이 없음"이 아니라 "모른다"이므로, 판정하지 못한
+        /// 객체가 하나라도 있으면 요약에 그 사실을 반드시 함께 적는다 — 오류 대화상자를 닫고
+        /// 요약만 본 사용자가 "배포 완료"로 읽지 않도록.
+        /// </summary>
+        private static string BuildSummaryText(ComparisonResult result)
+        {
+            var comparedText = result.Differences.Count == 0
+                ? $"대상 {result.ComparedCount}개를 검사했습니다. 브랜치와 일치합니다."
+                : $"대상 {result.ComparedCount}개 중 {result.Differences.Count}개가 다릅니다.";
+
+            return result.FailedObjects.Count == 0
+                ? comparedText
+                : comparedText + $" {result.FailedObjects.Count}개는 판정하지 못했습니다.";
         }
 
         private void SaveScript()
