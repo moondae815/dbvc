@@ -749,18 +749,6 @@ namespace DBVC.Core.Models
 ```csharp
         // ---------- 원격 확인 ----------
 
-        /// <summary>저장소에 커밋 하나를 더한다.</summary>
-        private void CommitTo(string repoPath, string fileName, string content, string message)
-        {
-            var full = Path.Combine(repoPath, fileName.Replace('/', Path.DirectorySeparatorChar));
-            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-            File.WriteAllText(full, content);
-
-            using var repo = new Repository(repoPath);
-            Commands.Stage(repo, "*");
-            repo.Commit(message, TestSignature, TestSignature);
-        }
-
         [Test]
         public void FetchRemoteStatus_ReportsBehind_WhenTheRemoteHasNewCommits()
         {
@@ -768,7 +756,8 @@ namespace DBVC.Core.Models
             var localPath = NewTempDir();
             new GitManager().CloneRepository(originPath, localPath, null, CancellationToken.None);
 
-            CommitTo(originPath, "dbo/Views/V1.sql", "CREATE OR ALTER VIEW V1 AS SELECT 1 AS X;", "add view");
+            // 기존 헬퍼를 그대로 쓴다. 같은 일을 하는 것을 하나 더 만들면 둘 중 하나만 고쳐진다.
+            CommitOneFile(originPath, "dbo/Views/V1.sql", "CREATE OR ALTER VIEW V1 AS SELECT 1 AS X;", "add view");
 
             var status = NewGitManager("localhost", "testdb", localPath)
                 .FetchRemoteStatus("localhost", "testdb");
@@ -784,7 +773,7 @@ namespace DBVC.Core.Models
             var localPath = NewTempDir();
             new GitManager().CloneRepository(originPath, localPath, null, CancellationToken.None);
 
-            CommitTo(localPath, "dbo/Views/V2.sql", "CREATE OR ALTER VIEW V2 AS SELECT 2 AS X;", "local only");
+            CommitOneFile(localPath, "dbo/Views/V2.sql", "CREATE OR ALTER VIEW V2 AS SELECT 2 AS X;", "local only");
 
             var status = NewGitManager("localhost", "testdb", localPath)
                 .FetchRemoteStatus("localhost", "testdb");
@@ -875,13 +864,13 @@ Expected: 컴파일 실패 — `FetchRemoteStatus`가 없다
                 // 빈 refspec은 "원격에 설정된 기본 refspec을 쓰라"는 뜻이다.
                 Commands.Fetch(repo, remoteName, Array.Empty<string>(), fetchOptions, null);
             }
-            catch (Exception ex)
+            // Pull·Push와 같은 모양으로 좀힌다. 안내할 것이 있을 때만 가로채고,
+            // 없으면 원본 예외를 그대로 흘려보낸다 — 모든 예외를 감싸면 코딩 실수까지
+            // "원격과 통신하지 못했다"로 둔갑해서 원인을 찾을 수 없게 된다.
+            catch (LibGit2SharpException ex) when (guidance != null)
             {
-                var message = guidance == null
-                    ? ex.Message
-                    : ex.Message + Environment.NewLine + Environment.NewLine + guidance;
-
-                throw new GitRemoteException(message, ex);
+                throw new GitRemoteException(
+                    ex.Message + Environment.NewLine + Environment.NewLine + guidance, ex);
             }
 
             var details = repo.Head.TrackingDetails;
