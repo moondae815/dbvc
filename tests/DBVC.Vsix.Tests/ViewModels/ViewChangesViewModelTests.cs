@@ -25,7 +25,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         private RecordingNotifier _notifier = null!;
         private RecordingSaveDialog _saveDialog = null!;
         private Mock<IWorkingTreeCleaner> _cleaner = null!;
-        private RecordingFolderDialog _folderDialog = null!;
+        private RecordingConnectDialog _connectDialog = null!;
         private Mock<ISqlCredentialStore> _credentials = null!;
         private Mock<ISsmsConnectionSource> _ssms = null!;
         private readonly List<string> _tempDirs = new List<string>();
@@ -47,7 +47,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         public void SetUp()
         {
             _saveDialog = new RecordingSaveDialog();
-            _folderDialog = new RecordingFolderDialog();
+            _connectDialog = new RecordingConnectDialog();
             _config = new Mock<IConfigManager>();
             _stateTracker = new Mock<IStateTracker>();
             _git = new Mock<IGitManager>();
@@ -92,7 +92,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             return new ViewChangesViewModel(
                 _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
-                _cleaner.Object, _folderDialog, _credentials.Object, _ssms.Object);
+                _cleaner.Object, _connectDialog, _credentials.Object, _ssms.Object);
         }
 
         /// <summary>
@@ -293,7 +293,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             var withoutSource = new ViewChangesViewModel(
                 _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
-                _cleaner.Object, _folderDialog, _credentials.Object, null);
+                _cleaner.Object, _connectDialog, _credentials.Object, null);
 
             Assert.That(withoutSource.ConnectCommand.CanExecute(null), Is.False,
                 "개체 탐색기를 읽을 수 없으면 누를 수 있는 것이 아무것도 없습니다");
@@ -578,7 +578,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             _stateTracker.Setup(s => s.GetInstalledVersion(Server, Database)).Returns(0);
             var vm = new ViewChangesViewModel(
                 _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
-                _cleaner.Object, _folderDialog, _credentials.Object, _ssms.Object, scheduler);
+                _cleaner.Object, _connectDialog, _credentials.Object, _ssms.Object, scheduler);
             _ssms.Setup(s => s.TryGetCurrent()).Returns(Info());
             vm.ConnectCommand.Execute(null);
             var before = scheduler.RunCount;
@@ -597,7 +597,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             _stateTracker.Setup(s => s.GetInstalledVersion(Server, Database)).Returns(0);
             var vm = new ViewChangesViewModel(
                 _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
-                _cleaner.Object, _folderDialog, _credentials.Object, _ssms.Object, scheduler);
+                _cleaner.Object, _connectDialog, _credentials.Object, _ssms.Object, scheduler);
             _ssms.Setup(s => s.TryGetCurrent()).Returns(Info());
             vm.ConnectCommand.Execute(null);
 
@@ -869,7 +869,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _git.Setup(g => g.IsRepository(@"C:\chosen-repo")).Returns(true);
-            _folderDialog.PathToReturn = @"C:\chosen-repo";
+            _connectDialog.RequestToReturn = RepositoryConnectRequest.ForExistingFolder(@"C:\chosen-repo");
             var vm = NewConnectedViewModel();
 
             vm.ConnectRepositoryCommand.Execute(null);
@@ -881,12 +881,12 @@ namespace DBVC.Vsix.Tests.ViewModels
         public void ConnectRepositoryCommand_DoesNothing_WhenTheUserCancels()
         {
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
-            _folderDialog.PathToReturn = null;
+            _connectDialog.RequestToReturn = null;
             var vm = NewConnectedViewModel();
 
             vm.ConnectRepositoryCommand.Execute(null);
 
-            Assert.That(_folderDialog.CallCount, Is.EqualTo(1));
+            Assert.That(_connectDialog.CallCount, Is.EqualTo(1));
             _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
             Assert.That(_notifier.Errors, Is.Empty, "취소는 오류가 아닙니다");
         }
@@ -896,7 +896,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _git.Setup(g => g.IsRepository(It.IsAny<string>())).Returns(false);
-            _folderDialog.PathToReturn = @"C:\not-a-repo";
+            _connectDialog.RequestToReturn = RepositoryConnectRequest.ForExistingFolder(@"C:\not-a-repo");
             var vm = NewConnectedViewModel();
 
             vm.ConnectRepositoryCommand.Execute(null);
@@ -1784,7 +1784,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             return new ViewChangesViewModel(
                 _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
-                _cleaner.Object, _folderDialog, _credentials.Object, _ssms.Object, scheduler);
+                _cleaner.Object, _connectDialog, _credentials.Object, _ssms.Object, scheduler);
         }
 
         /// <summary>Connect까지 끝낸 ViewModel. Connect 자체도 스케줄러를 타므로 여기서 비워 준다.</summary>
@@ -2299,15 +2299,15 @@ namespace DBVC.Vsix.Tests.ViewModels
             }
         }
 
-        private sealed class RecordingFolderDialog : IFolderBrowseDialog
+        private sealed class RecordingConnectDialog : IRepositoryConnectDialog
         {
-            public string? PathToReturn { get; set; }
+            public RepositoryConnectRequest? RequestToReturn { get; set; }
             public int CallCount { get; private set; }
 
-            public string? PromptForFolder(string description, string? initialPath)
+            public RepositoryConnectRequest? Prompt(string serverName, string databaseName)
             {
                 CallCount++;
-                return PathToReturn;
+                return RequestToReturn;
             }
         }
 

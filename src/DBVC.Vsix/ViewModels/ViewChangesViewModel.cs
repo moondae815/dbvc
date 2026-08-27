@@ -32,7 +32,7 @@ namespace DBVC.Vsix.ViewModels
         private readonly ISmoManager _smoManager;
         private readonly IUserNotifier _notifier;
         private readonly IFileSaveDialog _saveDialog;
-        private readonly IFolderBrowseDialog _folderDialog;
+        private readonly IRepositoryConnectDialog _connectDialog;
         private readonly IWorkingTreeCleaner _cleaner;
         private readonly ScriptExporter _scriptExporter;
         private readonly IBackgroundScheduler _scheduler;
@@ -72,7 +72,7 @@ namespace DBVC.Vsix.ViewModels
             IUserNotifier? notifier,
             IFileSaveDialog? saveDialog = null,
             IWorkingTreeCleaner? cleaner = null,
-            IFolderBrowseDialog? folderDialog = null,
+            IRepositoryConnectDialog? connectDialog = null,
             ISqlCredentialStore? credentialStore = null,
             ISsmsConnectionSource? ssmsConnectionSource = null,
             IBackgroundScheduler? scheduler = null)
@@ -91,7 +91,10 @@ namespace DBVC.Vsix.ViewModels
             _notifier = notifier ?? new MessageBoxNotifier();
             _saveDialog = saveDialog ?? new SaveFileDialogAdapter();
             _cleaner = cleaner ?? new WorkingTreeCleaner();
-            _folderDialog = folderDialog ?? new FolderBrowserDialogAdapter();
+            // 실제 대화상자는 Task 9에서 붙인다. 그때까지의 기본값은 무동작이다 —
+            // 여기서 던지면 connectDialog를 넘기지 않는 DbvcServices.CreateViewChangesViewModel이
+            // 죽어서 도구 창 자체가 열리지 않는다.
+            _connectDialog = connectDialog ?? new NoOpRepositoryConnectDialog();
             _scriptExporter = new ScriptExporter(_configManager, _gitManager);
             History = new ObjectHistoryViewModel(_gitManager);
 
@@ -844,24 +847,60 @@ namespace DBVC.Vsix.ViewModels
         {
             if (!CanConnectRepository()) return;
 
-            var path = _folderDialog.PromptForFolder(
-                $"'{ServerName}.{DatabaseName}'의 스크립트를 보관할 Git 저장소 폴더를 선택하세요.", null);
+            var request = _connectDialog.Prompt(ServerName!, DatabaseName!);
 
             // 사용자가 취소한 경우다. 오류가 아니다.
-            if (string.IsNullOrWhiteSpace(path)) return;
+            if (request == null) return;
 
-            if (!_gitManager.IsRepository(path!))
+            if (request.Kind == RepositoryConnectKind.ExistingFolder)
             {
-                // 유효하지 않은 경로를 저장하면 이후 모든 동작이 조용히 실패한다.
-                _notifier.ShowError("DBVC", $"'{path}'은(는) Git 저장소가 아닙니다. git init된 폴더를 선택하세요.");
+                ConnectExistingFolder(request.ExistingPath!);
                 return;
             }
 
-            _configManager.AddMapping(ServerName!, DatabaseName!, path!);
+            CloneAndConnect(request.RemoteUrl!, request.TargetPath!);
+        }
+
+        private void ConnectExistingFolder(string path)
+        {
+            if (!_gitManager.IsRepository(path))
+            {
+                // 유효하지 않은 경로를 저장하면 이후 모든 동작이 조용히 실패한다.
+                _notifier.ShowError("DBVC",
+                    $"'{path}'은(는) Git 저장소가 아닙니다. 이미 받아둔 저장소 폴더를 고르거나 원격에서 받으세요.");
+                return;
+            }
+
+            AdoptRepository(path);
+        }
+
+        /// <summary>
+        /// 매핑을 저장하고 화면을 새 저장소 기준으로 다시 판정한다.
+        /// 두 갈래가 끝나는 자리가 같아야 한쪽만 갱신을 빠뜨리는 일이 없다.
+        /// </summary>
+        private void AdoptRepository(string path)
+        {
+            _configManager.AddMapping(ServerName!, DatabaseName!, path);
 
             // 매핑이 생겼으므로 상태를 다시 판정한다. 인증 정보는 이미 저장소에 있다.
             InvalidateActiveContext();
             ApplyContext();
+        }
+
+        private void CloneAndConnect(string remoteUrl, string targetPath)
+        {
+            // Task 7에서 진행률·취소·실패 처리와 함께 배선한다.
+            var path = _gitManager.CloneRepository(remoteUrl, targetPath, null, CancellationToken.None);
+            AdoptRepository(path);
+        }
+
+        /// <summary>
+        /// Task 9이 실제 대화상자를 붙이기 전까지의 기본값. 언제나 취소로 답한다.
+        /// 셸 밖 실행과 대화상자를 넘기지 않는 조립 경로가 죽지 않게 하는 것이 전부다.
+        /// </summary>
+        private sealed class NoOpRepositoryConnectDialog : IRepositoryConnectDialog
+        {
+            public RepositoryConnectRequest? Prompt(string serverName, string databaseName) => null;
         }
 
         // ---------- Setup ----------

@@ -26,7 +26,7 @@ namespace DBVC.Vsix.Tests.UI
             var vm = new ViewChangesViewModel(
                 Mock.Of<IConfigManager>(), Mock.Of<IStateTracker>(), Mock.Of<IGitManager>(),
                 Mock.Of<ISmoManager>(), Mock.Of<IUserNotifier>(), Mock.Of<IFileSaveDialog>(),
-                Mock.Of<IWorkingTreeCleaner>(), Mock.Of<IFolderBrowseDialog>(),
+                Mock.Of<IWorkingTreeCleaner>(), Mock.Of<IRepositoryConnectDialog>(),
                 Mock.Of<ISqlCredentialStore>(), Mock.Of<ISsmsConnectionSource>());
             return new ViewChangesControl(vm, null);
         }
@@ -58,7 +58,7 @@ namespace DBVC.Vsix.Tests.UI
 
             var vm = new ViewChangesViewModel(
                 config.Object, tracker.Object, git.Object, Mock.Of<ISmoManager>(), Mock.Of<IUserNotifier>(),
-                Mock.Of<IFileSaveDialog>(), Mock.Of<IWorkingTreeCleaner>(), Mock.Of<IFolderBrowseDialog>(),
+                Mock.Of<IFileSaveDialog>(), Mock.Of<IWorkingTreeCleaner>(), Mock.Of<IRepositoryConnectDialog>(),
                 Mock.Of<ISqlCredentialStore>(), ssms.Object);
             vm.ConnectCommand.Execute(null);
             return new ViewChangesControl(vm, null);
