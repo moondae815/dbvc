@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Threading;
 using DBVC.Vsix.Services;
 using DBVC.Vsix.ViewModels;
+using DiffPlex.DiffBuilder.Model;
 using ICSharpCode.AvalonEdit;
 
 namespace DBVC.Vsix.UI
@@ -13,6 +14,8 @@ namespace DBVC.Vsix.UI
         private readonly DiffService _diffService;
         private readonly DiffLineBackgroundRenderer _oldRenderer;
         private readonly DiffLineBackgroundRenderer _newRenderer;
+        private readonly DiffLineBackgroundRenderer _deployLeftRenderer;
+        private readonly DiffLineBackgroundRenderer _deployRightRenderer;
         private bool _syncingScroll;
 
         public ViewChangesControl()
@@ -33,10 +36,18 @@ namespace DBVC.Vsix.UI
             OldTextEditor.TextArea.TextView.BackgroundRenderers.Add(_oldRenderer);
             NewTextEditor.TextArea.TextView.BackgroundRenderers.Add(_newRenderer);
 
+            // 배포·감사 패널의 diff 쌍. 위와 짝을 맞추지 않으면 줄 배경색이 한쪽만 빠지는 채로
+            // 남는다 - 렌더러를 붙이는 자리가 둘로 갈라져 있어 실제로 그런 식으로 놓치기 쉽다.
+            _deployLeftRenderer = new DiffLineBackgroundRenderer(DeployLeftEditor.TextArea.TextView);
+            _deployRightRenderer = new DiffLineBackgroundRenderer(DeployRightEditor.TextArea.TextView);
+            DeployLeftEditor.TextArea.TextView.BackgroundRenderers.Add(_deployLeftRenderer);
+            DeployRightEditor.TextArea.TextView.BackgroundRenderers.Add(_deployRightRenderer);
+
             OldTextEditor.TextArea.TextView.ScrollOffsetChanged += OnOldScrollOffsetChanged;
             NewTextEditor.TextArea.TextView.ScrollOffsetChanged += OnNewScrollOffsetChanged;
 
             _viewModel.SelectionChanged += OnSelectionChanged;
+            _viewModel.Deployment.SelectionChanged += OnDeploymentSelectionChanged;
             // 이 구독은 일부러 Unloaded에서 해제하지 않는다. Unloaded는 도구 창을 다시 도킹할
             // 때도 뜨는데(비주얼 트리에서 빠졌다 다시 붙는 것뿐), 여기서 해제하면 그 뒤로는
             // 세션이 끝날 때까지 개체 탐색기 선택 확인(OnIsVisibleChanged 등)이 조용히 멈춘다.
@@ -71,6 +82,8 @@ namespace DBVC.Vsix.UI
         {
             _viewModel.SelectionChanged -= OnSelectionChanged;
             _viewModel.SelectionChanged += OnSelectionChanged;
+            _viewModel.Deployment.SelectionChanged -= OnDeploymentSelectionChanged;
+            _viewModel.Deployment.SelectionChanged += OnDeploymentSelectionChanged;
 
             OldTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnOldScrollOffsetChanged;
             OldTextEditor.TextArea.TextView.ScrollOffsetChanged += OnOldScrollOffsetChanged;
@@ -85,6 +98,7 @@ namespace DBVC.Vsix.UI
         private void OnUnloaded(object sender, System.Windows.RoutedEventArgs e)
         {
             _viewModel.SelectionChanged -= OnSelectionChanged;
+            _viewModel.Deployment.SelectionChanged -= OnDeploymentSelectionChanged;
             OldTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnOldScrollOffsetChanged;
             NewTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnNewScrollOffsetChanged;
         }
@@ -137,8 +151,33 @@ namespace DBVC.Vsix.UI
                 _viewModel.DatabaseName,
                 selected.RelativePath);
 
-            SetPane(OldTextEditor, _oldRenderer, DiffTextBuilder.Build(model.OldText.Lines));
-            SetPane(NewTextEditor, _newRenderer, DiffTextBuilder.Build(model.NewText.Lines));
+            ApplyDiffPanes(model, OldTextEditor, _oldRenderer, NewTextEditor, _newRenderer);
+        }
+
+        /// <summary>
+        /// 배포·감사 패널에서 선택된 객체 하나를 다시 뜬다. 비교 결과(ComparisonResult)는
+        /// 텍스트를 들고 있지 않다 - 객체 수천 개분을 메모리에 쌓지 않으려고 Compare 시점에 버렸다.
+        /// </summary>
+        private void OnDeploymentSelectionChanged(object? sender, EventArgs e)
+        {
+            var (branchText, databaseText) = _viewModel.Deployment.LoadSelectedTexts();
+            var model = _diffService.GetDiffModelFromString(branchText, databaseText);
+
+            ApplyDiffPanes(model, DeployLeftEditor, _deployLeftRenderer, DeployRightEditor, _deployRightRenderer);
+        }
+
+        /// <summary>
+        /// Diff 모델의 좌우를 각 에디터에 채운다. 비교 화면과 배포 화면이 이 한 곳을 같이 써야
+        /// 줄 배경 렌더러 부착이 한쪽에만 남는 사고(diff 색이 한쪽 패널에서만 빠지는 것)가
+        /// 재발하지 않는다.
+        /// </summary>
+        private static void ApplyDiffPanes(
+            SideBySideDiffModel model,
+            TextEditor leftEditor, DiffLineBackgroundRenderer leftRenderer,
+            TextEditor rightEditor, DiffLineBackgroundRenderer rightRenderer)
+        {
+            SetPane(leftEditor, leftRenderer, DiffTextBuilder.Build(model.OldText.Lines));
+            SetPane(rightEditor, rightRenderer, DiffTextBuilder.Build(model.NewText.Lines));
         }
 
         /// <summary>텍스트를 먼저 넣고 줄 종류를 넘긴다. 순서가 반대면 이전 종류로 한 번 그린다.</summary>

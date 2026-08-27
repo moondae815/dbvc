@@ -2,13 +2,10 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using Moq;
 using NUnit.Framework;
 using DBVC.Core;
 using DBVC.Core.Models;
-using DBVC.Vsix.Services;
 using DBVC.Vsix.UI;
-using DBVC.Vsix.ViewModels;
 
 namespace DBVC.Vsix.Tests.UI
 {
@@ -21,59 +18,16 @@ namespace DBVC.Vsix.Tests.UI
     [Apartment(System.Threading.ApartmentState.STA)]
     public class TopRowLayoutTests
     {
-        private static ViewChangesControl NewControl()
-        {
-            var vm = new ViewChangesViewModel(
-                Mock.Of<IConfigManager>(), Mock.Of<IStateTracker>(), Mock.Of<IGitManager>(),
-                Mock.Of<ISmoManager>(), Mock.Of<IUserNotifier>(), Mock.Of<IFileSaveDialog>(),
-                Mock.Of<IWorkingTreeCleaner>(), Mock.Of<IRepositoryConnectDialog>(),
-                Mock.Of<ISqlCredentialStore>(), Mock.Of<ISsmsConnectionSource>());
-            return new ViewChangesControl(vm, null);
-        }
+        private static ViewChangesControl NewControl() => ViewChangesControlFixtures.NewControl();
 
         /// <summary>
-        /// 개체 탐색기가 대상을 내주는 상태로 만들고 Connect까지 누른 컨트롤. 기본 스케줄러가
-        /// 인라인이라 이 호출이 끝나면 저장소 상태 판정도 끝나 있다.
+        /// 이 픽스처는 항상 초기화된 Write 대상만 다룬다 - 나머지 매개변수는
+        /// ViewChangesControlFixtures.NewConnectedControl의 공유 구현을 그대로 쓰고,
+        /// installedVersion만 여기서 고정해 준다.
         /// </summary>
         private static ViewChangesControl NewConnectedControl(RepositoryState repositoryState, RemoteStatus? remoteStatus = null)
-        {
-            var config = new Mock<IConfigManager>();
-            config.Setup(c => c.TryGetMapping(It.IsAny<string>(), It.IsAny<string>()))
-                .Returns(new MappingConfig { ServerName = "S", DatabaseName = "D", GitPath = @"C:epo" });
-
-            var tracker = new Mock<IStateTracker>();
-            tracker.Setup(t => t.TestConnection(It.IsAny<string>(), It.IsAny<string>())).Returns((string?)null);
-            tracker.Setup(t => t.GetInstalledVersion(It.IsAny<string>(), It.IsAny<string>()))
-                .Returns(StateTracker.RequiredSchemaVersion);
-            tracker.Setup(t => t.RefreshState(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>())).Returns(true);
-            tracker.Setup(t => t.GetPendingChanges(It.IsAny<string>(), It.IsAny<string>()))
-                .Returns(new System.Collections.Generic.List<ChangeRecord>());
-
-            var git = new Mock<IGitManager>();
-            git.Setup(g => g.GetRepositoryState(It.IsAny<string>(), It.IsAny<string>())).Returns(repositoryState);
-            if (remoteStatus != null)
-            {
-                git.Setup(g => g.FetchRemoteStatus(It.IsAny<string>(), It.IsAny<string>())).Returns(remoteStatus);
-            }
-
-            var ssms = new Mock<ISsmsConnectionSource>();
-            ssms.Setup(s => s.TryGetCurrent())
-                .Returns(new SsmsConnectionInfo("S", "D", SqlAuthMode.Windows, null, null, null));
-
-            var vm = new ViewChangesViewModel(
-                config.Object, tracker.Object, git.Object, Mock.Of<ISmoManager>(), Mock.Of<IUserNotifier>(),
-                Mock.Of<IFileSaveDialog>(), Mock.Of<IWorkingTreeCleaner>(), Mock.Of<IRepositoryConnectDialog>(),
-                Mock.Of<ISqlCredentialStore>(), ssms.Object);
-            vm.ConnectCommand.Execute(null);
-
-            // 원격 확인은 수동 버튼으로만 돌므로, RemoteStatusLabel을 채우려면 여기서 직접 눌러야 한다.
-            if (remoteStatus != null)
-            {
-                vm.CheckRemoteCommand.Execute(null);
-            }
-
-            return new ViewChangesControl(vm, null);
-        }
+            => ViewChangesControlFixtures.NewConnectedControl(
+                repositoryState, remoteStatus, installedVersion: StateTracker.RequiredSchemaVersion);
 
         private static Point TopLeftOf(ViewChangesControl control, string name)
         {
