@@ -1804,7 +1804,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(File.Exists(outputPath), Is.True);
             var script = File.ReadAllText(outputPath);
-            Assert.That(script, Does.Contain("DBVC Deployment Script"));
+            Assert.That(script, Does.Contain("DBVC 배포 스크립트"));
             Assert.That(script, Does.Contain("CREATE TABLE Users (Id INT);"));
         }
 
@@ -1832,7 +1832,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.GenerateRollbackScriptCommand.Execute(null);
 
             var script = File.ReadAllText(outputPath);
-            Assert.That(script, Does.Contain("DBVC Rollback Script"));
+            Assert.That(script, Does.Contain("DBVC 롤백 스크립트"));
             Assert.That(script, Does.Contain("OldCol"));
         }
 
