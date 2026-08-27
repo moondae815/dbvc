@@ -25,7 +25,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         private RecordingNotifier _notifier = null!;
         private RecordingSaveDialog _saveDialog = null!;
         private Mock<IWorkingTreeCleaner> _cleaner = null!;
-        private RecordingFolderDialog _folderDialog = null!;
+        private RecordingConnectDialog _connectDialog = null!;
         private Mock<ISqlCredentialStore> _credentials = null!;
         private Mock<ISsmsConnectionSource> _ssms = null!;
         private readonly List<string> _tempDirs = new List<string>();
@@ -47,7 +47,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         public void SetUp()
         {
             _saveDialog = new RecordingSaveDialog();
-            _folderDialog = new RecordingFolderDialog();
+            _connectDialog = new RecordingConnectDialog();
             _config = new Mock<IConfigManager>();
             _stateTracker = new Mock<IStateTracker>();
             _git = new Mock<IGitManager>();
@@ -92,7 +92,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             return new ViewChangesViewModel(
                 _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
-                _cleaner.Object, _folderDialog, _credentials.Object, _ssms.Object);
+                _cleaner.Object, _connectDialog, _credentials.Object, _ssms.Object);
         }
 
         /// <summary>
@@ -293,7 +293,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             var withoutSource = new ViewChangesViewModel(
                 _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
-                _cleaner.Object, _folderDialog, _credentials.Object, null);
+                _cleaner.Object, _connectDialog, _credentials.Object, null);
 
             Assert.That(withoutSource.ConnectCommand.CanExecute(null), Is.False,
                 "개체 탐색기를 읽을 수 없으면 누를 수 있는 것이 아무것도 없습니다");
@@ -578,7 +578,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             _stateTracker.Setup(s => s.GetInstalledVersion(Server, Database)).Returns(0);
             var vm = new ViewChangesViewModel(
                 _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
-                _cleaner.Object, _folderDialog, _credentials.Object, _ssms.Object, scheduler);
+                _cleaner.Object, _connectDialog, _credentials.Object, _ssms.Object, scheduler);
             _ssms.Setup(s => s.TryGetCurrent()).Returns(Info());
             vm.ConnectCommand.Execute(null);
             var before = scheduler.RunCount;
@@ -597,7 +597,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             _stateTracker.Setup(s => s.GetInstalledVersion(Server, Database)).Returns(0);
             var vm = new ViewChangesViewModel(
                 _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
-                _cleaner.Object, _folderDialog, _credentials.Object, _ssms.Object, scheduler);
+                _cleaner.Object, _connectDialog, _credentials.Object, _ssms.Object, scheduler);
             _ssms.Setup(s => s.TryGetCurrent()).Returns(Info());
             vm.ConnectCommand.Execute(null);
 
@@ -869,7 +869,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _git.Setup(g => g.IsRepository(@"C:\chosen-repo")).Returns(true);
-            _folderDialog.PathToReturn = @"C:\chosen-repo";
+            _connectDialog.RequestToReturn = RepositoryConnectRequest.ForExistingFolder(@"C:\chosen-repo");
             var vm = NewConnectedViewModel();
 
             vm.ConnectRepositoryCommand.Execute(null);
@@ -881,12 +881,12 @@ namespace DBVC.Vsix.Tests.ViewModels
         public void ConnectRepositoryCommand_DoesNothing_WhenTheUserCancels()
         {
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
-            _folderDialog.PathToReturn = null;
+            _connectDialog.RequestToReturn = null;
             var vm = NewConnectedViewModel();
 
             vm.ConnectRepositoryCommand.Execute(null);
 
-            Assert.That(_folderDialog.CallCount, Is.EqualTo(1));
+            Assert.That(_connectDialog.CallCount, Is.EqualTo(1));
             _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
             Assert.That(_notifier.Errors, Is.Empty, "취소는 오류가 아닙니다");
         }
@@ -896,7 +896,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _git.Setup(g => g.IsRepository(It.IsAny<string>())).Returns(false);
-            _folderDialog.PathToReturn = @"C:\not-a-repo";
+            _connectDialog.RequestToReturn = RepositoryConnectRequest.ForExistingFolder(@"C:\not-a-repo");
             var vm = NewConnectedViewModel();
 
             vm.ConnectRepositoryCommand.Execute(null);
@@ -904,6 +904,118 @@ namespace DBVC.Vsix.Tests.ViewModels
             _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
             Assert.That(_notifier.Errors, Is.Not.Empty,
                 "유효하지 않은 경로를 저장하면 이후 모든 동작이 조용히 실패합니다");
+        }
+
+        [Test]
+        public void ConnectRepositoryCommand_ClonesAndSavesTheMapping_WhenTheUserChoosesToClone()
+        {
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _connectDialog.RequestToReturn =
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+            _git.Setup(g => g.CloneRepository(
+                    "git@host:org/db-schema.git", @"C:\repos\db-schema",
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns(@"C:\repos\db-schema");
+            var vm = NewConnectedViewModel();
+
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            _config.Verify(c => c.AddMapping(Server, Database, @"C:\repos\db-schema"), Times.Once);
+        }
+
+        [Test]
+        public void ConnectRepositoryCommand_DoesNotSaveTheMapping_WhenCloneFails()
+        {
+            // 절반만 받아진 저장소가 매핑되면 이후 모든 동작이 조용히 이상해진다.
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _connectDialog.RequestToReturn =
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+            _git.Setup(g => g.CloneRepository(
+                    It.IsAny<string>(), It.IsAny<string>(),
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                .Throws(new GitRemoteException("원격과 통신하지 못했습니다."));
+            var vm = NewConnectedViewModel();
+
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            Assert.That(_notifier.Errors, Is.Not.Empty);
+        }
+
+        [Test]
+        public void ConnectRepositoryCommand_DoesNotReportCancellationAsAnError_WhenTheUserCancelsTheClone()
+        {
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _connectDialog.RequestToReturn =
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+            _git.Setup(g => g.CloneRepository(
+                    It.IsAny<string>(), It.IsAny<string>(),
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                .Throws(new OperationCanceledException("원격 저장소 받기를 취소했습니다."));
+            var vm = NewConnectedViewModel();
+
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            Assert.That(_notifier.Errors, Is.Empty,
+                "사용자가 누른 취소를 오류 상자로 알리면 자기가 누른 것을 오류로 되읽습니다");
+            _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Test]
+        public void ConnectRepositoryCommand_StopsOfferingCancel_WhenTheCloneReachesCheckout()
+        {
+            // libgit2의 checkout 콜백은 중단을 받지 않는다. 눌러도 안 멈추는 버튼을
+            // 살려 두면 사용자가 도구가 굳었다고 읽는다.
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _connectDialog.RequestToReturn =
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+
+            ViewChangesViewModel? vm = null;
+            var cancellableDuringCheckout = true;
+
+            _git.Setup(g => g.CloneRepository(
+                    It.IsAny<string>(), It.IsAny<string>(),
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns((string url, string path, IProgress<CloneProgress>? progress, CancellationToken token) =>
+                {
+                    progress?.Report(new CloneProgress(ClonePhase.Transferring, 10, 100));
+                    progress?.Report(new CloneProgress(ClonePhase.CheckingOut, 1, 10));
+                    cancellableDuringCheckout = vm!.CancelCommand.CanExecute(null);
+                    return path;
+                });
+
+            vm = NewConnectedViewModel();
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            Assert.That(cancellableDuringCheckout, Is.False);
+        }
+
+        [Test]
+        public void ConnectRepositoryCommand_IsDisabled_WhileAnotherOperationIsRunning()
+        {
+            // IsBusy 가드가 없으면 진행 중에 두 번째 클릭이 CloneAndConnect를 다시 태우고,
+            // 그 첫 줄이 첫 clone이 아직 쓰는 CancellationTokenSource를 Dispose한다 -
+            // 두 clone이 동시에 돌고 취소가 더 이상 첫 clone을 멈추지 못하게 된다.
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _connectDialog.RequestToReturn =
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+
+            ViewChangesViewModel? vm = null;
+            var canExecuteDuringClone = true;
+
+            _git.Setup(g => g.CloneRepository(
+                    It.IsAny<string>(), It.IsAny<string>(),
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns((string url, string path, IProgress<CloneProgress>? progress, CancellationToken token) =>
+                {
+                    canExecuteDuringClone = vm!.ConnectRepositoryCommand.CanExecute(null);
+                    return path;
+                });
+
+            vm = NewConnectedViewModel();
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            Assert.That(canExecuteDuringClone, Is.False);
         }
 
         // ---------- 객체 이력 ----------
@@ -1374,6 +1486,91 @@ namespace DBVC.Vsix.Tests.ViewModels
                 Times.Never);
         }
 
+        // ---------- 원격 확인 ----------
+
+        [Test]
+        public void CheckRemoteCommand_ShowsAheadAndBehindCounts_WhenTheRemoteAnswers()
+        {
+            _git.Setup(g => g.FetchRemoteStatus(Server, Database)).Returns(new RemoteStatus(2, 1));
+            var vm = NewConnectedViewModel();
+
+            vm.CheckRemoteCommand.Execute(null);
+
+            Assert.That(vm.RemoteStatusText, Does.Contain("받을 커밋 1개"));
+            Assert.That(vm.RemoteStatusText, Does.Contain("올릴 커밋 2개"));
+            Assert.That(vm.HasRemoteStatus, Is.True);
+        }
+
+        [Test]
+        public void RemoteStatusText_IsEmpty_BeforeTheUserAsks()
+        {
+            // 누르기 전에는 아무것도 뜨지 않는다. 낡은 숫자를 최신인 척 보여주지 않기 위해서다.
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.HasRemoteStatus, Is.False);
+            _git.Verify(g => g.FetchRemoteStatus(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Test]
+        public void RemoteStatusText_IsCleared_WhenTheTargetChanges()
+        {
+            _git.Setup(g => g.FetchRemoteStatus(Server, Database)).Returns(new RemoteStatus(2, 1));
+            var vm = NewConnectedViewModel();
+            vm.CheckRemoteCommand.Execute(null);
+
+            _ssms.Setup(s => s.TryGetCurrent())
+                .Returns(new SsmsConnectionInfo("S2", "D2", SqlAuthMode.Windows, null, null, null));
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.HasRemoteStatus, Is.False,
+                "다른 대상의 원격 상태가 남으면 사용자가 엉뚱한 저장소의 숫자를 읽습니다");
+        }
+
+        [Test]
+        public void RemoteStatusText_IsCleared_AfterASuccessfulPull()
+        {
+            // Pull이 뒤처짐을 줄이므로 원격 확인이 보여준 숫자는 낡는다. 지우지 않으면
+            // 다 받은 뒤에도 "받을 커밋 n개"가 최신인 척 남는다.
+            _git.Setup(g => g.FetchRemoteStatus(Server, Database)).Returns(new RemoteStatus(0, 3));
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.Pulled);
+            var vm = NewConnectedViewModel();
+            vm.CheckRemoteCommand.Execute(null);
+            Assert.That(vm.HasRemoteStatus, Is.True, "선행 조건: 원격 확인으로 값을 채워 둔다");
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(vm.HasRemoteStatus, Is.False);
+        }
+
+        [Test]
+        public void CheckRemoteCommand_ReportsTheReason_WhenTheRemoteCannotBeReached()
+        {
+            _git.Setup(g => g.FetchRemoteStatus(Server, Database))
+                .Throws(new GitRemoteException("원격과 통신하지 못했습니다."));
+            var vm = NewConnectedViewModel();
+
+            vm.CheckRemoteCommand.Execute(null);
+
+            Assert.That(_notifier.Errors, Is.Not.Empty);
+            Assert.That(vm.HasRemoteStatus, Is.False);
+        }
+
+        [Test]
+        public void CheckRemoteCommand_IsDisabled_WhenTheRepositoryIsBlocked()
+        {
+            // 차단은 경고가 아니다. 기준이 어긋난 저장소에서 낸 숫자는 조용히 거짓말이다.
+            _git.Setup(g => g.GetRepositoryState(It.IsAny<string>(), It.IsAny<string>()))
+                .Returns(new RepositoryState
+                {
+                    CurrentBranch = "develop",
+                    BlockReason = RepositoryBlockReason.BranchMismatch,
+                    BlockMessage = "고정된 브랜치와 다릅니다."
+                });
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.CheckRemoteCommand.CanExecute(null), Is.False);
+        }
+
         // ---------- Commit ----------
 
         [Test]
@@ -1784,7 +1981,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             return new ViewChangesViewModel(
                 _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
-                _cleaner.Object, _folderDialog, _credentials.Object, _ssms.Object, scheduler);
+                _cleaner.Object, _connectDialog, _credentials.Object, _ssms.Object, scheduler);
         }
 
         /// <summary>Connect까지 끝낸 ViewModel. Connect 자체도 스케줄러를 타므로 여기서 비워 준다.</summary>
@@ -2299,15 +2496,15 @@ namespace DBVC.Vsix.Tests.ViewModels
             }
         }
 
-        private sealed class RecordingFolderDialog : IFolderBrowseDialog
+        private sealed class RecordingConnectDialog : IRepositoryConnectDialog
         {
-            public string? PathToReturn { get; set; }
+            public RepositoryConnectRequest? RequestToReturn { get; set; }
             public int CallCount { get; private set; }
 
-            public string? PromptForFolder(string description, string? initialPath)
+            public RepositoryConnectRequest? Prompt(string serverName, string databaseName)
             {
                 CallCount++;
-                return PathToReturn;
+                return RequestToReturn;
             }
         }
 

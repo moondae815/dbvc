@@ -32,13 +32,15 @@ namespace DBVC.Vsix.ViewModels
         private readonly ISmoManager _smoManager;
         private readonly IUserNotifier _notifier;
         private readonly IFileSaveDialog _saveDialog;
-        private readonly IFolderBrowseDialog _folderDialog;
+        private readonly IRepositoryConnectDialog _connectDialog;
         private readonly IWorkingTreeCleaner _cleaner;
         private readonly ScriptExporter _scriptExporter;
         private readonly IBackgroundScheduler _scheduler;
 
-        /// <summary>진행 중인 추출을 멈추기 위한 것. 작업이 없으면 null이다.</summary>
-        private CancellationTokenSource? _extractionCancellation;
+        /// <summary>
+        /// 진행 중인 취소 가능 작업(추출 또는 저장소 받기)을 멈추기 위한 것. 작업이 없으면 null이다.
+        /// </summary>
+        private CancellationTokenSource? _cancellableOperation;
 
         /// <summary>
         /// 지금 걸려 있는 작업을 <see cref="Cancel"/>이 실제로 멈출 수 있는지.
@@ -72,7 +74,7 @@ namespace DBVC.Vsix.ViewModels
             IUserNotifier? notifier,
             IFileSaveDialog? saveDialog = null,
             IWorkingTreeCleaner? cleaner = null,
-            IFolderBrowseDialog? folderDialog = null,
+            IRepositoryConnectDialog? connectDialog = null,
             ISqlCredentialStore? credentialStore = null,
             ISsmsConnectionSource? ssmsConnectionSource = null,
             IBackgroundScheduler? scheduler = null)
@@ -91,7 +93,7 @@ namespace DBVC.Vsix.ViewModels
             _notifier = notifier ?? new MessageBoxNotifier();
             _saveDialog = saveDialog ?? new SaveFileDialogAdapter();
             _cleaner = cleaner ?? new WorkingTreeCleaner();
-            _folderDialog = folderDialog ?? new FolderBrowserDialogAdapter();
+            _connectDialog = connectDialog ?? new RepositoryConnectDialogAdapter();
             _scriptExporter = new ScriptExporter(_configManager, _gitManager);
             History = new ObjectHistoryViewModel(_gitManager);
 
@@ -109,6 +111,7 @@ namespace DBVC.Vsix.ViewModels
             PushCommand = new RelayCommand(Push, CanPush);
             GenerateDeploymentScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Deployment), CanGenerateScript);
             GenerateRollbackScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Rollback), CanGenerateScript);
+            CheckRemoteCommand = new RelayCommand(CheckRemote, CanCheckRemote);
         }
 
         // ---------- 연결 컨텍스트 ----------
@@ -200,6 +203,8 @@ namespace DBVC.Vsix.ViewModels
             // 대상이 바뀌면 이전 대상의 브랜치와 차단 사유가 남아 있으면 안 된다 -
             // 남으면 새 대상의 화면이 엉뚱한 저장소를 근거로 덮인다.
             CurrentBranch = null;
+            // 원격 상태도 이전 대상의 것이다. 남으면 엉뚱한 저장소의 숫자를 읽는다.
+            RemoteStatusText = null;
             BlockMessage = null;
             // 대상이 바뀌면 "개체 탐색기 선택이 다릅니다"의 판정 근거가 사라진다.
             // 여전히 다르다면 다음 CheckSsmsSelection()에서 다시 뜬다.
@@ -562,7 +567,7 @@ namespace DBVC.Vsix.ViewModels
         {
             // Cancel을 눌러도 IsBusy는 작업이 실제로 멈출 때까지 유지된다.
             // 여기서 내리면 사용자가 다른 버튼을 눌러 두 작업이 겹친다.
-            _extractionCancellation?.Cancel();
+            _cancellableOperation?.Cancel();
             ProgressText = "취소하는 중...";
         }
 
@@ -647,6 +652,64 @@ namespace DBVC.Vsix.ViewModels
 
         /// <summary>로컬 저장소의 커밋을 원격 저장소에 올린다.</summary>
         public ICommand PushCommand { get; }
+
+        public ICommand CheckRemoteCommand { get; }
+
+        private string? _remoteStatusText;
+
+        /// <summary>
+        /// 마지막으로 원격을 확인한 결과. 누르기 전에는 <c>null</c>이다 —
+        /// 낡은 숫자를 최신인 척 보여주는 것이 아무것도 안 보여주는 것보다 나쁘다.
+        /// </summary>
+        public string? RemoteStatusText
+        {
+            get => _remoteStatusText;
+            private set
+            {
+                if (_remoteStatusText == value) return;
+                _remoteStatusText = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasRemoteStatus));
+            }
+        }
+
+        public bool HasRemoteStatus => !string.IsNullOrWhiteSpace(RemoteStatusText);
+
+        private bool CanCheckRemote() => IsMapped && !IsBusy && !IsBlocked;
+
+        /// <summary>
+        /// 원격을 받아 앞섬·뒤처짐을 센다. 수동 버튼으로만 돈다 — 새로고침에 붙이면
+        /// 응답 없는 원격이 변경 목록을 보는 일까지 느리게 만든다.
+        /// </summary>
+        private void CheckRemote()
+        {
+            if (!CanCheckRemote()) return;
+
+            var server = ServerName!;
+            var database = DatabaseName!;
+
+            IsBusy = true;
+            ProgressText = "원격을 확인하는 중...";
+            RaiseActionCanExecuteChanged();
+
+            _scheduler.Run(
+                () => _gitManager.FetchRemoteStatus(server, database),
+                status =>
+                {
+                    IsBusy = false;
+                    ProgressText = null;
+                    RemoteStatusText = $"받을 커밋 {status.BehindBy}개 · 올릴 커밋 {status.AheadBy}개";
+                    RaiseActionCanExecuteChanged();
+                },
+                ex =>
+                {
+                    IsBusy = false;
+                    ProgressText = null;
+                    RemoteStatusText = null;
+                    RaiseActionCanExecuteChanged();
+                    _notifier.ShowError("DBVC 원격 확인 실패", ex.Message);
+                });
+        }
 
         /// <summary>선택된 객체들의 현재 DDL을 단일 스크립트로 내보낸다. (Feature 8)</summary>
         public ICommand GenerateDeploymentScriptCommand { get; }
@@ -738,6 +801,11 @@ namespace DBVC.Vsix.ViewModels
                     return;
 
                 case PullResult.Pulled:
+                    // Pull이 뒤처짐을 줄였으므로 마지막 원격 확인 숫자는 낡았다. 지우지 않으면
+                    // "받을 커밋 3개"가 방금 다 받은 뒤에도 그대로 남아, 낡은 숫자를 최신인 척
+                    // 보여주지 않는다는 이 필드의 존재 이유와 어긋난다.
+                    RemoteStatusText = null;
+
                     // 받은 스크립트가 어디 놓였는지 말하지 않으면 사용자가 찾지 못한다 -
                     // DBVC는 파일만 가져올 뿐 데이터베이스에 적용하지 않기 때문이다.
                     // 저장소 루트를 알려주는 것만으로는 부족하다 - 실제 파일은 루트가 아니라
@@ -824,6 +892,7 @@ namespace DBVC.Vsix.ViewModels
                     _notifier.ShowInfo("DBVC Push", "올릴 커밋이 없습니다. 원격이 이미 최신입니다.");
                     break;
                 case PushResult.Pushed:
+                    RemoteStatusText = null;
                     _notifier.ShowInfo("DBVC Push", "커밋을 원격 저장소에 올렸습니다.");
                     break;
 
@@ -838,30 +907,115 @@ namespace DBVC.Vsix.ViewModels
 
         // ---------- 저장소 매핑 ----------
 
-        private bool CanConnectRepository() => HasContext && !IsMapped;
+        private bool CanConnectRepository() => HasContext && !IsMapped && !IsBusy;
 
         private void ConnectRepository()
         {
             if (!CanConnectRepository()) return;
 
-            var path = _folderDialog.PromptForFolder(
-                $"'{ServerName}.{DatabaseName}'의 스크립트를 보관할 Git 저장소 폴더를 선택하세요.", null);
+            var request = _connectDialog.Prompt(ServerName!, DatabaseName!);
 
             // 사용자가 취소한 경우다. 오류가 아니다.
-            if (string.IsNullOrWhiteSpace(path)) return;
+            if (request == null) return;
 
-            if (!_gitManager.IsRepository(path!))
+            if (request.Kind == RepositoryConnectKind.ExistingFolder)
             {
-                // 유효하지 않은 경로를 저장하면 이후 모든 동작이 조용히 실패한다.
-                _notifier.ShowError("DBVC", $"'{path}'은(는) Git 저장소가 아닙니다. git init된 폴더를 선택하세요.");
+                ConnectExistingFolder(request.ExistingPath!);
                 return;
             }
 
-            _configManager.AddMapping(ServerName!, DatabaseName!, path!);
+            CloneAndConnect(request.RemoteUrl!, request.TargetPath!);
+        }
+
+        private void ConnectExistingFolder(string path)
+        {
+            if (!_gitManager.IsRepository(path))
+            {
+                // 유효하지 않은 경로를 저장하면 이후 모든 동작이 조용히 실패한다.
+                _notifier.ShowError("DBVC",
+                    $"'{path}'은(는) Git 저장소가 아닙니다. 이미 받아둔 저장소 폴더를 고르거나 원격에서 받으세요.");
+                return;
+            }
+
+            AdoptRepository(path);
+        }
+
+        /// <summary>
+        /// 매핑을 저장하고 화면을 새 저장소 기준으로 다시 판정한다.
+        /// 두 갈래가 끝나는 자리가 같아야 한쪽만 갱신을 빠뜨리는 일이 없다.
+        /// </summary>
+        private void AdoptRepository(string path)
+        {
+            _configManager.AddMapping(ServerName!, DatabaseName!, path);
 
             // 매핑이 생겼으므로 상태를 다시 판정한다. 인증 정보는 이미 저장소에 있다.
             InvalidateActiveContext();
             ApplyContext();
+        }
+
+        /// <summary>
+        /// 원격에서 받아 매핑까지 만든다. 저장소를 받는 동안 SSMS가 멈추면 안 되므로
+        /// 새로고침과 같은 이음매로 UI 스레드 밖에 내보낸다.
+        /// </summary>
+        private void CloneAndConnect(string remoteUrl, string targetPath)
+        {
+            _cancellableOperation?.Dispose();
+            _cancellableOperation = new CancellationTokenSource();
+            var token = _cancellableOperation.Token;
+
+            _cancellableWorkOutstanding = true;
+            IsBusy = true;
+            ProgressText = "원격 저장소를 받는 중...";
+            RaiseActionCanExecuteChanged();
+
+            // 보고는 백그라운드 스레드에서 온다. 바인딩 속성은 UI 스레드에서만 바꾼다.
+            var progress = new CloneProgressRelay(p =>
+            {
+                var text = p.Phase == ClonePhase.Transferring
+                    ? (p.Total > 0 ? $"받는 중... {p.Completed}/{p.Total} 객체" : "받는 중...")
+                    : "펼치는 중...";
+
+                // 펼치는 단계는 libgit2가 중단을 받지 않는다. 취소 버튼을 살려 두면
+                // 눌러도 아무 일이 없고 "취소하는 중..."만 남는다.
+                var stillCancellable = p.Phase == ClonePhase.Transferring;
+
+                _scheduler.Post(() =>
+                {
+                    ProgressText = text;
+                    if (_cancellableWorkOutstanding != stillCancellable)
+                    {
+                        _cancellableWorkOutstanding = stillCancellable;
+                        RaiseActionCanExecuteChanged();
+                    }
+                });
+            });
+
+            _scheduler.Run(
+                () => _gitManager.CloneRepository(remoteUrl, targetPath, progress, token),
+                localPath =>
+                {
+                    _cancellableWorkOutstanding = false;
+                    IsBusy = false;
+                    ProgressText = null;
+                    AdoptRepository(localPath);
+                },
+                ex =>
+                {
+                    _cancellableWorkOutstanding = false;
+                    IsBusy = false;
+                    ProgressText = null;
+                    RaiseActionCanExecuteChanged();
+
+                    // 취소는 실패가 아니다. 받다 만 폴더는 Core가 이미 지웠고 매핑도 만들지
+                    // 않았으므로 사용자는 같은 경로로 다시 시도할 수 있다.
+                    if (ex is OperationCanceledException)
+                    {
+                        WarningMessage = "원격 저장소 받기를 취소했습니다. 다시 시도할 수 있습니다.";
+                        return;
+                    }
+
+                    _notifier.ShowError("DBVC 저장소 받기 실패", ex.Message);
+                });
         }
 
         // ---------- Setup ----------
@@ -978,9 +1132,9 @@ namespace DBVC.Vsix.ViewModels
             // UI 스레드에서 읽어 값으로 넘긴다. 백그라운드에서 바인딩 속성을 읽지 않는 규약이다.
             var includeAllAuthors = ShowAllAuthors;
 
-            _extractionCancellation?.Dispose();
-            _extractionCancellation = new CancellationTokenSource();
-            var token = _extractionCancellation.Token;
+            _cancellableOperation?.Dispose();
+            _cancellableOperation = new CancellationTokenSource();
+            var token = _cancellableOperation.Token;
 
             _cancellableWorkOutstanding = true;
             IsBusy = true;
@@ -1130,6 +1284,16 @@ namespace DBVC.Vsix.ViewModels
             public void Report(ExtractionProgress value) => _onReport(value);
         }
 
+        /// <summary>
+        /// clone 보고를 그 자리에서 전달한다. 이유는 <see cref="ExtractionProgressRelay"/>와 같다.
+        /// </summary>
+        private sealed class CloneProgressRelay : IProgress<CloneProgress>
+        {
+            private readonly Action<CloneProgress> _onReport;
+            public CloneProgressRelay(Action<CloneProgress> onReport) { _onReport = onReport; }
+            public void Report(CloneProgress value) => _onReport(value);
+        }
+
         private sealed class RefreshOutcome
         {
             public List<string> Warnings { get; } = new List<string>();
@@ -1247,6 +1411,12 @@ namespace DBVC.Vsix.ViewModels
                         // 커밋은 만들어지지 않았다. 목록에서만 사라지므로 그 사실을 말해야
                         // 사용자가 "커밋했는데 이력에 없다"로 읽지 않는다.
                         WarningMessage = "선택한 항목은 저장소와 이미 같아 커밋할 것이 없었습니다. 목록에서만 정리했습니다.";
+                    }
+                    else
+                    {
+                        // 실제 커밋은 원격보다 앞선 개수를 바꾼다. 지우지 않으면 마지막 원격 확인
+                        // 숫자가 낡은 채로 최신인 척 남는다.
+                        RemoteStatusText = null;
                     }
 
                     CommitMessage = string.Empty;
@@ -1409,6 +1579,7 @@ namespace DBVC.Vsix.ViewModels
             (ConnectRepositoryCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (PullCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (PushCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (CheckRemoteCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

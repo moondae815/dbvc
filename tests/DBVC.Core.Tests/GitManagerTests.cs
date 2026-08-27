@@ -1173,6 +1173,161 @@ namespace DBVC.Core.Tests
             Assert.That(message, Does.Contain("권한"));
         }
 
+        // ---------- Clone ----------
+
+        /// <summary>
+        /// 보고를 그 자리에서 모은다. Progress&lt;T&gt;는 생성된 스레드의 SynchronizationContext로
+        /// 넘기는데, 테스트 스레드에는 그것이 없어 순서와 시점이 보장되지 않는다.
+        /// </summary>
+        private sealed class RecordingProgress<T> : IProgress<T>
+        {
+            private readonly Action<T>? _onReport;
+            public RecordingProgress(Action<T>? onReport = null) { _onReport = onReport; }
+            public System.Collections.Generic.List<T> Reports { get; } = new System.Collections.Generic.List<T>();
+            public void Report(T value) { Reports.Add(value); _onReport?.Invoke(value); }
+        }
+
+        [Test]
+        public void CloneRepository_CreatesAWorkingTreeAtTheTargetPath_WhenTheRemoteIsReachable()
+        {
+            var originPath = NewRepoWithCommit();
+            var targetPath = NewTempDir();
+
+            var result = new GitManager().CloneRepository(originPath, targetPath, null, CancellationToken.None);
+
+            // Repository.Clone이 돌려주는 것은 .git 디렉터리 경로다. 그것을 그대로 매핑에 넣으면
+            // 이후 모든 동작이 어긋나므로, 반환값은 작업 트리여야 한다.
+            Assert.That(result, Is.EqualTo(targetPath));
+            Assert.That(File.Exists(Path.Combine(targetPath, "dbo", "Tables", "Users.sql")), Is.True);
+            Assert.That(new GitManager().IsRepository(targetPath), Is.True);
+        }
+
+        [Test]
+        public void CloneRepository_SetsUpstreamTracking_WhenCloning()
+        {
+            // clone이 Init+Remote+upstream을 대신하는 근거다. 이것이 깨지면 첫 Push가
+            // "추적 중인 원격 브랜치가 없어" 로 거부된다.
+            var originPath = NewRepoWithCommit();
+            var targetPath = NewTempDir();
+
+            new GitManager().CloneRepository(originPath, targetPath, null, CancellationToken.None);
+
+            using var cloned = new Repository(targetPath);
+            Assert.That(cloned.Head.IsTracking, Is.True);
+        }
+
+        [Test]
+        public void CloneRepository_ReportsProgress_WhileCloning()
+        {
+            var originPath = NewRepoWithCommit();
+            var targetPath = NewTempDir();
+            var progress = new RecordingProgress<CloneProgress>();
+
+            new GitManager().CloneRepository(originPath, targetPath, progress, CancellationToken.None);
+
+            // 파일 경로 원격은 libgit2의 local 전송을 타서 전송 단계 보고가 없을 수 있다.
+            // 그래서 여기서 고정하는 것은 checkout 보고뿐이고, 전송 보고는 실기 확인 목록에 있다.
+            Assert.That(progress.Reports, Is.Not.Empty);
+            Assert.That(progress.Reports.Exists(p => p.Phase == ClonePhase.CheckingOut), Is.True);
+        }
+
+        [Test]
+        public void CloneRepository_Refuses_WhenTheTargetFolderAlreadyExists()
+        {
+            var originPath = NewRepoWithCommit();
+            var targetPath = NewTempDir();
+            Directory.CreateDirectory(targetPath);
+
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => new GitManager().CloneRepository(originPath, targetPath, null, CancellationToken.None));
+
+            Assert.That(ex!.Message, Does.Contain(targetPath),
+                "어느 폴더가 문제인지 경로로 알려줘야 합니다");
+            Assert.That(ex.Message, Does.Contain("이미"));
+        }
+
+        [Test]
+        public void CloneRepository_RefusesBeforeCreatingAnything_WhenTheRemoteIsHttps()
+        {
+            var targetPath = NewTempDir();
+
+            var ex = Assert.Throws<GitAuthenticationException>(
+                () => new GitManager().CloneRepository(
+                    "https://example.invalid/org/x.git", targetPath, null, CancellationToken.None));
+
+            Assert.That(ex!.Message, Does.Contain("SSH"),
+                "HTTPS 원격에는 SSH로 바꾸는 방법을 안내해야 합니다");
+            Assert.That(Directory.Exists(targetPath), Is.False,
+                "네트워크를 타기 전에 거부해야 합니다 - 폴더가 남으면 다음 시도가 '이미 있음'으로 막힙니다");
+        }
+
+        [Test]
+        public void CloneRepository_Refuses_WhenTheRemoteUrlIsEmpty()
+        {
+            Assert.Throws<ArgumentException>(
+                () => new GitManager().CloneRepository("  ", NewTempDir(), null, CancellationToken.None));
+        }
+
+        [Test]
+        public void CloneRepository_RemovesTheFolderItCreated_WhenTheRemoteDoesNotExist()
+        {
+            // 절반만 받아진 폴더가 남으면 다음 시도가 '이미 있음'으로 막힌다.
+            var missingOrigin = Path.Combine(Path.GetTempPath(), "dbvc_no_such_" + Guid.NewGuid().ToString("N"));
+            var targetPath = NewTempDir();
+
+            Assert.Throws<GitRemoteException>(
+                () => new GitManager().CloneRepository(missingOrigin, targetPath, null, CancellationToken.None));
+
+            Assert.That(Directory.Exists(targetPath), Is.False);
+        }
+
+        [Test]
+        public void CloneRepository_RemovesTheFolderItCreated_WhenCancelledWhileRunning()
+        {
+            var originPath = NewRepoWithCommit();
+            var targetPath = NewTempDir();
+            using var cts = new CancellationTokenSource();
+
+            // 첫 보고에서 취소한다. 미리 취소된 토큰을 넘기면 폴더가 만들어지기도 전에 끝나
+            // 정리 경로를 지나가지 않는다.
+            var progress = new RecordingProgress<CloneProgress>(_ => cts.Cancel());
+
+            Assert.Throws<OperationCanceledException>(
+                () => new GitManager().CloneRepository(originPath, targetPath, progress, cts.Token));
+
+            Assert.That(Directory.Exists(targetPath), Is.False);
+        }
+
+        [Test]
+        public void CloneRepository_PropagatesANonRemoteFailure_WithoutWrappingItAsGitRemoteException()
+        {
+            // 디스크 부족 같은 코딩 실수·시스템 오류를 원격 실패로 둔갑시키면 SSH 안내가 붙어
+            // 원인을 가린다. 정리는 하되(폴더는 지워진다) 원본 예외 타입은 그대로 흘려보내야 한다.
+            var originPath = NewRepoWithCommit();
+            var targetPath = NewTempDir();
+            var progress = new RecordingProgress<CloneProgress>(_ => throw new IOException("디스크 공간이 부족합니다."));
+
+            Assert.Throws<IOException>(
+                () => new GitManager().CloneRepository(originPath, targetPath, progress, CancellationToken.None));
+
+            Assert.That(Directory.Exists(targetPath), Is.False,
+                "실패했으니 우리가 만든 폴더는 그대로 지워져야 합니다");
+        }
+
+        [Test]
+        public void CloneRepository_ThrowsCancellation_WhenTheTokenIsAlreadyCancelled()
+        {
+            var originPath = NewRepoWithCommit();
+            var targetPath = NewTempDir();
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(
+                () => new GitManager().CloneRepository(originPath, targetPath, null, cts.Token));
+
+            Assert.That(Directory.Exists(targetPath), Is.False);
+        }
+
         /// <summary>
         /// <see cref="PushStatusError"/>의 기본 생성자는 protected이고 <c>Reference</c>·<c>Message</c>는
         /// virtual get-only 프로퍼티다(리플렉션으로 확인함 - 두 프로퍼티 모두 setter가 없다).
@@ -1337,6 +1492,69 @@ namespace DBVC.Core.Tests
                 _listener.Close();
                 _thread.Join(TimeSpan.FromSeconds(2));
             }
+        }
+
+        // ---------- 원격 확인 ----------
+
+        [Test]
+        public void FetchRemoteStatus_ReportsBehind_WhenTheRemoteHasNewCommits()
+        {
+            var originPath = NewRepoWithCommit();
+            var localPath = NewTempDir();
+            new GitManager().CloneRepository(originPath, localPath, null, CancellationToken.None);
+
+            // 기존 헬퍼를 그대로 쓴다. 같은 일을 하는 것을 하나 더 만들면 둘 중 하나만 고쳐진다.
+            CommitOneFile(originPath, "dbo/Views/V1.sql", "CREATE OR ALTER VIEW V1 AS SELECT 1 AS X;", "add view");
+
+            var status = NewGitManager("localhost", "testdb", localPath)
+                .FetchRemoteStatus("localhost", "testdb");
+
+            Assert.That(status.BehindBy, Is.EqualTo(1));
+            Assert.That(status.AheadBy, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void FetchRemoteStatus_ReportsAhead_WhenLocalHasUnpushedCommits()
+        {
+            var originPath = NewRepoWithCommit();
+            var localPath = NewTempDir();
+            new GitManager().CloneRepository(originPath, localPath, null, CancellationToken.None);
+
+            CommitOneFile(localPath, "dbo/Views/V2.sql", "CREATE OR ALTER VIEW V2 AS SELECT 2 AS X;", "local only");
+
+            var status = NewGitManager("localhost", "testdb", localPath)
+                .FetchRemoteStatus("localhost", "testdb");
+
+            Assert.That(status.AheadBy, Is.EqualTo(1));
+            Assert.That(status.BehindBy, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void FetchRemoteStatus_ExplainsInKorean_WhenTheCurrentBranchHasNoUpstream()
+        {
+            // Pull·Push와 글자 그대로 같은 검사를 재사용하는지 고정한다.
+            // 복제본을 만들면 한쪽 문구만 고쳐지는 일이 실제로 일어난다.
+            var originPath = NewRepoWithCommit();
+            var localPath = NewRepoWithCommit();
+            using (var local = new Repository(localPath))
+            {
+                local.Network.Remotes.Add("origin", originPath);
+            }
+
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var ex = Assert.Throws<InvalidOperationException>(() => git.FetchRemoteStatus("localhost", "testdb"));
+
+            Assert.That(ex!.Message, Does.Contain("추적"));
+            Assert.That(ex.Message, Does.Not.Contain("tracking information"));
+        }
+
+        [Test]
+        public void FetchRemoteStatus_Throws_WhenTheDatabaseIsNotMapped()
+        {
+            var git = NewGitManager("localhost", "other", NewRepoWithCommit());
+
+            Assert.Throws<InvalidOperationException>(() => git.FetchRemoteStatus("localhost", "testdb"));
         }
 
         // ---------- Constructor ----------

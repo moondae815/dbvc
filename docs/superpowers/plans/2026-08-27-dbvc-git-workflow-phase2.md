@@ -145,7 +145,6 @@ Expected: 컴파일 실패 — `RemoteUrlNaming`이 없다
 
 ```csharp
 using System;
-using System.IO;
 
 namespace DBVC.Core
 {
@@ -158,6 +157,17 @@ namespace DBVC.Core
     public static class RemoteUrlNaming
     {
         private const string GitSuffix = ".git";
+
+        /// <summary>
+        /// Windows가 폴더 이름에 허용하지 않는 문자.
+        ///
+        /// <see cref="System.IO.Path.GetInvalidFileNameChars"/>를 쓰지 않는다 — 그 값은 실행 중인 OS가
+        /// 정해서 Unix에서는 '\0'과 '/'만 돌려준다. 같은 입력이 플랫폼마다 다른 답을 내면
+        /// Linux에서 도는 CI가 Windows에서 통과한 테스트를 떨어뜨린다. DBVC가 실제로 도는
+        /// 곳은 언제나 Windows이므로 그쪽 규칙을 고정해 박는다.
+        /// </summary>
+        private static readonly char[] InvalidFolderNameChars =
+            { '<', '>', ':', '"', '/', '\\', '|', '?', '*' };
 
         public static string? SuggestFolderName(string? remoteUrl)
         {
@@ -179,7 +189,7 @@ namespace DBVC.Core
             if (name.Length == 0) return null;
 
             // 못 만들 이름을 제안하면 사용자가 확인을 누른 뒤에야 실패한다.
-            if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return null;
+            if (name.IndexOfAny(InvalidFolderNameChars) >= 0) return null;
 
             return name;
         }
@@ -739,18 +749,6 @@ namespace DBVC.Core.Models
 ```csharp
         // ---------- 원격 확인 ----------
 
-        /// <summary>저장소에 커밋 하나를 더한다.</summary>
-        private void CommitTo(string repoPath, string fileName, string content, string message)
-        {
-            var full = Path.Combine(repoPath, fileName.Replace('/', Path.DirectorySeparatorChar));
-            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-            File.WriteAllText(full, content);
-
-            using var repo = new Repository(repoPath);
-            Commands.Stage(repo, "*");
-            repo.Commit(message, TestSignature, TestSignature);
-        }
-
         [Test]
         public void FetchRemoteStatus_ReportsBehind_WhenTheRemoteHasNewCommits()
         {
@@ -758,7 +756,8 @@ namespace DBVC.Core.Models
             var localPath = NewTempDir();
             new GitManager().CloneRepository(originPath, localPath, null, CancellationToken.None);
 
-            CommitTo(originPath, "dbo/Views/V1.sql", "CREATE OR ALTER VIEW V1 AS SELECT 1 AS X;", "add view");
+            // 기존 헬퍼를 그대로 쓴다. 같은 일을 하는 것을 하나 더 만들면 둘 중 하나만 고쳐진다.
+            CommitOneFile(originPath, "dbo/Views/V1.sql", "CREATE OR ALTER VIEW V1 AS SELECT 1 AS X;", "add view");
 
             var status = NewGitManager("localhost", "testdb", localPath)
                 .FetchRemoteStatus("localhost", "testdb");
@@ -774,7 +773,7 @@ namespace DBVC.Core.Models
             var localPath = NewTempDir();
             new GitManager().CloneRepository(originPath, localPath, null, CancellationToken.None);
 
-            CommitTo(localPath, "dbo/Views/V2.sql", "CREATE OR ALTER VIEW V2 AS SELECT 2 AS X;", "local only");
+            CommitOneFile(localPath, "dbo/Views/V2.sql", "CREATE OR ALTER VIEW V2 AS SELECT 2 AS X;", "local only");
 
             var status = NewGitManager("localhost", "testdb", localPath)
                 .FetchRemoteStatus("localhost", "testdb");
@@ -865,13 +864,13 @@ Expected: 컴파일 실패 — `FetchRemoteStatus`가 없다
                 // 빈 refspec은 "원격에 설정된 기본 refspec을 쓰라"는 뜻이다.
                 Commands.Fetch(repo, remoteName, Array.Empty<string>(), fetchOptions, null);
             }
-            catch (Exception ex)
+            // Pull·Push와 같은 모양으로 좀힌다. 안내할 것이 있을 때만 가로채고,
+            // 없으면 원본 예외를 그대로 흘려보낸다 — 모든 예외를 감싸면 코딩 실수까지
+            // "원격과 통신하지 못했다"로 둔갑해서 원인을 찾을 수 없게 된다.
+            catch (LibGit2SharpException ex) when (guidance != null)
             {
-                var message = guidance == null
-                    ? ex.Message
-                    : ex.Message + Environment.NewLine + Environment.NewLine + guidance;
-
-                throw new GitRemoteException(message, ex);
+                throw new GitRemoteException(
+                    ex.Message + Environment.NewLine + Environment.NewLine + guidance, ex);
             }
 
             var details = repo.Head.TrackingDetails;
@@ -1078,9 +1077,23 @@ Expected: 컴파일 실패 — 생성자가 아직 `IFolderBrowseDialog`를 받�
 94행의 대입을 바꾼다. 실제 구현은 Task 9에서 붙이므로 **이 단계에서는 아래를 쓴다.**
 
 ```csharp
-            // 기본 구현(WPF 대화상자)은 Task 9에서 붙인다. 그때 이 줄을
-            // `connectDialog ?? new RepositoryConnectDialogAdapter()` 로 되돌린다.
-            _connectDialog = connectDialog ?? throw new ArgumentNullException(nameof(connectDialog));
+            // 실제 대화상자는 Task 9에서 붙인다. 그때까지의 기본값은 무동작이다 —
+            // 여기서 던지면 connectDialog를 넘기지 않는 DbvcServices.CreateViewChangesViewModel이
+            // 죽어서 도구 창 자체가 열리지 않는다.
+            _connectDialog = connectDialog ?? new NoOpRepositoryConnectDialog();
+```
+
+같은 파일의 private 중첩 클래스들 옆에 더한다. **Task 9에서 지운다.**
+
+```csharp
+        /// <summary>
+        /// Task 9이 실제 대화상자를 붙이기 전까지의 기본값. 언제나 취소로 답한다.
+        /// 셸 밖 실행과 대화상자를 넘기지 않는 조립 경로가 죽지 않게 하는 것이 전부다.
+        /// </summary>
+        private sealed class NoOpRepositoryConnectDialog : IRepositoryConnectDialog
+        {
+            public RepositoryConnectRequest? Prompt(string serverName, string databaseName) => null;
+        }
 ```
 
 `ConnectRepository`(843~864행)를 통째로 바꾼다.
@@ -1445,7 +1458,7 @@ git commit -m "feat(vsix): 저장소를 받는 동안 진행률을 띄우고 전
 
 - [ ] **Step 2: 실패를 확인한다**
 
-Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~CheckRemote or FullyQualifiedName~RemoteStatusText"`
+Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~CheckRemote|FullyQualifiedName~RemoteStatusText"`
 Expected: 컴파일 실패 — `CheckRemoteCommand`가 없다
 
 - [ ] **Step 3: ViewModel에 더한다**
@@ -1533,7 +1546,7 @@ Expected: 컴파일 실패 — `CheckRemoteCommand`가 없다
 
 - [ ] **Step 4: 통과를 확인한다**
 
-Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~CheckRemote or FullyQualifiedName~RemoteStatusText"`
+Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~CheckRemote|FullyQualifiedName~RemoteStatusText"`
 Expected: 5개 PASS
 
 - [ ] **Step 5: 화면에 붙인다**
@@ -1786,7 +1799,7 @@ namespace DBVC.Vsix.Services
 
 - [ ] **Step 3: ViewModel의 기본 구현을 되돌린다**
 
-Task 6 Step 4에서 임시로 넣은 `throw new ArgumentNullException` 줄을 아래로 바꾼다.
+Task 6 Step 4에서 임시로 넣은 줄을 아래로 바꾸고, **`NoOpRepositoryConnectDialog` 중첩 클래스를 지운다.**
 
 ```csharp
             _connectDialog = connectDialog ?? new RepositoryConnectDialogAdapter();

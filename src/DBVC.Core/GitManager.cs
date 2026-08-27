@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using DBVC.Core.Models;
 using LibGit2Sharp;
 // LibGit2Sharp도 최상위 PushResult 클래스를 갖고 있어 두 using만으로는 모호하다(CS0104).
@@ -41,6 +42,102 @@ namespace DBVC.Core
         /// 해당 경로가 유효한 Git 저장소인지 확인한다. 매핑 등록 전 검증에 쓴다.
         /// </summary>
         public bool IsRepository(string path) => IsValidRepository(path);
+
+        /// <summary>
+        /// 원격 저장소를 받는다. (설계 3.11)
+        /// </summary>
+        public string CloneRepository(
+            string remoteUrl,
+            string targetPath,
+            IProgress<CloneProgress>? progress,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(remoteUrl))
+            {
+                throw new ArgumentException("원격 주소가 비어 있습니다.", nameof(remoteUrl));
+            }
+
+            if (string.IsNullOrWhiteSpace(targetPath))
+            {
+                throw new ArgumentException("받을 폴더 경로가 비어 있습니다.", nameof(targetPath));
+            }
+
+            // HTTPS는 네트워크를 타기 전에 거른다. 자격 증명 콜백까지 흘려보내면 libgit2의
+            // 영문 원문이 먼저 나오고, 그 뒤에 붙이는 안내는 이미 늦다.
+            if (RemoteDiagnostics.Classify(remoteUrl) == RemoteUrlKind.Https)
+            {
+                throw new GitAuthenticationException(
+                    RemoteDiagnostics.Explain(remoteUrl, IsSshAvailableWithoutRepository())!);
+            }
+
+            // 있는 폴더에 받으면 "이 폴더를 내가 만들었나"를 기억해야 하고, 그 기억이 틀리는 날
+            // 남의 폴더를 지운다. 없는 폴더만 받으면 그 판별 자체가 필요 없다.
+            if (Directory.Exists(targetPath) || File.Exists(targetPath))
+            {
+                throw new InvalidOperationException(
+                    $"'{targetPath}'에 이미 무언가 있습니다. 아직 없는 폴더 경로를 지정하세요.");
+            }
+
+            var options = new CloneOptions
+            {
+                OnCheckoutProgress = (path, completed, total) =>
+                    progress?.Report(new CloneProgress(ClonePhase.CheckingOut, completed, total))
+            };
+
+            // 자격 증명과 전송 진행률은 CloneOptions가 아니라 그 안의 FetchOptions에 있다.
+            // new CloneOptions()가 FetchOptions를 이미 채워 주므로 그대로 쓴다(실측 확인).
+            options.FetchOptions.OnTransferProgress = transfer =>
+            {
+                progress?.Report(new CloneProgress(
+                    ClonePhase.Transferring, transfer.ReceivedObjects, transfer.TotalObjects));
+
+                // false를 반환하면 libgit2가 전송을 끊고 UserCancelledException을 낸다.
+                // 취소가 즉시 걸리는 유일한 자리다.
+                return !cancellationToken.IsCancellationRequested;
+            };
+            options.FetchOptions.CredentialsProvider =
+                (url, usernameFromUrl, types) => ResolveCredentials(types, out _);
+
+            // 취소가 이미 걸려 있으면 폴더를 만들지도 않는다.
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                Repository.Clone(remoteUrl, targetPath, options);
+
+                // checkout 단계는 libgit2가 중단을 받지 않으므로, 그 사이에 눌린 취소는
+                // 여기서 처리한다. 사용자가 취소를 눌렀는데 저장소가 남아 있으면
+                // 다음 시도가 '이미 있음'으로 막혀 무엇을 해야 하는지 알 수 없게 된다.
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch (Exception ex)
+            {
+                // 우리가 만든 폴더만 존재할 수 있다(위 가드가 보장한다). 지워도 안전하다.
+                DeleteDirectoryTree(targetPath);
+
+                if (ex is OperationCanceledException) throw;
+
+                // 콜백이 false를 반환해 끊긴 경우다. 실패가 아니라 사용자가 누른 것이다.
+                if (ex is UserCancelledException)
+                {
+                    throw new OperationCanceledException("원격 저장소 받기를 취소했습니다.", ex, cancellationToken);
+                }
+
+                // 원격 실패가 아닌 것을 원격 실패로 둔갑시키지 않는다. 정리는 이미 했으므로
+                // 그대로 흘려보낸다 — 코딩 실수나 디스크 부족에 SSH 안내를 붙이면 원인이 가려진다.
+                if (!(ex is LibGit2SharpException)) throw;
+
+                var guidance = RemoteDiagnostics.Explain(remoteUrl, IsSshAvailableWithoutRepository());
+                var message = guidance == null
+                    ? ex.Message
+                    : ex.Message + Environment.NewLine + Environment.NewLine + guidance;
+
+                throw new GitRemoteException(message, ex);
+            }
+
+            // Repository.Clone의 반환값은 .git 디렉터리 경로다. 매핑에 들어갈 것은 작업 트리다.
+            return targetPath;
+        }
 
         /// <summary>
         /// 저장소가 그대로 써도 되는 상태인지 판정한다. 매핑이 없거나 유효한 저장소가 아니면 null이다.
@@ -315,6 +412,50 @@ namespace DBVC.Core
         }
 
         /// <summary>
+        /// 원격 상태를 부수효과 없이 읽는다. (설계 3.11)
+        ///
+        /// 수동 버튼으로만 불린다. 새로고침에 붙이면 응답 없는 원격이 변경 목록을 보는 일까지
+        /// 느리게 만든다.
+        /// </summary>
+        public RemoteStatus FetchRemoteStatus(string serverName, string databaseName)
+        {
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null)
+            {
+                throw new InvalidOperationException(
+                    $"'{serverName}.{databaseName}'에 연결된 Git 저장소가 없어 원격을 확인할 수 없습니다.");
+            }
+
+            using var repo = new Repository(repoPath);
+
+            // 원격 없음·추적 브랜치 없음의 안내는 Pull·Push가 쓰는 것을 그대로 쓴다.
+            var guidance = ValidateRemoteAndBuildGuidance(repo, repoPath, "원격 확인");
+            var remoteName = repo.Head.RemoteName;
+
+            try
+            {
+                var fetchOptions = new FetchOptions
+                {
+                    CredentialsProvider = (url, usernameFromUrl, types) => ResolveCredentials(types, out _)
+                };
+
+                // 빈 refspec은 "원격에 설정된 기본 refspec을 쓰라"는 뜻이다.
+                Commands.Fetch(repo, remoteName, Array.Empty<string>(), fetchOptions, null);
+            }
+            // Pull·Push와 같은 모양으로 좁힌다. 안내할 것이 있을 때만 가로채고,
+            // 없으면 원본 예외를 그대로 흘려보낸다 — 모든 예외를 감싸면 코딩 실수까지
+            // "원격과 통신하지 못했다"로 둔갑해서 원인을 찾을 수 없게 된다.
+            catch (LibGit2SharpException ex) when (guidance != null)
+            {
+                throw new GitRemoteException(
+                    ex.Message + Environment.NewLine + Environment.NewLine + guidance, ex);
+            }
+
+            var details = repo.Head.TrackingDetails;
+            return new RemoteStatus(details.AheadBy ?? 0, details.BehindBy ?? 0);
+        }
+
+        /// <summary>
         /// 현재 브랜치의 커밋을 추적 중인 원격 브랜치에 올린다.
         /// 원격이 ref 갱신을 거부하면 <see cref="GitPushRejectedException"/>을,
         /// 원격이 사용자 자격 증명을 요구하면 <see cref="GitAuthenticationException"/>을,
@@ -413,10 +554,10 @@ namespace DBVC.Core
 
         /// <summary>
         /// 원격 연산의 공통 선행 조건을 검사하고, 실패했을 때 덧붙일 안내를 미리 계산한다.
-        /// Pull과 Push가 글자 그대로 같은 검사를 하므로 한 곳에 둔다 — 복제해 두면
+        /// Pull·Push·원격 확인이 글자 그대로 같은 검사를 하므로 한 곳에 둔다 — 복제해 두면
         /// 한쪽 문구만 고쳐지는 일이 실제로 일어난다.
         /// </summary>
-        /// <param name="operationName">메시지에 박히는 연산 이름. "Pull" 또는 "Push".</param>
+        /// <param name="operationName">메시지에 박히는 연산 이름. "Pull", "Push", 또는 "원격 확인".</param>
         /// <returns>안내할 것이 없으면 <c>null</c>. 호출자는 <c>null</c>이면 원본 예외를 그대로 둔다.</returns>
         private static string? ValidateRemoteAndBuildGuidance(Repository repo, string repoPath, string operationName)
         {
@@ -678,6 +819,58 @@ namespace DBVC.Core
         private static string NormalizePath(string path)
         {
             return path.Replace('\\', '/');
+        }
+
+        /// <summary>
+        /// 저장소 없이 ssh 사용 가능 여부를 본다.
+        ///
+        /// Pull·Push는 repo.Config에서 core.sshCommand도 함께 보지만 clone 시점에는 저장소가
+        /// 아직 없다. Configuration.BuildFrom(null)이 전역·시스템 config를 열어 주므로
+        /// 같은 판정이 나온다 — OpenSSH 선택적 기능이 꺼져 있어도 Git for Windows의 ssh.exe를
+        /// core.sshCommand로 가리키는 구성(사내 PC에서 흔함)은 실제로 SSH가 된다.
+        /// 이것을 빠뜨리면 그런 PC에서 "OpenSSH 클라이언트를 설치하세요"라는 틀린 안내가 나간다.
+        /// </summary>
+        private static bool IsSshAvailableWithoutRepository()
+        {
+            if (SshExecutableLocator.IsAvailable()) return true;
+
+            try
+            {
+                using var config = Configuration.BuildFrom(null);
+                return !string.IsNullOrWhiteSpace(config.Get<string>("core.sshCommand")?.Value);
+            }
+            catch (Exception ex)
+            {
+                // config를 못 읽는 것이 clone 실패의 원인은 아니다. 안내만 덜 정확해진다.
+                Debug.WriteLine($"GitManager.IsSshAvailableWithoutRepository failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 폴더를 통째로 지운다. .git 내부에는 읽기 전용 파일(pack 등)이 있어
+        /// 속성을 먼저 풀지 않으면 Directory.Delete가 거부된다.
+        ///
+        /// 지우지 못해도 예외를 밖으로 내지 않는다 — 호출자는 이미 실패를 보고하는 중이고,
+        /// 정리 실패로 원래 원인이 가려지면 사용자가 무엇을 고쳐야 하는지 알 수 없다.
+        /// </summary>
+        private static void DeleteDirectoryTree(string path)
+        {
+            if (!Directory.Exists(path)) return;
+
+            try
+            {
+                foreach (var file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
+                {
+                    try { File.SetAttributes(file, FileAttributes.Normal); } catch { }
+                }
+
+                Directory.Delete(path, true);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"GitManager.DeleteDirectoryTree failed for '{path}': {ex.Message}");
+            }
         }
     }
 }

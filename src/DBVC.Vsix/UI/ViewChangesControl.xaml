@@ -59,6 +59,12 @@
                            Visibility="{Binding HasCurrentBranch, Converter={StaticResource BoolToVis}}"
                            Foreground="{DynamicResource {x:Static vsshell:VsBrushes.GrayTextKey}}"
                            ToolTip="저장소가 지금 가리키는 브랜치입니다. 커밋은 이 브랜치에 담깁니다."/>
+                <TextBlock x:Name="RemoteStatusLabel" DockPanel.Dock="Right"
+                           Text="{Binding RemoteStatusText}"
+                           VerticalAlignment="Top" Margin="8,4,0,4"
+                           Visibility="{Binding HasRemoteStatus, Converter={StaticResource BoolToVis}}"
+                           Foreground="{DynamicResource {x:Static vsshell:VsBrushes.GrayTextKey}}"
+                           ToolTip="마지막으로 '원격 확인'을 누른 시점의 값입니다. 자동으로 갱신되지 않습니다."/>
                 <WrapPanel Orientation="Horizontal">
                     <Button x:Name="ConnectButton" Content="연결" Command="{Binding ConnectCommand}" Width="70" Margin="0,0,10,4"
                             ToolTip="SSMS 개체 탐색기에서 선택한 데이터베이스로 접속합니다. 인증 정보는 그 연결에서만 오며 디스크에 저장되지 않습니다."/>
@@ -149,8 +155,10 @@
                 <Button Content="Commit" Command="{Binding CommitCommand}" Width="70" Margin="0,0,10,4" />
                 <Button Content="Pull" Command="{Binding PullCommand}" Width="70" Margin="0,0,10,4"
                         ToolTip="원격 저장소의 변경을 로컬 저장소로 가져옵니다. 데이터베이스에는 적용하지 않습니다." />
-                <Button Content="Push" Command="{Binding PushCommand}" Width="70" Margin="0,0,16,4"
+                <Button Content="Push" Command="{Binding PushCommand}" Width="70" Margin="0,0,10,4"
                         ToolTip="로컬 저장소의 커밋을 원격 저장소에 올립니다." />
+                <Button Content="원격 확인" Command="{Binding CheckRemoteCommand}" Width="80" Margin="0,0,16,4"
+                        ToolTip="원격을 받아 받을 커밋과 올릴 커밋의 수를 셉니다. 작업 트리는 건드리지 않습니다.&#10;누를 때만 네트워크를 씁니다 - 자동으로 갱신되지 않습니다."/>
                 <Button Content="배포 스크립트" Command="{Binding GenerateDeploymentScriptCommand}" Width="100" Margin="0,0,6,4"
                         ToolTip="선택한 객체의 현재 DDL을 단일 .sql 파일로 병합합니다." />
                 <Button Content="롤백 스크립트" Command="{Binding GenerateRollbackScriptCommand}" Width="100" Margin="0,0,0,4"
