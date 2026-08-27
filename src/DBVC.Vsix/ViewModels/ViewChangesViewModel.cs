@@ -200,6 +200,12 @@ namespace DBVC.Vsix.ViewModels
         /// 화면에 보이는 대상을 가리키지 않는데, 그 사실을 즉시 반영하지 않으면
         /// <see cref="CanCommit"/>은 여전히 참을 반환한다 — A/db1의 변경 목록이 B/db2의 변경
         /// 로그에 처리 완료로 기록되어 버린다.
+        ///
+        /// <b>배포 패널도 여기서 지운다.</b> 이 무효화를 거치지 않고 대상만 바뀌는 경로가
+        /// 실제로 둘 있었다 — 지원하지 않는 연결(Entra ID 등)로 <see cref="Connect"/>가 조기
+        /// 반환하는 갈래와, <see cref="ProbeContext"/>가 던져 성공 콜백이 아예 돌지 않는
+        /// 갈래다. 그 둘에서는 머리글만 새 대상으로 바뀌고 차이 목록은 이전 대상의 것이
+        /// 남았으며, [차이 검사]는 화면에 없는 이전 대상을 비교했다.
         /// </summary>
         private void InvalidateActiveContext()
         {
@@ -208,6 +214,11 @@ namespace DBVC.Vsix.ViewModels
             _lastChangeRecords = new List<ChangeRecord>();
             _failedCleanupPaths.Clear();
             IsMapped = false;
+            // IsInitialized보다 먼저 세운다 - 둘 다 패널 판정에 들어가는데, 순서가 뒤바뀌면
+            // 화면이 한 프레임 동안 틀린 패널을 그리고서 바뀐다. 판정 전에는 개발(Write)로
+            // 되돌린다 - 이전 대상의 용도로 배포 패널을 계속 띄우면 그 패널이 설명하는 대상이
+            // 무엇인지 알 수 없다.
+            Mode = MappingMode.Write;
             IsInitialized = false;
             IsTrackerOutdated = false;
             WarningMessage = null;
@@ -220,6 +231,10 @@ namespace DBVC.Vsix.ViewModels
             // 대상이 바뀌면 "개체 탐색기 선택이 다릅니다"의 판정 근거가 사라진다.
             // 여전히 다르다면 다음 CheckSsmsSelection()에서 다시 뜬다.
             SsmsHintMessage = null;
+
+            // ServerName/DatabaseName은 이 시점에 이미 새 대상이다(SetTarget이 먼저 세운다).
+            // 로컬 상태만 지우는 호출이라 비용이 없으므로 조건 없이 부른다.
+            Deployment.SetTarget(ServerName, DatabaseName, Mode);
         }
 
         // ---------- 개체 탐색기 안내 ----------
@@ -389,11 +404,11 @@ namespace DBVC.Vsix.ViewModels
             // 화면이 한 프레임 동안 틀린 패널(운영 대상의 초기화 오버레이)을 그리고서 바뀐다.
             Mode = probe.Mode;
 
-            // 이후의 모든 갈래(접속 실패로 조기 반환하는 갈래 포함)보다 앞에서 부른다.
-            // Connect()는 다른 대상으로 완전히 바꿀 수 있고, 그 첫 판정이 접속 실패로 끝나면
-            // ServerName/DatabaseName은 이미 새 대상인데 Deployment는 이전 대상의 비교 결과를
-            // 그대로 들고 있게 된다 - DB 이름은 새 것, 차이 목록은 옛 것으로 섞여 보인다.
-            // 로컬 상태만 지우는 호출이라 비용이 없으므로 조건 없이 부른다.
+            // 목록을 지우는 일은 이미 InvalidateActiveContext가 했다. 여기서 다시 부르는 것은
+            // 용도(mode) 때문이다 - mode는 매핑을 읽어야 알 수 있어 판정이 끝나기 전에는
+            // 개발(Write)로 두었고, 그대로 두면 감사 대상의 목록이 "확인 필요" 대신
+            // "배포 필요"로 뜬다(설계 3.4.4). 이후의 모든 갈래(접속 실패로 조기 반환하는
+            // 갈래, IsBlocked로 조기 반환하는 갈래 포함)보다 앞에 있어야 한다.
             Deployment.SetTarget(ServerName, DatabaseName, Mode);
 
             if (probe.ConnectionError != null)

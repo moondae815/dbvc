@@ -2734,5 +2734,93 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.Deployment.SummaryText, Is.Null);
             Assert.That(vm.Deployment.HasResult, Is.False);
         }
+
+        [Test]
+        public void Deployment_ClearsPreviousResult_WhenTheNewConnectionIsUnsupported()
+        {
+            // Entra ID 연결은 인증 정보를 얻을 길이 없어 Connect가 조기 반환한다. 그 갈래는
+            // ApplyContextProbe에 닿지 않으므로, 대상 전환이 그쪽에만 걸려 있으면 머리글은
+            // TEST인데 목록과 [차이 검사]의 대상은 PROD로 남는다.
+            var vm = NewViewModelWithDeploymentResult();
+
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(
+                Info(server: "OtherServer", database: "OtherDb", unsupportedReason: "지원하지 않는 인증입니다."));
+
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.Deployment.Differences, Is.Empty,
+                "이전 대상의 차이 목록이 새 대상 이름 아래 그대로 남아 있다");
+            Assert.That(vm.Deployment.SummaryText, Is.Null);
+            Assert.That(vm.Deployment.HasResult, Is.False);
+            Assert.That(vm.ShowDeploymentPanel, Is.False,
+                "용도를 판정하지 못한 대상에 이전 대상의 배포 패널이 계속 떠 있다");
+
+            AssertCompareTargetsTheCurrentTarget(vm, "OtherServer", "OtherDb");
+        }
+
+        [Test]
+        public void Deployment_ClearsPreviousResult_WhenTheContextProbeThrows()
+        {
+            // ProbeContext는 TestConnection뿐 아니라 GetInstalledVersion·GetRepositoryState도
+            // 부른다. 그중 하나가 던지면 실패 콜백만 돌고 ApplyContextProbe는 아예 돌지 않는다.
+            var vm = NewViewModelWithDeploymentResult();
+
+            const string otherServer = "OtherServer";
+            const string otherDatabase = "OtherDb";
+            _stateTracker.Setup(s => s.TestConnection(otherServer, otherDatabase)).Returns((string?)null);
+            _stateTracker.Setup(s => s.GetInstalledVersion(otherServer, otherDatabase))
+                .Throws(new InvalidOperationException("서버가 응답하지 않습니다."));
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info(server: otherServer, database: otherDatabase));
+
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.Deployment.Differences, Is.Empty,
+                "판정이 예외로 끝났는데 이전 대상의 차이 목록이 남아 있다");
+            Assert.That(vm.Deployment.SummaryText, Is.Null);
+            Assert.That(vm.Deployment.HasResult, Is.False);
+
+            AssertCompareTargetsTheCurrentTarget(vm, otherServer, otherDatabase);
+        }
+
+        /// <summary>Deploy 매핑 대상에 접속해 차이 목록을 한 번 채워 둔다.</summary>
+        private ViewChangesViewModel NewViewModelWithDeploymentResult()
+        {
+            var vm = NewViewModelForMappedTarget(MappingMode.Deploy);
+
+            var result = new ComparisonResult { ComparedCount = 5 };
+            result.Differences.Add(new SchemaDifference(
+                "dbo.P", "dbo/StoredProcedures/P.sql", "StoredProcedure", ObjectDiffState.Modified));
+            _smo.Setup(s => s.CompareWithRepository(
+                    Server, Database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns(result);
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.AlreadyUpToDate);
+
+            vm.Deployment.CompareCommand.Execute(null);
+
+            Assert.That(vm.Deployment.Differences, Is.Not.Empty,
+                "전제가 깨졌다 - 비교 결과가 없으면 지워졌는지 확인할 수 없다");
+            return vm;
+        }
+
+        /// <summary>
+        /// 화면이 말하는 대상과 [차이 검사]가 실제로 비교하는 대상이 같은지 본다.
+        /// 목록만 지우고 대상을 그대로 두면 "화면은 TEST, 비교는 PROD"가 된다.
+        /// </summary>
+        private void AssertCompareTargetsTheCurrentTarget(ViewChangesViewModel vm, string server, string database)
+        {
+            _git.Setup(g => g.PullChanges(server, database)).Returns(PullResult.AlreadyUpToDate);
+            _smo.Setup(s => s.CompareWithRepository(
+                    server, database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns(new ComparisonResult { ComparedCount = 0 });
+
+            vm.Deployment.CompareCommand.Execute(null);
+
+            _smo.Verify(s => s.CompareWithRepository(
+                server, database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()),
+                Times.Once, "화면이 말하는 대상이 아니라 이전 대상을 비교했다");
+            _smo.Verify(s => s.CompareWithRepository(
+                Server, Database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()),
+                Times.Once, "대상을 바꾼 뒤에도 이전 대상을 다시 비교했다");
+        }
     }
 }
