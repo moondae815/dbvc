@@ -123,6 +123,10 @@ namespace DBVC.Core
                     throw new OperationCanceledException("원격 저장소 받기를 취소했습니다.", ex, cancellationToken);
                 }
 
+                // 원격 실패가 아닌 것을 원격 실패로 둔갑시키지 않는다. 정리는 이미 했으므로
+                // 그대로 흘려보낸다 — 코딩 실수나 디스크 부족에 SSH 안내를 붙이면 원인이 가려진다.
+                if (!(ex is LibGit2SharpException)) throw;
+
                 var guidance = RemoteDiagnostics.Explain(remoteUrl, IsSshAvailableWithoutRepository());
                 var message = guidance == null
                     ? ex.Message
@@ -438,7 +442,7 @@ namespace DBVC.Core
                 // 빈 refspec은 "원격에 설정된 기본 refspec을 쓰라"는 뜻이다.
                 Commands.Fetch(repo, remoteName, Array.Empty<string>(), fetchOptions, null);
             }
-            // Pull·Push와 같은 모양으로 좀힌다. 안내할 것이 있을 때만 가로채고,
+            // Pull·Push와 같은 모양으로 좁힌다. 안내할 것이 있을 때만 가로채고,
             // 없으면 원본 예외를 그대로 흘려보낸다 — 모든 예외를 감싸면 코딩 실수까지
             // "원격과 통신하지 못했다"로 둔갑해서 원인을 찾을 수 없게 된다.
             catch (LibGit2SharpException ex) when (guidance != null)
@@ -550,10 +554,10 @@ namespace DBVC.Core
 
         /// <summary>
         /// 원격 연산의 공통 선행 조건을 검사하고, 실패했을 때 덧붙일 안내를 미리 계산한다.
-        /// Pull과 Push가 글자 그대로 같은 검사를 하므로 한 곳에 둔다 — 복제해 두면
+        /// Pull·Push·원격 확인이 글자 그대로 같은 검사를 하므로 한 곳에 둔다 — 복제해 두면
         /// 한쪽 문구만 고쳐지는 일이 실제로 일어난다.
         /// </summary>
-        /// <param name="operationName">메시지에 박히는 연산 이름. "Pull" 또는 "Push".</param>
+        /// <param name="operationName">메시지에 박히는 연산 이름. "Pull", "Push", 또는 "원격 확인".</param>
         /// <returns>안내할 것이 없으면 <c>null</c>. 호출자는 <c>null</c>이면 원본 예외를 그대로 둔다.</returns>
         private static string? ValidateRemoteAndBuildGuidance(Repository repo, string repoPath, string operationName)
         {

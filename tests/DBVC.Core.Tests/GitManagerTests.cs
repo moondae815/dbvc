@@ -1299,6 +1299,22 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void CloneRepository_PropagatesANonRemoteFailure_WithoutWrappingItAsGitRemoteException()
+        {
+            // 디스크 부족 같은 코딩 실수·시스템 오류를 원격 실패로 둔갑시키면 SSH 안내가 붙어
+            // 원인을 가린다. 정리는 하되(폴더는 지워진다) 원본 예외 타입은 그대로 흘려보내야 한다.
+            var originPath = NewRepoWithCommit();
+            var targetPath = NewTempDir();
+            var progress = new RecordingProgress<CloneProgress>(_ => throw new IOException("디스크 공간이 부족합니다."));
+
+            Assert.Throws<IOException>(
+                () => new GitManager().CloneRepository(originPath, targetPath, progress, CancellationToken.None));
+
+            Assert.That(Directory.Exists(targetPath), Is.False,
+                "실패했으니 우리가 만든 폴더는 그대로 지워져야 합니다");
+        }
+
+        [Test]
         public void CloneRepository_ThrowsCancellation_WhenTheTokenIsAlreadyCancelled()
         {
             var originPath = NewRepoWithCommit();
