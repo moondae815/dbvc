@@ -127,5 +127,59 @@ namespace DBVC.Core.Tests
             Assert.That(message, Is.Not.Null);
             Assert.That(message, Does.Not.Contain("작업"));
         }
+
+        // ---------- 작업 트리 더러움: 비교 기준이 브랜치가 아니게 된다 ----------
+
+        [Test]
+        public void Evaluate_ReturnsWorkingTreeDirty_WhenDeployCloneHasUncommittedChanges()
+        {
+            // 비교 기준은 "브랜치의 내용"인데 실제로 읽는 것은 작업 트리 파일이다.
+            // 미커밋 편집이 있으면 그것이 브랜치인 척한다.
+            var reason = RepositoryStateEvaluator.Evaluate(
+                "develop", false, null, "develop", MappingMode.Deploy, hasUncommittedChanges: true);
+
+            Assert.That(reason, Is.EqualTo(RepositoryBlockReason.WorkingTreeDirty));
+        }
+
+        [Test]
+        public void Evaluate_ReturnsWorkingTreeDirty_WhenAuditCloneHasUncommittedChanges()
+        {
+            var reason = RepositoryStateEvaluator.Evaluate(
+                "master", false, null, "master", MappingMode.Audit, hasUncommittedChanges: true);
+
+            Assert.That(reason, Is.EqualTo(RepositoryBlockReason.WorkingTreeDirty));
+        }
+
+        [Test]
+        public void Evaluate_IgnoresDirtyWorkingTree_WhenModeIsWrite()
+        {
+            // 개발 클론에서 더러운 트리는 추출 직후의 정상 상태다. 여기서 막으면
+            // 새로고침한 사람이 전부 차단된다.
+            var reason = RepositoryStateEvaluator.Evaluate(
+                "feature/x", false, null, null, MappingMode.Write, hasUncommittedChanges: true);
+
+            Assert.That(reason, Is.EqualTo(RepositoryBlockReason.None));
+        }
+
+        [Test]
+        public void Evaluate_PrefersBranchMismatch_OverWorkingTreeDirty()
+        {
+            // enum의 순서가 곧 우선순위다. 브랜치가 틀린 채로 "커밋되지 않은 변경이 있습니다"를
+            // 띄우면 사용자가 커밋하거나 되돌린 뒤에야 진짜 이유를 만난다.
+            var reason = RepositoryStateEvaluator.Evaluate(
+                "feature/x", false, null, "develop", MappingMode.Deploy, hasUncommittedChanges: true);
+
+            Assert.That(reason, Is.EqualTo(RepositoryBlockReason.BranchMismatch));
+        }
+
+        [Test]
+        public void BuildMessage_ExplainsWhatToDo_WhenWorkingTreeIsDirty()
+        {
+            var message = RepositoryStateEvaluator.BuildMessage(
+                RepositoryBlockReason.WorkingTreeDirty, "develop", "develop", null);
+
+            Assert.That(message, Is.Not.Null);
+            Assert.That(message, Does.Contain("커밋되지 않은"));
+        }
     }
 }

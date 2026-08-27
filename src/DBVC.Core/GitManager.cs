@@ -158,7 +158,13 @@ namespace DBVC.Core
             var detached = repo.Info.IsHeadDetached;
             var branch = detached ? null : repo.Head.FriendlyName;
 
-            var reason = RepositoryStateEvaluator.Evaluate(branch, detached, operation, mapping.Branch);
+            // write에서는 더러운 트리가 정상이므로 묻지 않는다. RetrieveStatus는 작업 트리
+            // 전체를 훑어 객체 수에 비례하는 비용이 있고, 이 함수는 대상을 열 때마다 돈다.
+            var dirty = mapping.Mode != MappingMode.Write
+                && repo.RetrieveStatus(UntrackedInclusiveOptions).IsDirty;
+
+            var reason = RepositoryStateEvaluator.Evaluate(
+                branch, detached, operation, mapping.Branch, mapping.Mode, dirty);
 
             return new RepositoryState
             {

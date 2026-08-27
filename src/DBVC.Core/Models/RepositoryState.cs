@@ -14,7 +14,13 @@ namespace DBVC.Core.Models
         DetachedHead = 2,
 
         /// <summary>매핑이 고정한 브랜치와 다르다.</summary>
-        BranchMismatch = 3
+        BranchMismatch = 3,
+
+        /// <summary>
+        /// 배포·감사 클론에 커밋되지 않은 변경이 있다. 비교 기준이 브랜치가 아니게 된다.
+        /// 개발 클론(write)에서는 정상 상태이므로 발동하지 않는다.
+        /// </summary>
+        WorkingTreeDirty = 4
     }
 
     /// <summary>

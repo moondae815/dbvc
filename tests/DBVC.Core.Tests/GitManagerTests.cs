@@ -17,6 +17,9 @@ namespace DBVC.Core.Tests
     [TestFixture]
     public class GitManagerTests
     {
+        private const string Server = "localhost";
+        private const string Database = "testdb";
+
         private readonly System.Collections.Generic.List<string> _tempDirs = new System.Collections.Generic.List<string>();
 
         [TearDown]
@@ -223,6 +226,65 @@ namespace DBVC.Core.Tests
             var state = new GitManager(config).GetRepositoryState("srv", "db");
 
             Assert.That(state, Is.Null);
+        }
+
+        [Test]
+        public void GetRepositoryState_ReportsWorkingTreeDirty_WhenDeployCloneHasUncommittedFile()
+        {
+            // 배포 클론은 커밋하지 않으므로 정상이면 항상 깨끗하다. 더럽다는 것은
+            // 누군가 외부에서 손을 댔다는 뜻이고, 그 상태로 비교하면 결과가 사실과 다르다.
+            var repoPath = NewRepositoryWithCommit(out var config, out var git, MappingMode.Deploy);
+            File.WriteAllText(Path.Combine(repoPath, "dirty.sql"), "-- 손댄 파일");
+
+            var state = git.GetRepositoryState(Server, Database);
+
+            Assert.That(state, Is.Not.Null);
+            Assert.That(state!.BlockReason, Is.EqualTo(RepositoryBlockReason.WorkingTreeDirty));
+            Assert.That(state.BlockMessage, Does.Contain("커밋되지 않은"));
+        }
+
+        [Test]
+        public void GetRepositoryState_IgnoresDirtyWorkingTree_WhenModeIsWrite()
+        {
+            var repoPath = NewRepositoryWithCommit(out var config, out var git, MappingMode.Write);
+            File.WriteAllText(Path.Combine(repoPath, "extracted.sql"), "-- 방금 추출한 파일");
+
+            var state = git.GetRepositoryState(Server, Database);
+
+            Assert.That(state, Is.Not.Null);
+            Assert.That(state!.BlockReason, Is.EqualTo(RepositoryBlockReason.None));
+        }
+
+        /// <summary>커밋 하나가 든 저장소와 그것을 가리키는 매핑을 만든다.</summary>
+        private string NewRepositoryWithCommit(out ConfigManager config, out GitManager git, MappingMode mode)
+        {
+            var repoPath = NewTempDir();
+            Repository.Init(repoPath);
+
+            using (var repo = new Repository(repoPath))
+            {
+                File.WriteAllText(Path.Combine(repoPath, "seed.sql"), "-- seed");
+                Commands.Stage(repo, "seed.sql");
+                repo.Commit("seed", TestSignature, TestSignature);
+            }
+
+            string branch;
+            using (var repo = new Repository(repoPath))
+            {
+                branch = repo.Head.FriendlyName;
+            }
+
+            config = new ConfigManager(Path.Combine(NewTempDir(), "mappings.json"));
+            config.AddMapping(new MappingConfig
+            {
+                ServerName = Server,
+                DatabaseName = Database,
+                GitPath = repoPath,
+                Mode = mode,
+                Branch = branch
+            });
+            git = new GitManager(config);
+            return repoPath;
         }
 
         // ---------- GetChangedFiles ----------

@@ -10,7 +10,12 @@ namespace DBVC.Core
     public static class RepositoryStateEvaluator
     {
         public static RepositoryBlockReason Evaluate(
-            string? currentBranch, bool isDetached, string? pendingOperation, string? expectedBranch)
+            string? currentBranch,
+            bool isDetached,
+            string? pendingOperation,
+            string? expectedBranch,
+            MappingMode mode = MappingMode.Write,
+            bool hasUncommittedChanges = false)
         {
             // 병합 중이면 브랜치 이름이 맞아도 작업 트리가 중간 상태다. 브랜치 불일치보다
             // 먼저 알려야 사용자가 "브랜치를 바꾸면 되겠구나"로 오해하지 않는다.
@@ -28,12 +33,31 @@ namespace DBVC.Core
             // 고정이 없으면 어느 브랜치든 정상이다(개발 클론).
             if (string.IsNullOrWhiteSpace(expectedBranch))
             {
-                return RepositoryBlockReason.None;
+                return DeniesDirtyWorkingTree(mode, hasUncommittedChanges)
+                    ? RepositoryBlockReason.WorkingTreeDirty
+                    : RepositoryBlockReason.None;
             }
 
-            return string.Equals(currentBranch, expectedBranch, StringComparison.OrdinalIgnoreCase)
-                ? RepositoryBlockReason.None
-                : RepositoryBlockReason.BranchMismatch;
+            if (!string.Equals(currentBranch, expectedBranch, StringComparison.OrdinalIgnoreCase))
+            {
+                return RepositoryBlockReason.BranchMismatch;
+            }
+
+            // 마지막에 본다. enum의 순서가 곧 우선순위이고, 이것이 가장 약한 사유다 —
+            // 브랜치가 틀린 채로 "커밋되지 않은 변경이 있습니다"를 띄우면 사용자가
+            // 그것을 정리한 뒤에야 진짜 이유를 만난다.
+            return DeniesDirtyWorkingTree(mode, hasUncommittedChanges)
+                ? RepositoryBlockReason.WorkingTreeDirty
+                : RepositoryBlockReason.None;
+        }
+
+        /// <summary>
+        /// 개발 클론(write)에서 더러운 트리는 추출 직후의 정상 상태다. 배포·감사 클론은
+        /// 커밋하지 않으므로 정상이면 항상 깨끗하고, 더럽다면 비교 기준을 믿을 수 없다.
+        /// </summary>
+        private static bool DeniesDirtyWorkingTree(MappingMode mode, bool hasUncommittedChanges)
+        {
+            return mode != MappingMode.Write && hasUncommittedChanges;
         }
 
         public static string? BuildMessage(
@@ -53,6 +77,11 @@ namespace DBVC.Core
                     return $"이 대상은 '{expectedBranch}' 브랜치에 고정되어 있는데 저장소는 '{currentBranch}'에 있습니다. " +
                            "그대로 두면 비교 결과가 사실과 달라지므로 중단했습니다. " +
                            $"Git 클라이언트에서 '{expectedBranch}'를 체크아웃한 뒤 다시 시도하세요.";
+
+                case RepositoryBlockReason.WorkingTreeDirty:
+                    return "이 저장소에 커밋되지 않은 변경이 있어 비교 기준을 믿을 수 없습니다. " +
+                           "배포·감사용 저장소는 브랜치의 내용 그대로여야 합니다. " +
+                           "Git 클라이언트에서 변경을 되돌린 뒤 다시 시도하세요.";
 
                 default:
                     return null;
