@@ -94,6 +94,8 @@ namespace DBVC.Core
                     return "대상에 이미 있어 수동 변경이 필요합니다";
                 case ScriptExclusionReason.NotInBranch:
                     return "브랜치에 없어 확인이 필요합니다";
+                case ScriptExclusionReason.NotCompared:
+                    return "스크립팅에 실패해 판정하지 못했습니다";
                 default:
                     throw new InvalidOperationException($"처리되지 않은 {nameof(ScriptExclusionReason)}: {reason}");
             }

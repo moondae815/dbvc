@@ -342,8 +342,10 @@ namespace DBVC.Vsix.ViewModels
         {
             if (_lastResult == null || !HasTarget) return;
 
+            // 판정하지 못한 객체도 함께 넘긴다. 화면의 알림은 파일과 함께 남지 않으므로,
+            // 나중에 이 .sql만 열어 본 사람은 문서가 비교 전체를 덮는다고 읽는다.
             var export = _scriptExporter.ExportFromComparison(
-                _serverName!, _databaseName!, _lastResult.Differences, DateTimeOffset.Now);
+                _serverName!, _databaseName!, _lastResult.Differences, DateTimeOffset.Now, _lastResult.FailedObjects);
 
             if (!export.HasContent)
             {

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -230,6 +230,30 @@ namespace DBVC.Core.Tests
             Assert.That(result.ExcludedObjects, Is.Empty);
             Assert.That(result.Script, Does.Contain("CREATE TABLE dbo.Orders"));
             Assert.That(result.Script, Does.Contain("CREATE OR ALTER PROCEDURE dbo.GetUser"));
+        }
+
+        [Test]
+        public void ExportFromComparison_NamesUnjudgedObjectsInTheHeader()
+        {
+            // 나중에 이 .sql만 열어 본 DBA에게는 문서가 비교 전체를 덮는 것처럼 보인다.
+            // 판정하지 못한 객체를 적지 않으면 그 주장이 거짓이 된다 - 화면의 알림은
+            // 파일과 함께 남지 않는다.
+            WriteRepositoryFile("dbo/Tables/Orders.sql", "CREATE TABLE dbo.Orders (Id INT)");
+
+            var differences = new[]
+            {
+                new SchemaDifference("dbo.Orders", "dbo/Tables/Orders.sql", "Table", ObjectDiffState.MissingInDatabase)
+            };
+
+            var exporter = new ScriptExporter(_config, _git);
+            var result = exporter.ExportFromComparison(
+                Server, Database, differences, GeneratedAt, new[] { "dbo.Encrypted" });
+
+            Assert.That(result.IncludedCount, Is.EqualTo(1));
+            Assert.That(result.ExcludedObjects.Count, Is.EqualTo(1));
+            Assert.That(result.ExcludedObjects[0].Reason, Is.EqualTo(ScriptExclusionReason.NotCompared));
+            Assert.That(result.Script, Does.Contain("dbo.Encrypted"));
+            Assert.That(result.Script, Does.Contain("판정하지 못했습니다"));
         }
 
         [Test]

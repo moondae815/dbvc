@@ -16,7 +16,17 @@ namespace DBVC.Core.Models
         ManualChangeRequired,
 
         /// <summary>DB에만 있고 브랜치에 없다. 스크립트에 담을 재료 자체가 없다.</summary>
-        NotInBranch
+        NotInBranch,
+
+        /// <summary>
+        /// 스크립팅에 실패해 차이 자체를 판정하지 못했다. 차이가 아니라 "모른다"이므로
+        /// 스크립트에도 들어가지 않는다.
+        ///
+        /// 셋과 성격이 다른데도 같은 자리에 적는 이유는, 나중에 이 <c>.sql</c>만 열어 보는
+        /// DBA에게 문서가 비교 전체를 덮는다고 암묵적으로 주장하기 때문이다. 화면의 알림은
+        /// 파일과 함께 남지 않는다.
+        /// </summary>
+        NotCompared
     }
 
     public class ScriptExclusion

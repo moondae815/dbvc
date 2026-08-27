@@ -77,11 +77,17 @@ namespace DBVC.Core
         /// 것만 테스트에 나간다"를 검사가 아니라 배치로 지킨다 — 배포 클론은 develop에
         /// 고정되어 있고 병합 안 된 변경은 애초에 파일로 존재하지 않는다.
         /// </summary>
+        /// <param name="failedObjects">
+        /// 차이 자체를 판정하지 못한 객체. 스크립트에는 들어가지 않지만 <b>머리말에는 반드시
+        /// 남긴다</b> — 이 파일만 열어 보는 사람에게는 문서가 비교 전체를 덮는 것처럼 보이고,
+        /// 화면의 알림은 파일과 함께 남지 않는다.
+        /// </param>
         public ScriptExportResult ExportFromComparison(
             string serverName,
             string databaseName,
             IEnumerable<SchemaDifference>? differences,
-            DateTimeOffset generatedAt)
+            DateTimeOffset generatedAt,
+            IEnumerable<string>? failedObjects = null)
         {
             var result = new ScriptExportResult();
 
@@ -126,6 +132,12 @@ namespace DBVC.Core
                     RelativePath = difference.RelativePath,
                     Sql = sql
                 });
+            }
+
+            foreach (var failed in failedObjects ?? Enumerable.Empty<string>())
+            {
+                if (string.IsNullOrWhiteSpace(failed)) continue;
+                result.ExcludedObjects.Add(new ScriptExclusion(failed, ScriptExclusionReason.NotCompared));
             }
 
             result.IncludedCount = sections.Count;

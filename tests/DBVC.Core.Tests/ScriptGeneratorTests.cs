@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
@@ -122,13 +122,18 @@ namespace DBVC.Core.Tests
             {
                 new ScriptExclusion("dbo.Orders", ScriptExclusionReason.ManualChangeRequired),
                 new ScriptExclusion("dbo.Customers", ScriptExclusionReason.ManualChangeRequired),
-                new ScriptExclusion("dbo.Temp1", ScriptExclusionReason.NotInBranch)
+                new ScriptExclusion("dbo.Temp1", ScriptExclusionReason.NotInBranch),
+                new ScriptExclusion("dbo.Encrypted", ScriptExclusionReason.NotCompared)
             };
 
             var script = ScriptGenerator.BuildScript(sections, ScriptKind.Deployment, GeneratedAt, exclusions);
 
             Assert.That(script, Does.Contain("수동 변경이 필요합니다: 2 (dbo.Orders, dbo.Customers)"));
             Assert.That(script, Does.Contain("확인이 필요합니다: 1 (dbo.Temp1)"));
+
+            // 판정하지 못한 객체는 차이가 아니라 "모른다"이지만, 이 파일만 열어 보는 사람에게는
+            // 문서가 비교 전체를 덮는 것처럼 보이므로 머리말에 반드시 남는다.
+            Assert.That(script, Does.Contain("판정하지 못했습니다: 1 (dbo.Encrypted)"));
         }
 
         [Test]
