@@ -65,7 +65,7 @@
   - `MappingConfigSerializer.Serialize(IReadOnlyList<MappingConfig>)` → `string` (기존 시그니처 유지)
   - `MappingConfigSerializer.Deserialize(string)` → `List<MappingConfig>?` (기존 시그니처 유지)
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/MappingConfigSerializerTests.cs` 를 만든다.
 
@@ -145,12 +145,12 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~MappingConfigSerializerTests"`
 Expected: 컴파일 실패 — `MappingMode` 형식이 없고 `MappingConfig.Branch`·`Mode` 속성이 없다.
 
-- [ ] **Step 3: 열거형을 만든다**
+- [x] **Step 3: 열거형을 만든다**
 
 `src/DBVC.Core/Models/MappingMode.cs`:
 
@@ -178,7 +178,7 @@ namespace DBVC.Core.Models
 }
 ```
 
-- [ ] **Step 4: 변환기를 만든다**
+- [x] **Step 4: 변환기를 만든다**
 
 `src/DBVC.Core/Models/MappingModeConverter.cs`:
 
@@ -221,7 +221,7 @@ namespace DBVC.Core.Models
 }
 ```
 
-- [ ] **Step 5: 모델과 직렬화기를 고친다**
+- [x] **Step 5: 모델과 직렬화기를 고친다**
 
 `src/DBVC.Core/Models/MappingConfig.cs` 를 통째로 바꾼다:
 
@@ -259,17 +259,17 @@ namespace DBVC.Core.Models
         };
 ```
 
-- [ ] **Step 6: 통과를 확인한다**
+- [x] **Step 6: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~MappingConfigSerializerTests"`
 Expected: 5개 PASS
 
-- [ ] **Step 7: 기존 매핑 테스트가 깨지지 않았는지 확인한다**
+- [x] **Step 7: 기존 매핑 테스트가 깨지지 않았는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~ConfigManagerTests"`
 Expected: 전부 PASS. 실패하면 하위호환이 깨진 것이므로 되돌리고 원인을 찾는다.
 
-- [ ] **Step 8: 커밋**
+- [x] **Step 8: 커밋**
 
 ```bash
 git add src/DBVC.Core/Models/ tests/DBVC.Core.Tests/MappingConfigSerializerTests.cs
@@ -293,7 +293,7 @@ git commit -m "feat(core): 매핑에 고정 브랜치와 동작 범위를 더한
   - `static RepositoryBlockReason RepositoryStateEvaluator.Evaluate(string? currentBranch, bool isDetached, string? pendingOperation, string? expectedBranch)`
   - `static string? RepositoryStateEvaluator.BuildMessage(RepositoryBlockReason reason, string? currentBranch, string? expectedBranch, string? pendingOperation)`
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/RepositoryStateEvaluatorTests.cs`:
 
@@ -385,12 +385,12 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~RepositoryStateEvaluatorTests"`
 Expected: 컴파일 실패 — `RepositoryStateEvaluator`·`RepositoryBlockReason`이 없다.
 
-- [ ] **Step 3: 값 객체를 만든다**
+- [x] **Step 3: 값 객체를 만든다**
 
 `src/DBVC.Core/Models/RepositoryState.cs`:
 
@@ -435,7 +435,7 @@ namespace DBVC.Core.Models
 }
 ```
 
-- [ ] **Step 4: 판정 함수를 만든다**
+- [x] **Step 4: 판정 함수를 만든다**
 
 `src/DBVC.Core/RepositoryStateEvaluator.cs`:
 
@@ -504,12 +504,12 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 5: 통과를 확인한다**
+- [x] **Step 5: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~RepositoryStateEvaluatorTests"`
 Expected: 8개 PASS
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add src/DBVC.Core/RepositoryStateEvaluator.cs src/DBVC.Core/Models/RepositoryState.cs tests/DBVC.Core.Tests/RepositoryStateEvaluatorTests.cs
@@ -529,7 +529,7 @@ git commit -m "feat(core): 저장소를 그대로 써도 되는지 판정하는 
 - Consumes: Task 2의 `RepositoryStateEvaluator`, `RepositoryState`; Task 1의 `MappingConfig.Branch`
 - Produces: `RepositoryState? IGitManager.GetRepositoryState(string serverName, string databaseName)` — 매핑이 없으면 `null`
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/GitManagerTests.cs` 의 클래스 안에 더한다. 이 파일의 기존 테스트가 저장소를 어떻게 만드는지 먼저 읽고 같은 헬퍼를 쓴다(임시 폴더에 `Repository.Init` 후 커밋 하나를 만드는 형태다).
 
@@ -606,12 +606,12 @@ git commit -m "feat(core): 저장소를 그대로 써도 되는지 판정하는 
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~GetRepositoryState"`
 Expected: 컴파일 실패 — `GetRepositoryState`가 없다.
 
-- [ ] **Step 3: `IGitManager`에 더한다**
+- [x] **Step 3: `IGitManager`에 더한다**
 
 `src/DBVC.Core/Abstractions.cs` 의 `IGitManager` 안, `IsRepository` 바로 아래에 넣는다:
 
@@ -625,7 +625,7 @@ Expected: 컴파일 실패 — `GetRepositoryState`가 없다.
         RepositoryState? GetRepositoryState(string serverName, string databaseName);
 ```
 
-- [ ] **Step 4: `GitManager`에 구현한다**
+- [x] **Step 4: `GitManager`에 구현한다**
 
 `src/DBVC.Core/GitManager.cs` 의 `IsRepository` 아래에 넣는다:
 
@@ -660,19 +660,19 @@ Expected: 컴파일 실패 — `GetRepositoryState`가 없다.
 
 `using DBVC.Core.Models;` 가 이미 있는지 확인하고 없으면 더한다.
 
-- [ ] **Step 5: 통과를 확인한다**
+- [x] **Step 5: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~GitManagerTests"`
 Expected: 새 3개를 포함해 전부 PASS
 
-- [ ] **Step 6: Vsix 쪽 목(mock)이 깨지지 않았는지 확인한다**
+- [x] **Step 6: Vsix 쪽 목(mock)이 깨지지 않았는지 확인한다**
 
 `IGitManager`에 멤버가 늘었으므로 Moq는 자동으로 따라가지만, 직접 구현한 가짜가 있으면 컴파일이 깨진다.
 
 Run: `dotnet build DBVC.slnx`
 Expected: 성공. 실패하면 그 가짜 구현에 `GetRepositoryState`를 더하고 `null`을 반환하게 한다.
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add src/DBVC.Core/GitManager.cs src/DBVC.Core/Abstractions.cs tests/DBVC.Core.Tests/GitManagerTests.cs
@@ -694,7 +694,7 @@ git commit -m "feat(core): 저장소의 브랜치와 진행 중 작업을 읽어
 
 > **왜 지금인가:** 이 변경은 저장소의 모든 `.sql` 파일을 한 번에 바꾼다. 아직 저장소를 만들기 전이라 비용이 0이다. 나중에 켜면 수천 파일이 한 커밋에 바뀌는 이력이 영구히 남는다(spec §2.3).
 
-- [ ] **Step 1: 실패하는 단위 테스트를 쓴다**
+- [x] **Step 1: 실패하는 단위 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/SmoManagerTests.cs` 에 더한다:
 
@@ -721,12 +721,12 @@ git commit -m "feat(core): 저장소의 브랜치와 진행 중 작업을 읽어
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~BuildScriptingOptions"`
 Expected: `BuildScriptingOptions_EnablesCreateOrAlter` FAIL — `Expected: True, But was: False`
 
-- [ ] **Step 3: 옵션을 켠다**
+- [x] **Step 3: 옵션을 켠다**
 
 `src/DBVC.Core/SmoManager.cs` 의 `BuildScriptingOptions()` 안, `ScriptDrops = false,` 바로 위에 넣는다:
 
@@ -738,12 +738,12 @@ Expected: `BuildScriptingOptions_EnablesCreateOrAlter` FAIL — `Expected: True,
                 ScriptForCreateOrAlter = true,
 ```
 
-- [ ] **Step 4: 통과를 확인한다**
+- [x] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~BuildScriptingOptions"`
 Expected: 2개 PASS
 
-- [ ] **Step 5: 통합 테스트를 더한다**
+- [x] **Step 5: 통합 테스트를 더한다**
 
 `tests/DBVC.Core.Tests/SmoManagerIntegrationTests.cs` 에 더한다. 이 파일에는 매핑까지 갖춘 임시 저장소를 만드는 `TempRepo` 내부 클래스(`repo.Path`, `repo.Smo`, `repo.RelativePaths()`)와 `_database` 필드, `ServerName` 상수가 이미 있다. 그대로 쓴다.
 
@@ -783,14 +783,14 @@ Expected: 2개 PASS
 
 `ExecuteOnTestDatabase` 는 이 파일이 임시 DB에 DDL을 거는 기존 방식의 이름으로 맞춘다 — 픽스처가 `SqlServerTestDatabase` 인스턴스를 들고 있으면 그 인스턴스의 `Execute(string)` 을 쓰면 된다. **폴더 이름을 문자열로 박지 않는 이유**는 `ObjectPathConvention`이 정하는 값이라 여기서 다시 적으면 두 벌이 되기 때문이다. 그래서 `RelativePaths()` 에서 파일 이름으로 찾는다.
 
-- [ ] **Step 6: 통합 테스트를 돌린다**
+- [x] **Step 6: 통합 테스트를 돌린다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~SmoManagerIntegrationTests"`
 Expected: 로컬 SQL Server가 있으면 PASS. 없으면 Skip.
 
 **Skip은 통과가 아니다.** SQL Server 없이 이 작업을 끝내면 다음 줄을 커밋 메시지 본문에 남긴다: `검증 보류: ScriptForCreateOrAlter의 실제 출력은 서버 없이 확인하지 못했다.`
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add src/DBVC.Core/SmoManager.cs tests/DBVC.Core.Tests/SmoManagerTests.cs tests/DBVC.Core.Tests/SmoManagerIntegrationTests.cs
@@ -815,7 +815,7 @@ git commit -m "feat(core): 저장소 파일을 CREATE OR ALTER로 추출한다"
 
 > **핵심 제약:** 트리거는 `WITH EXECUTE AS 'dbo'`로 돈다(`InstallTrigger.sql:91`). 이 문맥은 DB 범위로 샌드박싱되어 **서버 범위 DMV(`sys.dm_exec_connections`)에 접근할 수 없다.** 세션 범위 내장 함수인 `HOST_NAME()`과 `CONNECTIONPROPERTY()`만 쓴다.
 
-- [ ] **Step 1: 실패하는 통합 테스트를 쓴다**
+- [x] **Step 1: 실패하는 통합 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/DdlTriggerIntegrationTests.cs` 에 더한다:
 
@@ -865,12 +865,12 @@ git commit -m "feat(core): 저장소 파일을 CREATE OR ALTER로 추출한다"
 
 `SqlServerTestDatabase.QueryScalar(string)` 는 이미 있고 `object?` 를 반환한다. 제네릭 오버로드를 새로 만들지 말고 위처럼 캐스팅한다.
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~DdlTriggerIntegrationTests"`
 Expected: 로컬 SQL Server가 있으면 새 3개가 FAIL — `HostName` 컬럼이 없다는 오류. 없으면 Skip.
 
-- [ ] **Step 3: 테이블에 컬럼을 더한다**
+- [x] **Step 3: 테이블에 컬럼을 더한다**
 
 `src/DBVC.Database/InstallTrigger.sql` 의 `CREATE TABLE [dbo].[DBVC_ChangeLog]` 안, `[IsProcessed]` 바로 위에 넣는다:
 
@@ -879,7 +879,7 @@ Expected: 로컬 SQL Server가 있으면 새 3개가 FAIL — `HostName` 컬럼�
         [ClientNetAddress] NVARCHAR(48) NULL,
 ```
 
-- [ ] **Step 4: 구버전 테이블 보정을 더한다**
+- [x] **Step 4: 구버전 테이블 보정을 더한다**
 
 같은 파일의 보정 블록(`-- 구버전(SchemaName / IsProcessed 이전)에 설치된 테이블 보정` 아래, 기존 `IF NOT EXISTS ... ALTER TABLE` 들과 같은 자리)에 넣는다:
 
@@ -897,7 +897,7 @@ GO
 
 `GO` 배치 구분이 필요한 이유: 같은 배치 안에서 방금 더한 컬럼을 참조하면 컴파일 오류가 난다. 기존 보정 블록이 어떻게 구분되어 있는지 보고 같은 방식을 따른다.
 
-- [ ] **Step 5: 트리거의 INSERT에 두 값을 담는다**
+- [x] **Step 5: 트리거의 INSERT에 두 값을 담는다**
 
 같은 파일의 `INSERT INTO [dbo].[DBVC_ChangeLog] (` 컬럼 목록에서 `[IsProcessed]` 위에 넣는다:
 
@@ -917,7 +917,7 @@ GO
 
 `CONNECTIONPROPERTY`는 `sql_variant`를 반환하므로 `CONVERT`가 반드시 필요하다.
 
-- [ ] **Step 6: 스키마 버전을 3으로 올린다**
+- [x] **Step 6: 스키마 버전을 3으로 올린다**
 
 같은 파일에서 `@value = N'2'` 두 곳(`sp_addextendedproperty`, `sp_updateextendedproperty`)을 `N'3'` 으로 바꾼다.
 
@@ -927,19 +927,19 @@ GO
         public const int RequiredSchemaVersion = 3;
 ```
 
-- [ ] **Step 7: 동기화 테스트를 확인한다**
+- [x] **Step 7: 동기화 테스트를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~InstallScriptSyncTests"`
 Expected: 전부 PASS. `InstallScript_StampsTheVersionCoreRequires` 가 두 값이 어긋나면 실패하므로, 한쪽만 고쳤다면 여기서 잡힌다.
 
-- [ ] **Step 8: 통합 테스트를 확인한다**
+- [x] **Step 8: 통합 테스트를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~DdlTriggerIntegrationTests"`
 Expected: 로컬 SQL Server가 있으면 전부 PASS. 없으면 Skip.
 
 **여기서 Skip이 나면 Task 6을 시작하기 전에 반드시 실제 서버에서 한 번 돌린다.** `HOST_NAME()`이 `EXECUTE AS` 문맥에서 값을 내지 못하면 Task 6의 필터 축 자체를 다시 정해야 하고, 그 사실을 Task 6을 다 짠 뒤에 알면 전부 버리게 된다.
 
-- [ ] **Step 9: 커밋**
+- [x] **Step 9: 커밋**
 
 ```bash
 git add src/DBVC.Database/InstallTrigger.sql src/DBVC.Core/StateTracker.cs tests/DBVC.Core.Tests/
@@ -969,7 +969,7 @@ git commit -m "feat(core): DDL 트리거가 접속 PC와 IP를 기록한다"
 
 > **`MarkProcessed`는 현재 사용자가 아니라 레코드의 작업자로 좁힌다.** 전체 보기에서 남의 변경을 대신 커밋하는 경로가 있으므로, 현재 사용자로 좁히면 그 행이 영원히 닫히지 않는다.
 
-- [ ] **Step 1: 실패하는 단위 테스트를 쓴다**
+- [x] **Step 1: 실패하는 단위 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/StateTrackerTests.cs` 에 더한다:
 
@@ -1009,12 +1009,12 @@ git commit -m "feat(core): DDL 트리거가 접속 PC와 IP를 기록한다"
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~StateTrackerTests"`
 Expected: 새 4개 FAIL
 
-- [ ] **Step 3: 모델에 필드를 더한다**
+- [x] **Step 3: 모델에 필드를 더한다**
 
 `src/DBVC.Core/Models/ChangeRecord.cs` 의 `ChangeLogRow` 안, `TargetObjectType` 아래에 넣는다:
 
@@ -1043,7 +1043,7 @@ Expected: 새 4개 FAIL
         public string? HostName { get; set; }
 ```
 
-- [ ] **Step 4: 쿼리를 고친다**
+- [x] **Step 4: 쿼리를 고친다**
 
 `src/DBVC.Core/StateTracker.cs` 의 `PendingChangesQuery` 를 바꾸고 그 아래에 하나를 더한다:
 
@@ -1095,19 +1095,19 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
 
 `ISNULL`로 감싸는 이유는 v3 이전 행 때문이다 — `HostName = @host`는 양쪽이 NULL이면 참이 되지 않아 그 행이 영원히 닫히지 않는다.
 
-- [ ] **Step 5: 통과를 확인한다**
+- [x] **Step 5: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~StateTrackerTests"`
 Expected: 새 4개를 포함해 전부 PASS
 
-- [ ] **Step 6: 커밋 (쿼리 상수까지)**
+- [x] **Step 6: 커밋 (쿼리 상수까지)**
 
 ```bash
 git add src/DBVC.Core/StateTracker.cs src/DBVC.Core/Models/ChangeRecord.cs tests/DBVC.Core.Tests/StateTrackerTests.cs
 git commit -m "feat(core): 변경 로그를 작업자로 좁혀 읽고 닫는 쿼리를 더한다"
 ```
 
-- [ ] **Step 7: 읽기 경로를 잇는다**
+- [x] **Step 7: 읽기 경로를 잇는다**
 
 `src/DBVC.Core/StateTracker.cs` 의 `ReadPendingRows` 를 바꾼다. 시그니처에 필터 인자를 더하고, 새 두 컬럼을 읽는다:
 
@@ -1185,7 +1185,7 @@ git commit -m "feat(core): 변경 로그를 작업자로 좁혀 읽고 닫는 �
                 HostName = row.HostName,
 ```
 
-- [ ] **Step 8: `RefreshState`에 필터 인자를 낸다**
+- [x] **Step 8: `RefreshState`에 필터 인자를 낸다**
 
 `src/DBVC.Core/Abstractions.cs` 의 `IStateTracker` 에서 `RefreshState`를 바꾼다:
 
@@ -1202,7 +1202,7 @@ git commit -m "feat(core): 변경 로그를 작업자로 좁혀 읽고 닫는 �
 
 `StateTracker` 에서 기존 `RefreshState(server, database)` 는 `RefreshState(server, database, false)` 로 위임하고, 3인자 쪽이 `includeAllAuthors ? null : ReadCurrentAuthor(connectionString)` 를 `ReadPendingRows` 에 넘긴다.
 
-- [ ] **Step 9: `MarkProcessed`가 레코드의 작업자로 좁히게 한다**
+- [x] **Step 9: `MarkProcessed`가 레코드의 작업자로 좁히게 한다**
 
 `src/DBVC.Core/StateTracker.cs:512` 의 `MarkProcessed` 안, 기존 파라미터 세 줄 아래에 더한다:
 
@@ -1213,7 +1213,7 @@ git commit -m "feat(core): 변경 로그를 작업자로 좁혀 읽고 닫는 �
                     cmd.Parameters.AddWithValue("@host", (object?)record.HostName ?? DBNull.Value);
 ```
 
-- [ ] **Step 10: 빌드와 전체 테스트를 확인한다**
+- [x] **Step 10: 빌드와 전체 테스트를 확인한다**
 
 Run: `dotnet build DBVC.slnx`
 Expected: 성공. `IStateTracker`에 멤버가 늘었으므로 직접 구현한 가짜가 있으면 여기서 깨진다 — 그쪽에 3인자 오버로드를 더한다.
@@ -1221,7 +1221,7 @@ Expected: 성공. `IStateTracker`에 멤버가 늘었으므로 직접 구현한 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 Expected: 전부 PASS 또는 Skip
 
-- [ ] **Step 11: 필터가 실제로 가르는지 통합 테스트로 확인한다**
+- [x] **Step 11: 필터가 실제로 가르는지 통합 테스트로 확인한다**
 
 `tests/DBVC.Core.Tests/DdlTriggerIntegrationTests.cs` 에 더한다:
 
@@ -1270,12 +1270,12 @@ Expected: 전부 PASS 또는 Skip
 
 `RefreshState`가 여는 접속의 `HOST_NAME()`은 테스트 프로세스의 기본값이므로 `"OTHER-PC"`와 다르다. 그것이 이 테스트가 성립하는 근거다.
 
-- [ ] **Step 12: 통합 테스트를 돌린다**
+- [x] **Step 12: 통합 테스트를 돌린다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~DdlTriggerIntegrationTests"`
 Expected: 로컬 SQL Server가 있으면 전부 PASS. 없으면 Skip.
 
-- [ ] **Step 13: 커밋**
+- [x] **Step 13: 커밋**
 
 ```bash
 git add src/DBVC.Core/ tests/DBVC.Core.Tests/
@@ -1301,7 +1301,7 @@ git commit -m "feat(core): 접속 PC로 변경 목록을 좁히고 그 축으로
   - `ViewChangesViewModel.ShowAllAuthors` → `bool` (기본 false, 바뀌면 `Refresh()`)
   - `ChangeItemViewModel.Author` → `string?` (표시용: `HostName` 우선, 없으면 `Author`)
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs` 에 더한다.
 
@@ -1386,14 +1386,14 @@ git commit -m "feat(core): 접속 PC로 변경 목록을 좁히고 그 축으로
                 .Returns(new RepositoryState { CurrentBranch = "main", BlockReason = RepositoryBlockReason.None });
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~ViewChangesViewModelTests"`
 Expected: 컴파일 실패 — `CurrentBranch`·`IsBlocked`·`BlockMessage`·`ShowAllAuthors` 가 없다.
 
 > `DBVC.Vsix.Tests` 는 Windows에서만 돈다. Windows가 아니면 이 Task는 시작할 수 없다.
 
-- [ ] **Step 3: 뷰모델에 속성을 더한다**
+- [x] **Step 3: 뷰모델에 속성을 더한다**
 
 `src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs` 에 더한다. 기존 속성들이 쓰는 `SetProperty`/`OnPropertyChanged` 방식을 그대로 따른다.
 
@@ -1454,7 +1454,7 @@ Expected: 컴파일 실패 — `CurrentBranch`·`IsBlocked`·`BlockMessage`·`Sh
 
 `CommandManager` 를 쓰려면 `using System.Windows.Input;` 이 필요하다. 이 파일이 이미 다른 방식으로 `CanExecute` 재평가를 하고 있으면 그 방식을 따른다.
 
-- [ ] **Step 4: 컨텍스트 판정에 저장소 상태를 넣는다**
+- [x] **Step 4: 컨텍스트 판정에 저장소 상태를 넣는다**
 
 `ApplyContextProbe`(`ViewChangesViewModel.cs:353` 부근)에서 `IsInitialized` 를 정한 뒤, `Refresh()` 를 부르기 전에 넣는다:
 
@@ -1481,7 +1481,7 @@ Expected: 컴파일 실패 — `CurrentBranch`·`IsBlocked`·`BlockMessage`·`Sh
             BlockMessage = null;
 ```
 
-- [ ] **Step 5: `CanCommit`과 `Refresh`를 잇는다**
+- [x] **Step 5: `CanCommit`과 `Refresh`를 잇는다**
 
 `CanCommit()` 의 맨 앞에 넣는다:
 
@@ -1491,7 +1491,7 @@ Expected: 컴파일 실패 — `CurrentBranch`·`IsBlocked`·`BlockMessage`·`Sh
 
 `Refresh()` 안에서 `_stateTracker.RefreshState(server, database)` 를 부르는 자리를 `_stateTracker.RefreshState(server, database, ShowAllAuthors)` 로 바꾼다. `ShowAllAuthors` 는 UI 스레드에서 읽어 지역 변수에 담은 뒤 백그라운드로 넘긴다 — 이 파일의 다른 백그라운드 호출이 값만 넘기는 규약을 따른다.
 
-- [ ] **Step 6: 변경자 표시를 더한다**
+- [x] **Step 6: 변경자 표시를 더한다**
 
 `src/DBVC.Vsix/ViewModels/ChangeItemViewModel.cs` 에 더한다:
 
@@ -1509,12 +1509,12 @@ Expected: 컴파일 실패 — `CurrentBranch`·`IsBlocked`·`BlockMessage`·`Sh
                 Author = string.IsNullOrWhiteSpace(record.HostName) ? record.Author : record.HostName,
 ```
 
-- [ ] **Step 7: 통과를 확인한다**
+- [x] **Step 7: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~ViewChangesViewModelTests"`
 Expected: 새 5개를 포함해 전부 PASS
 
-- [ ] **Step 8: XAML을 고친다**
+- [x] **Step 8: XAML을 고친다**
 
 `src/DBVC.Vsix/UI/ViewChangesControl.xaml`:
 
@@ -1560,13 +1560,13 @@ Expected: 새 5개를 포함해 전부 PASS
 </Border>
 ```
 
-- [ ] **Step 9: 빌드하고 `.vsix`가 나오는지 확인한다**
+- [x] **Step 9: 빌드하고 `.vsix`가 나오는지 확인한다**
 
 Run: `dotnet build src/DBVC.Vsix/DBVC.Vsix.csproj -c Release`
 Run: `dir src\DBVC.Vsix\bin\Release\net48\*.vsix`
 Expected: `.vsix` 파일이 존재한다. **빌드 성공은 `.vsix` 생성을 뜻하지 않는다** — 산출물을 눈으로 확인한다.
 
-- [ ] **Step 10: 커밋**
+- [x] **Step 10: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/ tests/DBVC.Vsix.Tests/
@@ -1594,7 +1594,7 @@ git commit -m "feat(vsix): 현재 브랜치와 작업자 토글을 띄우고 어
 
 > **왜 경고이고 차단이 아닌가:** 대부분은 실제로 이어서 작업한 정상적인 경우다. 차단하면 도구를 쓰지 않게 된다(spec §3.10).
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/CoAuthorDetectorTests.cs`:
 
@@ -1693,12 +1693,12 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~CoAuthorDetectorTests"`
 Expected: 컴파일 실패 — `CoAuthorDetector` 가 없다.
 
-- [ ] **Step 3: 값 객체와 판정 함수를 만든다**
+- [x] **Step 3: 값 객체와 판정 함수를 만든다**
 
 `src/DBVC.Core/Models/RepositoryState.cs` 와 같은 폴더가 아니라 별도 파일 `src/DBVC.Core/CoAuthorDetector.cs` 에 둘 다 넣는다 — 값 객체가 이 판정에만 쓰인다.
 
@@ -1786,19 +1786,19 @@ namespace DBVC.Core.Models
 
 한 파일에 두 네임스페이스를 두는 것이 이 저장소의 기존 방식과 다르면, `CoAuthorWarning` 을 `src/DBVC.Core/Models/CoAuthorWarning.cs` 로 분리한다.
 
-- [ ] **Step 4: 통과를 확인한다**
+- [x] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~CoAuthorDetectorTests"`
 Expected: 6개 PASS
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Core/CoAuthorDetector.cs tests/DBVC.Core.Tests/CoAuthorDetectorTests.cs
 git commit -m "feat(core): 커밋 대상을 다른 작업자도 만졌는지 판정한다"
 ```
 
-- [ ] **Step 6: `IStateTracker`에 조회를 낸다**
+- [x] **Step 6: `IStateTracker`에 조회를 낸다**
 
 `src/DBVC.Core/Abstractions.cs` 의 `IStateTracker` 에 더한다:
 
@@ -1839,7 +1839,7 @@ git commit -m "feat(core): 커밋 대상을 다른 작업자도 만졌는지 판
 
 `BuildConnectionString` 은 이 클래스가 이미 쓰는 이름이다.
 
-- [ ] **Step 7: 뷰모델에서 커밋 전에 확인한다**
+- [x] **Step 7: 뷰모델에서 커밋 전에 확인한다**
 
 `tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs` 에 먼저 테스트를 더한다:
 
@@ -1916,7 +1916,7 @@ git commit -m "feat(core): 커밋 대상을 다른 작업자도 만졌는지 판
             }
 ```
 
-- [ ] **Step 8: 통과를 확인한다**
+- [x] **Step 8: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net48`
 Expected: 전부 PASS
@@ -1924,13 +1924,13 @@ Expected: 전부 PASS
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 Expected: 전부 PASS 또는 Skip
 
-- [ ] **Step 9: 빌드와 `.vsix`를 확인한다**
+- [x] **Step 9: 빌드와 `.vsix`를 확인한다**
 
 Run: `dotnet build DBVC.slnx`
 Run: `dotnet build src/DBVC.Vsix/DBVC.Vsix.csproj -c Release && dir src\DBVC.Vsix\bin\Release\net48\*.vsix`
 Expected: 둘 다 성공하고 `.vsix` 가 존재한다
 
-- [ ] **Step 10: 커밋**
+- [x] **Step 10: 커밋**
 
 ```bash
 git add src/DBVC.Core/ src/DBVC.Vsix/ tests/
@@ -1952,13 +1952,13 @@ git commit -m "feat(vsix): 남의 변경이 딸려 오는 커밋 전에 확인�
 
 > 사용자 눈에 보이는 동작이 바뀌면 `README.md`와 `docs/setup-checklist.md`를 함께 고치고 매니페스트 버전을 올린다.
 
-- [ ] **Step 1: 매니페스트 버전을 올린다**
+- [x] **Step 1: 매니페스트 버전을 올린다**
 
 `src/DBVC.Vsix/source.extension.vsixmanifest` 의 `Version` 을 `0.2.8` → `0.3.0` 으로 바꾼다. 기능이 늘고 스키마가 바뀌었으므로 minor를 올린다.
 
 `tests/DBVC.Vsix.Tests/DbvcVersionTests.cs` 가 버전을 검증하고 있으면 그쪽도 맞춘다.
 
-- [ ] **Step 2: README에 세 가지를 더한다**
+- [x] **Step 2: README에 세 가지를 더한다**
 
 `## 주요 기능` 목록에 더한다:
 
@@ -1992,18 +1992,18 @@ git commit -m "feat(vsix): 남의 변경이 딸려 오는 커밋 전에 확인�
 작업자 구분이 되지 않습니다. 그 환경에서는 사람마다 SQL 로그인을 나눠야 합니다.
 ```
 
-- [ ] **Step 3: 도입 체크리스트에 운영 규칙을 옮긴다**
+- [x] **Step 3: 도입 체크리스트에 운영 규칙을 옮긴다**
 
 `docs/setup-checklist.md` 에 절을 더한다. 내용은 spec 6장(`docs/superpowers/specs/2026-08-24-dbvc-git-workflow-design.md`)에서 옮긴다 — **DB 변경은 짧게 산다**, **같은 객체에 대한 동시 작업은 조율한다**, **`hotfix/*`의 DB 변경**(세 선택지), **`develop` 리셋 여부**, **한 사람이 한 PC를 쓰는가**. 각 항목의 "왜"를 함께 옮긴다.
 
-- [ ] **Step 4: 전체 빌드와 테스트를 확인한다**
+- [x] **Step 4: 전체 빌드와 테스트를 확인한다**
 
 Run: `dotnet build DBVC.slnx`
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net48`
 Expected: 전부 PASS 또는 Skip
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add README.md docs/setup-checklist.md src/DBVC.Vsix/source.extension.vsixmanifest tests/DBVC.Vsix.Tests/DbvcVersionTests.cs
@@ -2016,11 +2016,24 @@ git commit -m "docs: 작업자 필터와 저장소 차단을 문서에 반영하
 
 CI가 검증하지 않는 영역이 있다. **아래를 실제로 눌러 보기 전에는 "동작한다"고 말할 수 없다.**
 
-- [ ] **로컬 SQL Server에서 통합 테스트를 돌렸다.** Skip이 아니라 PASS를 봤다. 특히 `Trigger_RecordsTheClientHostName_WhenDdlRuns` 와 `RefreshState_ExcludesOtherWorkstationsChanges_WhenNotIncludingAllAuthors`
-- [ ] **SSMS 21에 `.vsix`를 설치하고 버전이 `DBVC 0.3.0`으로 보인다.** 덮어 설치 후 SSMS를 다시 시작해야 반영된다
-- [ ] **개발 DB에 연결해 현재 브랜치가 보인다**
-- [ ] **다른 PC(또는 다른 `Workstation ID`로 접속한 SSMS)에서 만든 변경이 내 목록에 안 뜨고, "다른 사람 변경도 보기"를 켜면 뜬다**
-- [ ] **같은 객체를 다른 PC에서도 만진 뒤 커밋하면 확인 대화상자가 뜨고, 그 PC 이름이 문구에 있다**
-- [ ] **매핑에 `"Branch": "no-such-branch"` 를 손으로 넣으면 화면이 덮이고 아무 버튼도 눌리지 않는다**
-- [ ] **v2로 초기화된 DB에 연결하면 "변경 추적기 업데이트"가 뜨고, 누르면 v3으로 올라가며 기존 로그가 남아 있다**
-- [ ] **새로 추출한 프로시저 `.sql` 파일이 `CREATE OR ALTER` 로 시작한다**
+- [x] **로컬 SQL Server에서 통합 테스트를 돌렸다.** Skip이 아니라 PASS를 봤다. 특히 `Trigger_RecordsTheClientHostName_WhenDdlRuns` 와 `RefreshState_ExcludesOtherWorkstationsChanges_WhenNotIncludingAllAuthors`
+- [x] **SSMS 21에 `.vsix`를 설치하고 도구 창의 버전이 그 `.vsix`와 같다.** 덮어 설치 후 SSMS를 다시 시작해야 반영된다
+- [x] **개발 DB에 연결해 현재 브랜치가 보인다**
+- [x] **다른 PC(또는 다른 `Workstation ID`로 접속한 SSMS)에서 만든 변경이 내 목록에 안 뜨고, "다른 사람 변경도 보기"를 켜면 뜬다**
+- [x] **같은 객체를 다른 PC에서도 만진 뒤 커밋하면 확인 대화상자가 뜨고, 그 PC 이름이 문구에 있다**
+- [x] **매핑에 `"Branch": "no-such-branch"` 를 손으로 넣으면 화면이 덮이고 아무 버튼도 눌리지 않는다**
+- [x] **v2로 초기화된 DB에 연결하면 "변경 추적기 업데이트"가 뜨고, 누르면 v3으로 올라가며 기존 로그가 남아 있다**
+- [x] **새로 추출한 프로시저 `.sql` 파일이 `CREATE OR ALTER` 로 시작한다**
+
+---
+
+## 실기 확인 뒤
+
+2026-08-26~27 SSMS 21에서 위 완료 조건을 모두 확인했다. 그 과정에서 CI도 테스트도 닿지
+않는 결함 다섯 개가 드러났고, 0.3.1과 0.3.2에서 고쳤다 — 작업자 필터가 Git 폴백에 새던 것,
+어두운 테마에서 토글 문구가 묻히던 것, `sp_rename`의 새 이름을 기록하지 않아 테이블
+디자이너가 살아 있는 테이블을 삭제로 만들던 것, 접힌 옛 이름의 로그 행이 닫히지 않던 것,
+저장소와 이미 같아진 항목을 커밋으로 지울 수 없던 것.
+
+다섯 중 셋은 이 계획이 만든 코드가 아니라 **그 코드가 기존 동작과 만나는 자리**에서 나왔다.
+계획서에 그 접점을 적어 두지 않은 것이 이번 작업의 교훈이다.
