@@ -37,8 +37,10 @@ namespace DBVC.Vsix.ViewModels
         private readonly ScriptExporter _scriptExporter;
         private readonly IBackgroundScheduler _scheduler;
 
-        /// <summary>진행 중인 추출을 멈추기 위한 것. 작업이 없으면 null이다.</summary>
-        private CancellationTokenSource? _extractionCancellation;
+        /// <summary>
+        /// 진행 중인 취소 가능 작업(추출 또는 저장소 받기)을 멈추기 위한 것. 작업이 없으면 null이다.
+        /// </summary>
+        private CancellationTokenSource? _cancellableOperation;
 
         /// <summary>
         /// 지금 걸려 있는 작업을 <see cref="Cancel"/>이 실제로 멈출 수 있는지.
@@ -565,7 +567,7 @@ namespace DBVC.Vsix.ViewModels
         {
             // Cancel을 눌러도 IsBusy는 작업이 실제로 멈출 때까지 유지된다.
             // 여기서 내리면 사용자가 다른 버튼을 눌러 두 작업이 겹친다.
-            _extractionCancellation?.Cancel();
+            _cancellableOperation?.Cancel();
             ProgressText = "취소하는 중...";
         }
 
@@ -799,6 +801,11 @@ namespace DBVC.Vsix.ViewModels
                     return;
 
                 case PullResult.Pulled:
+                    // Pull이 뒤처짐을 줄였으므로 마지막 원격 확인 숫자는 낡았다. 지우지 않으면
+                    // "받을 커밋 3개"가 방금 다 받은 뒤에도 그대로 남아, 낡은 숫자를 최신인 척
+                    // 보여주지 않는다는 이 필드의 존재 이유와 어긋난다.
+                    RemoteStatusText = null;
+
                     // 받은 스크립트가 어디 놓였는지 말하지 않으면 사용자가 찾지 못한다 -
                     // DBVC는 파일만 가져올 뿐 데이터베이스에 적용하지 않기 때문이다.
                     // 저장소 루트를 알려주는 것만으로는 부족하다 - 실제 파일은 루트가 아니라
@@ -885,6 +892,7 @@ namespace DBVC.Vsix.ViewModels
                     _notifier.ShowInfo("DBVC Push", "올릴 커밋이 없습니다. 원격이 이미 최신입니다.");
                     break;
                 case PushResult.Pushed:
+                    RemoteStatusText = null;
                     _notifier.ShowInfo("DBVC Push", "커밋을 원격 저장소에 올렸습니다.");
                     break;
 
@@ -899,7 +907,7 @@ namespace DBVC.Vsix.ViewModels
 
         // ---------- 저장소 매핑 ----------
 
-        private bool CanConnectRepository() => HasContext && !IsMapped;
+        private bool CanConnectRepository() => HasContext && !IsMapped && !IsBusy;
 
         private void ConnectRepository()
         {
@@ -951,9 +959,9 @@ namespace DBVC.Vsix.ViewModels
         /// </summary>
         private void CloneAndConnect(string remoteUrl, string targetPath)
         {
-            _extractionCancellation?.Dispose();
-            _extractionCancellation = new CancellationTokenSource();
-            var token = _extractionCancellation.Token;
+            _cancellableOperation?.Dispose();
+            _cancellableOperation = new CancellationTokenSource();
+            var token = _cancellableOperation.Token;
 
             _cancellableWorkOutstanding = true;
             IsBusy = true;
@@ -1124,9 +1132,9 @@ namespace DBVC.Vsix.ViewModels
             // UI 스레드에서 읽어 값으로 넘긴다. 백그라운드에서 바인딩 속성을 읽지 않는 규약이다.
             var includeAllAuthors = ShowAllAuthors;
 
-            _extractionCancellation?.Dispose();
-            _extractionCancellation = new CancellationTokenSource();
-            var token = _extractionCancellation.Token;
+            _cancellableOperation?.Dispose();
+            _cancellableOperation = new CancellationTokenSource();
+            var token = _cancellableOperation.Token;
 
             _cancellableWorkOutstanding = true;
             IsBusy = true;
@@ -1403,6 +1411,12 @@ namespace DBVC.Vsix.ViewModels
                         // 커밋은 만들어지지 않았다. 목록에서만 사라지므로 그 사실을 말해야
                         // 사용자가 "커밋했는데 이력에 없다"로 읽지 않는다.
                         WarningMessage = "선택한 항목은 저장소와 이미 같아 커밋할 것이 없었습니다. 목록에서만 정리했습니다.";
+                    }
+                    else
+                    {
+                        // 실제 커밋은 원격보다 앞선 개수를 바꾼다. 지우지 않으면 마지막 원격 확인
+                        // 숫자가 낡은 채로 최신인 척 남는다.
+                        RemoteStatusText = null;
                     }
 
                     CommitMessage = string.Empty;

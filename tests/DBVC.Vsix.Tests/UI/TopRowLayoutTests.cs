@@ -35,7 +35,7 @@ namespace DBVC.Vsix.Tests.UI
         /// 개체 탐색기가 대상을 내주는 상태로 만들고 Connect까지 누른 컨트롤. 기본 스케줄러가
         /// 인라인이라 이 호출이 끝나면 저장소 상태 판정도 끝나 있다.
         /// </summary>
-        private static ViewChangesControl NewConnectedControl(RepositoryState repositoryState)
+        private static ViewChangesControl NewConnectedControl(RepositoryState repositoryState, RemoteStatus? remoteStatus = null)
         {
             var config = new Mock<IConfigManager>();
             config.Setup(c => c.TryGetMapping(It.IsAny<string>(), It.IsAny<string>()))
@@ -51,6 +51,10 @@ namespace DBVC.Vsix.Tests.UI
 
             var git = new Mock<IGitManager>();
             git.Setup(g => g.GetRepositoryState(It.IsAny<string>(), It.IsAny<string>())).Returns(repositoryState);
+            if (remoteStatus != null)
+            {
+                git.Setup(g => g.FetchRemoteStatus(It.IsAny<string>(), It.IsAny<string>())).Returns(remoteStatus);
+            }
 
             var ssms = new Mock<ISsmsConnectionSource>();
             ssms.Setup(s => s.TryGetCurrent())
@@ -61,6 +65,13 @@ namespace DBVC.Vsix.Tests.UI
                 Mock.Of<IFileSaveDialog>(), Mock.Of<IWorkingTreeCleaner>(), Mock.Of<IRepositoryConnectDialog>(),
                 Mock.Of<ISqlCredentialStore>(), ssms.Object);
             vm.ConnectCommand.Execute(null);
+
+            // 원격 확인은 수동 버튼으로만 돌므로, RemoteStatusLabel을 채우려면 여기서 직접 눌러야 한다.
+            if (remoteStatus != null)
+            {
+                vm.CheckRemoteCommand.Execute(null);
+            }
+
             return new ViewChangesControl(vm, null);
         }
 
@@ -135,6 +146,45 @@ namespace DBVC.Vsix.Tests.UI
 
             var branch = (FrameworkElement)control.FindName("BranchLabel");
             Assert.That(branch.Visibility, Is.Not.EqualTo(Visibility.Visible));
+        }
+
+        /// <summary>
+        /// 원격을 확인하기 전에는 표시가 아예 없어야 한다. Task 8이 RemoteStatusLabel을 셋째
+        /// DockPanel.Dock="Right" 자식으로 더했는데, 기본값이 Collapsed라 이 사실이 테스트 없이도
+        /// 통과해 왔다.
+        /// </summary>
+        [Test]
+        public void RemoteStatusLabel_IsHidden_WhenThereIsNoRemoteStatus()
+        {
+            var control = NewConnectedControl(
+                new RepositoryState { CurrentBranch = "main", BlockReason = RepositoryBlockReason.None });
+
+            LayoutAt(control, 600);
+
+            var remoteStatus = (FrameworkElement)control.FindName("RemoteStatusLabel");
+            Assert.That(remoteStatus.Visibility, Is.Not.EqualTo(Visibility.Visible));
+        }
+
+        /// <summary>
+        /// 원격 확인 결과가 있으면 브랜치와 버전 사이, 같은 첫째 줄에 와야 한다. XAML에서
+        /// DockPanel.Dock="Right" 자식은 먼저 나온 것이 더 바깥이라(<see cref="BranchLabel_SitsLeftOfTheVersion_OnTheFirstLine"/>와
+        /// 같은 이유), VersionLabel · BranchLabel 다음에 두어야 브랜치 왼쪽에 놓인다.
+        /// </summary>
+        [Test]
+        public void RemoteStatusLabel_SitsLeftOfTheBranchLabel_OnTheFirstLine()
+        {
+            var control = NewConnectedControl(
+                new RepositoryState { CurrentBranch = "feature/x", BlockReason = RepositoryBlockReason.None },
+                new RemoteStatus(2, 1));
+
+            LayoutAt(control, 600);
+
+            var remoteStatus = TopLeftOf(control, "RemoteStatusLabel");
+            var branch = TopLeftOf(control, "BranchLabel");
+            var version = TopLeftOf(control, "VersionLabel");
+
+            Assert.That(remoteStatus.X, Is.LessThan(branch.X), "원격 상태가 브랜치 왼쪽에 와야 한다");
+            Assert.That(remoteStatus.Y, Is.EqualTo(version.Y).Within(1), "셋은 같은 줄에 있어야 한다");
         }
 
         /// <summary>

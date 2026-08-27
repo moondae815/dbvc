@@ -990,6 +990,34 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(cancellableDuringCheckout, Is.False);
         }
 
+        [Test]
+        public void ConnectRepositoryCommand_IsDisabled_WhileAnotherOperationIsRunning()
+        {
+            // IsBusy 가드가 없으면 진행 중에 두 번째 클릭이 CloneAndConnect를 다시 태우고,
+            // 그 첫 줄이 첫 clone이 아직 쓰는 CancellationTokenSource를 Dispose한다 -
+            // 두 clone이 동시에 돌고 취소가 더 이상 첫 clone을 멈추지 못하게 된다.
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _connectDialog.RequestToReturn =
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+
+            ViewChangesViewModel? vm = null;
+            var canExecuteDuringClone = true;
+
+            _git.Setup(g => g.CloneRepository(
+                    It.IsAny<string>(), It.IsAny<string>(),
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns((string url, string path, IProgress<CloneProgress>? progress, CancellationToken token) =>
+                {
+                    canExecuteDuringClone = vm!.ConnectRepositoryCommand.CanExecute(null);
+                    return path;
+                });
+
+            vm = NewConnectedViewModel();
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            Assert.That(canExecuteDuringClone, Is.False);
+        }
+
         // ---------- 객체 이력 ----------
 
         [Test]
@@ -1496,6 +1524,22 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(vm.HasRemoteStatus, Is.False,
                 "다른 대상의 원격 상태가 남으면 사용자가 엉뚱한 저장소의 숫자를 읽습니다");
+        }
+
+        [Test]
+        public void RemoteStatusText_IsCleared_AfterASuccessfulPull()
+        {
+            // Pull이 뒤처짐을 줄이므로 원격 확인이 보여준 숫자는 낡는다. 지우지 않으면
+            // 다 받은 뒤에도 "받을 커밋 n개"가 최신인 척 남는다.
+            _git.Setup(g => g.FetchRemoteStatus(Server, Database)).Returns(new RemoteStatus(0, 3));
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.Pulled);
+            var vm = NewConnectedViewModel();
+            vm.CheckRemoteCommand.Execute(null);
+            Assert.That(vm.HasRemoteStatus, Is.True, "선행 조건: 원격 확인으로 값을 채워 둔다");
+
+            vm.PullCommand.Execute(null);
+
+            Assert.That(vm.HasRemoteStatus, Is.False);
         }
 
         [Test]
