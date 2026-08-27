@@ -1231,6 +1231,43 @@ namespace DBVC.Core.Tests
             Assert.That(progress.Reports.Exists(p => p.Phase == ClonePhase.CheckingOut), Is.True);
         }
 
+        [Test]
+        public void CloneRepository_Refuses_WhenTheTargetFolderAlreadyExists()
+        {
+            var originPath = NewRepoWithCommit();
+            var targetPath = NewTempDir();
+            Directory.CreateDirectory(targetPath);
+
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => new GitManager().CloneRepository(originPath, targetPath, null, CancellationToken.None));
+
+            Assert.That(ex!.Message, Does.Contain(targetPath),
+                "어느 폴더가 문제인지 경로로 알려줘야 합니다");
+            Assert.That(ex.Message, Does.Contain("이미"));
+        }
+
+        [Test]
+        public void CloneRepository_RefusesBeforeCreatingAnything_WhenTheRemoteIsHttps()
+        {
+            var targetPath = NewTempDir();
+
+            var ex = Assert.Throws<GitAuthenticationException>(
+                () => new GitManager().CloneRepository(
+                    "https://example.invalid/org/x.git", targetPath, null, CancellationToken.None));
+
+            Assert.That(ex!.Message, Does.Contain("SSH"),
+                "HTTPS 원격에는 SSH로 바꾸는 방법을 안내해야 합니다");
+            Assert.That(Directory.Exists(targetPath), Is.False,
+                "네트워크를 타기 전에 거부해야 합니다 - 폴더가 남으면 다음 시도가 '이미 있음'으로 막힙니다");
+        }
+
+        [Test]
+        public void CloneRepository_Refuses_WhenTheRemoteUrlIsEmpty()
+        {
+            Assert.Throws<ArgumentException>(
+                () => new GitManager().CloneRepository("  ", NewTempDir(), null, CancellationToken.None));
+        }
+
         /// <summary>
         /// <see cref="PushStatusError"/>의 기본 생성자는 protected이고 <c>Reference</c>·<c>Message</c>는
         /// virtual get-only 프로퍼티다(리플렉션으로 확인함 - 두 프로퍼티 모두 setter가 없다).

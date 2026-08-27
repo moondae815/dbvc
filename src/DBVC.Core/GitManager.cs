@@ -52,6 +52,32 @@ namespace DBVC.Core
             IProgress<CloneProgress>? progress,
             CancellationToken cancellationToken)
         {
+            if (string.IsNullOrWhiteSpace(remoteUrl))
+            {
+                throw new ArgumentException("원격 주소가 비어 있습니다.", nameof(remoteUrl));
+            }
+
+            if (string.IsNullOrWhiteSpace(targetPath))
+            {
+                throw new ArgumentException("받을 폴더 경로가 비어 있습니다.", nameof(targetPath));
+            }
+
+            // HTTPS는 네트워크를 타기 전에 거른다. 자격 증명 콜백까지 흘려보내면 libgit2의
+            // 영문 원문이 먼저 나오고, 그 뒤에 붙이는 안내는 이미 늦다.
+            if (RemoteDiagnostics.Classify(remoteUrl) == RemoteUrlKind.Https)
+            {
+                throw new GitAuthenticationException(
+                    RemoteDiagnostics.Explain(remoteUrl, IsSshAvailableWithoutRepository())!);
+            }
+
+            // 있는 폴더에 받으면 "이 폴더를 내가 만들었나"를 기억해야 하고, 그 기억이 틀리는 날
+            // 남의 폴더를 지운다. 없는 폴더만 받으면 그 판별 자체가 필요 없다.
+            if (Directory.Exists(targetPath) || File.Exists(targetPath))
+            {
+                throw new InvalidOperationException(
+                    $"'{targetPath}'에 이미 무언가 있습니다. 아직 없는 폴더 경로를 지정하세요.");
+            }
+
             var options = new CloneOptions
             {
                 OnCheckoutProgress = (path, completed, total) =>
@@ -714,6 +740,32 @@ namespace DBVC.Core
         private static string NormalizePath(string path)
         {
             return path.Replace('\\', '/');
+        }
+
+        /// <summary>
+        /// 저장소 없이 ssh 사용 가능 여부를 본다.
+        ///
+        /// Pull·Push는 repo.Config에서 core.sshCommand도 함께 보지만 clone 시점에는 저장소가
+        /// 아직 없다. Configuration.BuildFrom(null)이 전역·시스템 config를 열어 주므로
+        /// 같은 판정이 나온다 — OpenSSH 선택적 기능이 꺼져 있어도 Git for Windows의 ssh.exe를
+        /// core.sshCommand로 가리키는 구성(사내 PC에서 흔함)은 실제로 SSH가 된다.
+        /// 이것을 빠뜨리면 그런 PC에서 "OpenSSH 클라이언트를 설치하세요"라는 틀린 안내가 나간다.
+        /// </summary>
+        private static bool IsSshAvailableWithoutRepository()
+        {
+            if (SshExecutableLocator.IsAvailable()) return true;
+
+            try
+            {
+                using var config = Configuration.BuildFrom(null);
+                return !string.IsNullOrWhiteSpace(config.Get<string>("core.sshCommand")?.Value);
+            }
+            catch (Exception ex)
+            {
+                // config를 못 읽는 것이 clone 실패의 원인은 아니다. 안내만 덜 정확해진다.
+                Debug.WriteLine($"GitManager.IsSshAvailableWithoutRepository failed: {ex.Message}");
+                return false;
+            }
         }
     }
 }
