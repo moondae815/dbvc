@@ -1,4 +1,4 @@
-#if NETFRAMEWORK
+﻿#if NETFRAMEWORK
 using System.Windows;
 using System.Windows.Controls;
 using NUnit.Framework;
@@ -124,6 +124,39 @@ namespace DBVC.Vsix.Tests.UI
             var overlay = (Border)control.FindName("BlockOverlay");
             Assert.That(overlay.Visibility, Is.EqualTo(Visibility.Visible),
                 "배포·감사 대상도 차단되면 오버레이가 보여야 한다");
+        }
+
+        /// <summary>
+        /// 작업 중에는 차이 목록을 고를 수 없어야 한다.
+        ///
+        /// 항목을 고르면 원문 읽기가 같은 BusyState를 쓰는데, 그것은 차이 검사보다 빨리 끝나
+        /// 먼저 IsBusy를 내려놓는다 - 그러면 검사가 아직 도는 중에 두 버튼이 되살아나고,
+        /// 다시 누른 검사가 같은 대상을 상대로 겹쳐 돈다. BusyState를 하나로 뽑은 이유가
+        /// 바로 그 겹침을 막는 것이므로, 여기가 깨지면 그 근거가 사라진다.
+        ///
+        /// 마크업이 아니라 렌더링된 값을 본다 - 이 패널의 안쪽 Grid는 DataContext가
+        /// Deployment라, 경로를 잘못 쓰면 바인딩이 조용히 실패하고 기본값(사용 가능)이 남는다.
+        /// </summary>
+        [Test]
+        public void DifferenceList_IsNotInteractive_WhileBackgroundWorkRuns()
+        {
+            var control = ViewChangesControlFixtures.NewConnectedControl(
+                new RepositoryState { CurrentBranch = "main", BlockReason = RepositoryBlockReason.None },
+                mode: MappingMode.Deploy,
+                installedVersion: 0);
+
+            var list = (ListView)control.FindName("DeploymentDifferenceList");
+
+            LayoutAt(control, 600);
+            Assert.That(list.IsEnabled, Is.True,
+                "전제가 깨졌다 - 평소에도 잠겨 있으면 잠금을 확인할 수 없다");
+
+            var viewModel = (DBVC.Vsix.ViewModels.ViewChangesViewModel)control.DataContext;
+            viewModel.Deployment.Busy.IsBusy = true;
+            LayoutAt(control, 600);
+
+            Assert.That(list.IsEnabled, Is.False,
+                "차이 검사가 도는 중에 목록을 고르면 원문 읽기가 먼저 IsBusy를 내려놓아 검사가 겹쳐 돈다");
         }
     }
 }
