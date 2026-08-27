@@ -91,10 +91,7 @@ namespace DBVC.Vsix.ViewModels
             _notifier = notifier ?? new MessageBoxNotifier();
             _saveDialog = saveDialog ?? new SaveFileDialogAdapter();
             _cleaner = cleaner ?? new WorkingTreeCleaner();
-            // 실제 대화상자는 Task 9에서 붙인다. 그때까지의 기본값은 무동작이다 —
-            // 여기서 던지면 connectDialog를 넘기지 않는 DbvcServices.CreateViewChangesViewModel이
-            // 죽어서 도구 창 자체가 열리지 않는다.
-            _connectDialog = connectDialog ?? new NoOpRepositoryConnectDialog();
+            _connectDialog = connectDialog ?? new RepositoryConnectDialogAdapter();
             _scriptExporter = new ScriptExporter(_configManager, _gitManager);
             History = new ObjectHistoryViewModel(_gitManager);
 
@@ -1011,15 +1008,6 @@ namespace DBVC.Vsix.ViewModels
 
                     _notifier.ShowError("DBVC 저장소 받기 실패", ex.Message);
                 });
-        }
-
-        /// <summary>
-        /// Task 9이 실제 대화상자를 붙이기 전까지의 기본값. 언제나 취소로 답한다.
-        /// 셸 밖 실행과 대화상자를 넘기지 않는 조립 경로가 죽지 않게 하는 것이 전부다.
-        /// </summary>
-        private sealed class NoOpRepositoryConnectDialog : IRepositoryConnectDialog
-        {
-            public RepositoryConnectRequest? Prompt(string serverName, string databaseName) => null;
         }
 
         // ---------- Setup ----------
