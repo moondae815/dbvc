@@ -50,7 +50,8 @@ namespace DBVC.Core
             string remoteUrl,
             string targetPath,
             IProgress<CloneProgress>? progress,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            string? branchName = null)
         {
             if (string.IsNullOrWhiteSpace(remoteUrl))
             {
@@ -83,6 +84,13 @@ namespace DBVC.Core
                 OnCheckoutProgress = (path, completed, total) =>
                     progress?.Report(new CloneProgress(ClonePhase.CheckingOut, completed, total))
             };
+
+            // 배포·감사 클론은 특정 브랜치에 고정된다. 원격 HEAD를 받아 두면 받자마자
+            // 브랜치 불일치로 차단되어 사용자가 외부 클라이언트를 다시 꺼내야 한다.
+            if (!string.IsNullOrWhiteSpace(branchName))
+            {
+                options.BranchName = branchName;
+            }
 
             // 자격 증명과 전송 진행률은 CloneOptions가 아니라 그 안의 FetchOptions에 있다.
             // new CloneOptions()가 FetchOptions를 이미 채워 주므로 그대로 쓴다(실측 확인).

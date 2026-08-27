@@ -880,12 +880,14 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _git.Setup(g => g.IsRepository(@"C:\chosen-repo")).Returns(true);
-            _connectDialog.RequestToReturn = RepositoryConnectRequest.ForExistingFolder(@"C:\chosen-repo");
+            _connectDialog.RequestToReturn = RepositoryConnectRequest.ForExistingFolder(@"C:\chosen-repo", MappingMode.Write, null);
             var vm = NewConnectedViewModel();
 
             vm.ConnectRepositoryCommand.Execute(null);
 
-            _config.Verify(c => c.AddMapping(Server, Database, @"C:\chosen-repo"), Times.Once);
+            _config.Verify(c => c.AddMapping(It.Is<MappingConfig>(m =>
+                m.ServerName == Server && m.DatabaseName == Database && m.GitPath == @"C:\chosen-repo"
+                && m.Mode == MappingMode.Write && m.Branch == null)), Times.Once);
         }
 
         [Test]
@@ -898,7 +900,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.ConnectRepositoryCommand.Execute(null);
 
             Assert.That(_connectDialog.CallCount, Is.EqualTo(1));
-            _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            _config.Verify(c => c.AddMapping(It.IsAny<MappingConfig>()), Times.Never);
             Assert.That(_notifier.Errors, Is.Empty, "취소는 오류가 아닙니다");
         }
 
@@ -907,12 +909,12 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _git.Setup(g => g.IsRepository(It.IsAny<string>())).Returns(false);
-            _connectDialog.RequestToReturn = RepositoryConnectRequest.ForExistingFolder(@"C:\not-a-repo");
+            _connectDialog.RequestToReturn = RepositoryConnectRequest.ForExistingFolder(@"C:\not-a-repo", MappingMode.Write, null);
             var vm = NewConnectedViewModel();
 
             vm.ConnectRepositoryCommand.Execute(null);
 
-            _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            _config.Verify(c => c.AddMapping(It.IsAny<MappingConfig>()), Times.Never);
             Assert.That(_notifier.Errors, Is.Not.Empty,
                 "유효하지 않은 경로를 저장하면 이후 모든 동작이 조용히 실패합니다");
         }
@@ -922,16 +924,18 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _connectDialog.RequestToReturn =
-                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema", MappingMode.Write, null);
             _git.Setup(g => g.CloneRepository(
                     "git@host:org/db-schema.git", @"C:\repos\db-schema",
-                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>(), null))
                 .Returns(@"C:\repos\db-schema");
             var vm = NewConnectedViewModel();
 
             vm.ConnectRepositoryCommand.Execute(null);
 
-            _config.Verify(c => c.AddMapping(Server, Database, @"C:\repos\db-schema"), Times.Once);
+            _config.Verify(c => c.AddMapping(It.Is<MappingConfig>(m =>
+                m.ServerName == Server && m.DatabaseName == Database && m.GitPath == @"C:\repos\db-schema"
+                && m.Mode == MappingMode.Write && m.Branch == null)), Times.Once);
         }
 
         [Test]
@@ -940,16 +944,16 @@ namespace DBVC.Vsix.Tests.ViewModels
             // 절반만 받아진 저장소가 매핑되면 이후 모든 동작이 조용히 이상해진다.
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _connectDialog.RequestToReturn =
-                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema", MappingMode.Write, null);
             _git.Setup(g => g.CloneRepository(
                     It.IsAny<string>(), It.IsAny<string>(),
-                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()))
                 .Throws(new GitRemoteException("원격과 통신하지 못했습니다."));
             var vm = NewConnectedViewModel();
 
             vm.ConnectRepositoryCommand.Execute(null);
 
-            _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            _config.Verify(c => c.AddMapping(It.IsAny<MappingConfig>()), Times.Never);
             Assert.That(_notifier.Errors, Is.Not.Empty);
         }
 
@@ -958,10 +962,10 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _connectDialog.RequestToReturn =
-                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema", MappingMode.Write, null);
             _git.Setup(g => g.CloneRepository(
                     It.IsAny<string>(), It.IsAny<string>(),
-                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()))
                 .Throws(new OperationCanceledException("원격 저장소 받기를 취소했습니다."));
             var vm = NewConnectedViewModel();
 
@@ -969,7 +973,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(_notifier.Errors, Is.Empty,
                 "사용자가 누른 취소를 오류 상자로 알리면 자기가 누른 것을 오류로 되읽습니다");
-            _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            _config.Verify(c => c.AddMapping(It.IsAny<MappingConfig>()), Times.Never);
         }
 
         [Test]
@@ -979,15 +983,15 @@ namespace DBVC.Vsix.Tests.ViewModels
             // 살려 두면 사용자가 도구가 굳었다고 읽는다.
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _connectDialog.RequestToReturn =
-                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema", MappingMode.Write, null);
 
             ViewChangesViewModel? vm = null;
             var cancellableDuringCheckout = true;
 
             _git.Setup(g => g.CloneRepository(
                     It.IsAny<string>(), It.IsAny<string>(),
-                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
-                .Returns((string url, string path, IProgress<CloneProgress>? progress, CancellationToken token) =>
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()))
+                .Returns((string url, string path, IProgress<CloneProgress>? progress, CancellationToken token, string? branchName) =>
                 {
                     progress?.Report(new CloneProgress(ClonePhase.Transferring, 10, 100));
                     progress?.Report(new CloneProgress(ClonePhase.CheckingOut, 1, 10));
@@ -1009,15 +1013,15 @@ namespace DBVC.Vsix.Tests.ViewModels
             // 두 clone이 동시에 돌고 취소가 더 이상 첫 clone을 멈추지 못하게 된다.
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _connectDialog.RequestToReturn =
-                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema", MappingMode.Write, null);
 
             ViewChangesViewModel? vm = null;
             var canExecuteDuringClone = true;
 
             _git.Setup(g => g.CloneRepository(
                     It.IsAny<string>(), It.IsAny<string>(),
-                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
-                .Returns((string url, string path, IProgress<CloneProgress>? progress, CancellationToken token) =>
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()))
+                .Returns((string url, string path, IProgress<CloneProgress>? progress, CancellationToken token, string? branchName) =>
                 {
                     canExecuteDuringClone = vm!.ConnectRepositoryCommand.CanExecute(null);
                     return path;
@@ -1027,6 +1031,22 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.ConnectRepositoryCommand.Execute(null);
 
             Assert.That(canExecuteDuringClone, Is.False);
+        }
+
+        [Test]
+        public void ConnectRepository_StoresModeAndBranch_WhenUserPicksDeploy()
+        {
+            // 손편집으로 두면 오타 한 글자가 Audit으로 떨어지고, 사용자에게는
+            // "왜 아무것도 안 되지"로 보인다.
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _git.Setup(g => g.IsRepository(It.IsAny<string>())).Returns(true);
+            _connectDialog.RequestToReturn = RepositoryConnectRequest.ForExistingFolder(@"C:\repo", MappingMode.Deploy, "develop");
+
+            var vm = NewConnectedViewModel();
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            _config.Verify(c => c.AddMapping(It.Is<MappingConfig>(
+                m => m.Mode == MappingMode.Deploy && m.Branch == "develop")), Times.Once);
         }
 
         // ---------- 객체 이력 ----------

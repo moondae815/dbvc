@@ -964,14 +964,14 @@ namespace DBVC.Vsix.ViewModels
 
             if (request.Kind == RepositoryConnectKind.ExistingFolder)
             {
-                ConnectExistingFolder(request.ExistingPath!);
+                ConnectExistingFolder(request.ExistingPath!, request.Mode, request.Branch);
                 return;
             }
 
-            CloneAndConnect(request.RemoteUrl!, request.TargetPath!);
+            CloneAndConnect(request.RemoteUrl!, request.TargetPath!, request.Mode, request.Branch);
         }
 
-        private void ConnectExistingFolder(string path)
+        private void ConnectExistingFolder(string path, MappingMode mode, string? branch)
         {
             if (!_gitManager.IsRepository(path))
             {
@@ -981,16 +981,23 @@ namespace DBVC.Vsix.ViewModels
                 return;
             }
 
-            AdoptRepository(path);
+            AdoptRepository(path, mode, branch);
         }
 
         /// <summary>
         /// 매핑을 저장하고 화면을 새 저장소 기준으로 다시 판정한다.
         /// 두 갈래가 끝나는 자리가 같아야 한쪽만 갱신을 빠뜨리는 일이 없다.
         /// </summary>
-        private void AdoptRepository(string path)
+        private void AdoptRepository(string localPath, MappingMode mode, string? branch)
         {
-            _configManager.AddMapping(ServerName!, DatabaseName!, path);
+            _configManager.AddMapping(new MappingConfig
+            {
+                ServerName = ServerName!,
+                DatabaseName = DatabaseName!,
+                GitPath = localPath,
+                Mode = mode,
+                Branch = branch
+            });
 
             // 매핑이 생겼으므로 상태를 다시 판정한다. 인증 정보는 이미 저장소에 있다.
             InvalidateActiveContext();
@@ -1001,7 +1008,7 @@ namespace DBVC.Vsix.ViewModels
         /// 원격에서 받아 매핑까지 만든다. 저장소를 받는 동안 SSMS가 멈추면 안 되므로
         /// 새로고침과 같은 이음매로 UI 스레드 밖에 내보낸다.
         /// </summary>
-        private void CloneAndConnect(string remoteUrl, string targetPath)
+        private void CloneAndConnect(string remoteUrl, string targetPath, MappingMode mode, string? branch)
         {
             _cancellableOperation?.Dispose();
             _cancellableOperation = new CancellationTokenSource();
@@ -1035,13 +1042,13 @@ namespace DBVC.Vsix.ViewModels
             });
 
             _scheduler.Run(
-                () => _gitManager.CloneRepository(remoteUrl, targetPath, progress, token),
+                () => _gitManager.CloneRepository(remoteUrl, targetPath, progress, token, branch),
                 localPath =>
                 {
                     Busy.IsCancellable = false;
                     IsBusy = false;
                     ProgressText = null;
-                    AdoptRepository(localPath);
+                    AdoptRepository(localPath, mode, branch);
                 },
                 ex =>
                 {

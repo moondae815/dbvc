@@ -181,6 +181,30 @@ namespace DBVC.Core.Tests
                 Is.False);
         }
 
+        [Test]
+        public void CloneRepository_ChecksOutTheRequestedBranch()
+        {
+            // 배포 클론은 develop에 고정된다. 원격 HEAD(master)를 받아 두면 받자마자
+            // 브랜치 불일치로 차단되고, 사용자는 외부 클라이언트를 다시 꺼내야 한다.
+            var originPath = NewTempDir();
+            Repository.Init(originPath, isBare: false);
+            using (var origin = new Repository(originPath))
+            {
+                File.WriteAllText(Path.Combine(originPath, "seed.sql"), "-- seed");
+                Commands.Stage(origin, "seed.sql");
+                origin.Commit("seed", TestSignature, TestSignature);
+                origin.CreateBranch("develop");
+            }
+
+            var targetPath = Path.Combine(NewTempDir(), "clone");
+            var git = new GitManager(new ConfigManager(Path.Combine(NewTempDir(), "mappings.json")));
+
+            git.CloneRepository(originPath, targetPath, null, CancellationToken.None, "develop");
+
+            using var cloned = new Repository(targetPath);
+            Assert.That(cloned.Head.FriendlyName, Is.EqualTo("develop"));
+        }
+
         // ---------- GetRepositoryState ----------
 
         [Test]
