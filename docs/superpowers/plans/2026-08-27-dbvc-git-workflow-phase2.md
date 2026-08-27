@@ -1458,7 +1458,7 @@ git commit -m "feat(vsix): 저장소를 받는 동안 진행률을 띄우고 전
 
 - [ ] **Step 2: 실패를 확인한다**
 
-Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~CheckRemote or FullyQualifiedName~RemoteStatusText"`
+Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~CheckRemote|FullyQualifiedName~RemoteStatusText"`
 Expected: 컴파일 실패 — `CheckRemoteCommand`가 없다
 
 - [ ] **Step 3: ViewModel에 더한다**
@@ -1546,7 +1546,7 @@ Expected: 컴파일 실패 — `CheckRemoteCommand`가 없다
 
 - [ ] **Step 4: 통과를 확인한다**
 
-Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~CheckRemote or FullyQualifiedName~RemoteStatusText"`
+Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~CheckRemote|FullyQualifiedName~RemoteStatusText"`
 Expected: 5개 PASS
 
 - [ ] **Step 5: 화면에 붙인다**
