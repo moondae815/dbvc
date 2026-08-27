@@ -389,6 +389,13 @@ namespace DBVC.Vsix.ViewModels
             // 화면이 한 프레임 동안 틀린 패널(운영 대상의 초기화 오버레이)을 그리고서 바뀐다.
             Mode = probe.Mode;
 
+            // 이후의 모든 갈래(접속 실패로 조기 반환하는 갈래 포함)보다 앞에서 부른다.
+            // Connect()는 다른 대상으로 완전히 바꿀 수 있고, 그 첫 판정이 접속 실패로 끝나면
+            // ServerName/DatabaseName은 이미 새 대상인데 Deployment는 이전 대상의 비교 결과를
+            // 그대로 들고 있게 된다 - DB 이름은 새 것, 차이 목록은 옛 것으로 섞여 보인다.
+            // 로컬 상태만 지우는 호출이라 비용이 없으므로 조건 없이 부른다.
+            Deployment.SetTarget(ServerName, DatabaseName, Mode);
+
             if (probe.ConnectionError != null)
             {
                 IsInitialized = false;
@@ -410,10 +417,6 @@ namespace DBVC.Vsix.ViewModels
 
             // Refresh가 스스로 다시 IsBusy를 세우므로 먼저 내려놓는다.
             IsBusy = false;
-
-            // IsBlocked로 일찍 반환하기 전에 넘긴다 - 그러지 않으면 차단된 대상에서
-            // 배포 화면이 직전 대상의 차이 목록을 그대로 보여준 채 차단 오버레이 뒤에 남는다.
-            Deployment.SetTarget(ServerName, DatabaseName, Mode);
 
             if (IsBlocked)
             {

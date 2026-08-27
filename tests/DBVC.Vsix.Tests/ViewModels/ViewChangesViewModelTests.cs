@@ -2680,5 +2680,39 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.PullCommand.CanExecute(null), Is.False);
             Assert.That(vm.IsBusy, Is.True, "BusyState가 공유되지 않으면 부모가 자식의 작업을 모른다");
         }
+
+        [Test]
+        public void Deployment_ClearsPreviousResult_WhenSwitchingToATargetWhoseProbeFails()
+        {
+            // Connect()는 완전히 다른 대상으로 바꿀 수 있다. 그 첫 판정이 접속 실패로 끝나도
+            // Deployment가 이전 대상의 비교 결과를 그대로 들고 있으면, 새 대상 이름 아래
+            // 옛 차이 목록이 뜬다 - 운영과 테스트의 차이를 서로 뒤바꿔 읽게 되는 사고다.
+            var vm = NewViewModelForMappedTarget(MappingMode.Deploy);
+
+            var result = new ComparisonResult { ComparedCount = 5 };
+            result.Differences.Add(new SchemaDifference(
+                "dbo.P", "dbo/StoredProcedures/P.sql", "StoredProcedure", ObjectDiffState.Modified));
+            _smo.Setup(s => s.CompareWithRepository(
+                    Server, Database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns(result);
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.AlreadyUpToDate);
+
+            vm.Deployment.CompareCommand.Execute(null);
+
+            Assert.That(vm.Deployment.Differences, Is.Not.Empty,
+                "전제가 깨졌다 - 비교 결과가 없으면 지워졌는지 확인할 수 없다");
+
+            const string otherServer = "OtherServer";
+            const string otherDatabase = "OtherDb";
+            _stateTracker.Setup(s => s.TestConnection(otherServer, otherDatabase)).Returns("연결할 수 없습니다.");
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info(server: otherServer, database: otherDatabase));
+
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.Deployment.Differences, Is.Empty,
+                "이전 대상의 차이 목록이 새 대상 이름 아래 그대로 남아 있다");
+            Assert.That(vm.Deployment.SummaryText, Is.Null);
+            Assert.That(vm.Deployment.HasResult, Is.False);
+        }
     }
 }
