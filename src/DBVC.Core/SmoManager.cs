@@ -108,17 +108,42 @@ namespace DBVC.Core
             using var session = OpenScriptingSession(serverName, databaseName, objectNames: null);
             if (session == null) return null;
 
+            // OperationCanceledException은 CompareTargets에서 그대로 전파된다.
+            // ScriptObjectsDetailed와 같은 관례이므로 여기서 잡지 않는다.
+            return CompareTargets(session.Targets, mapping.GitPath, session.ScriptOne, progress, cancellationToken);
+        }
+
+        /// <summary>
+        /// 열거된 대상과 스크립팅 델리게이트만으로 차이를 판정한다. SMO도 SqlConnection도
+        /// 여기 없다 — 그래서 "실패한 객체가 차이 목록에 들어가지 않는가" 같은 규칙을 DB 없이
+        /// 검사할 수 있다. <see cref="CompareWithRepository"/>가 이 함수에 세션의 조각만 넘긴다.
+        /// </summary>
+        internal static ComparisonResult CompareTargets(
+            IEnumerable<ScriptTargetInfo> targets,
+            string repositoryPath,
+            Action<ScriptTargetInfo, string> scriptOne,
+            IProgress<ExtractionProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
             var differences = new List<SchemaDifference>();
             var extracted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             var scriptResult = RunScriptingLoop(
-                session.Targets,
-                mapping.GitPath,
-                session.ScriptOne,
-                (target, stagingPath, outputPath) =>
+                targets,
+                repositoryPath,
+                // extracted가 뜻하는 것은 "대상 DB에서 열거되었다"이지 "스크립팅에 성공했다"가
+                // 아니다. onScripted는 scriptOne이 성공해야만 불리므로 거기서 담으면, 암호화된
+                // 모듈이나 VIEW DEFINITION 권한이 없는 객체가 extracted에서 빠지고
+                // FindMissingInDatabase가 그것을 "브랜치에만 있음"으로 판정한다 - 목록에는
+                // "배포 필요 (신규)"로 뜨고 배포 스크립트에 CREATE가 들어가, 실행하면
+                // "이미 있습니다"로 그 배치가 통째로 끊긴다. 그래서 스크립팅 이전에 담는다.
+                (target, stagingPath) =>
                 {
                     extracted.Add(target.RelativePath);
-
+                    scriptOne(target, stagingPath);
+                },
+                (target, stagingPath, outputPath) =>
+                {
                     // HasSameBytes는 대상이 없을 때도 false를 돌려주므로 존재 여부를 먼저 가른다.
                     // 두 경우는 사용자가 할 일이 완전히 다르다.
                     if (!File.Exists(outputPath))
@@ -135,13 +160,10 @@ namespace DBVC.Core
                 progress,
                 cancellationToken);
 
-            // OperationCanceledException은 RunScriptingLoop에서 그대로 전파된다.
-            // ScriptObjectsDetailed와 같은 관례이므로 여기서 잡지 않는다.
-
             return BuildComparison(
                 differences,
                 extracted,
-                SchemaComparison.EnumerateRepositoryScriptPaths(mapping.GitPath),
+                SchemaComparison.EnumerateRepositoryScriptPaths(repositoryPath),
                 scriptResult.FailedObjects,
                 scriptResult.SucceededCount + scriptResult.FailedObjects.Count);
         }
@@ -187,8 +209,20 @@ namespace DBVC.Core
         {
             var result = new ComparisonResult { ComparedCount = comparedCount };
             result.Differences.AddRange(scriptedDifferences);
-            result.Differences.AddRange(SchemaComparison.FindMissingInDatabase(repositoryPaths, extractedPaths));
             result.FailedObjects.AddRange(failedObjects);
+
+            // 판정하지 못한 객체는 어느 차이 상태로도 나가면 안 된다. 그 객체는 대상 DB에서
+            // 열거된 것이므로 "DB에 없다"가 거짓인데, 호출부가 extracted에 담는 것을 빠뜨리면
+            // FindMissingInDatabase가 그렇게 보고한다 - 목록과 실패 안내가 서로를 부정하고,
+            // 사용자가 실제로 행동하는 쪽은 목록이다. 여기서 한 번 더 거른다.
+            var failed = new HashSet<string>(failedObjects, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var missing in SchemaComparison.FindMissingInDatabase(repositoryPaths, extractedPaths))
+            {
+                if (failed.Contains(missing.QualifiedName)) continue;
+                result.Differences.Add(missing);
+            }
+
             return result;
         }
 
@@ -282,7 +316,10 @@ namespace DBVC.Core
                 {
                     Targets = targets,
                     RepositoryPath = localGitPath!,
-                    ScriptOne = (target, outputPath) =>
+                    // 두 번째 인자는 스테이징 경로다(선언 계약도 stagingPath다). outputPath로
+                    // 읽히면 SMO의 writer가 작업 트리를 직접 가리키게 되고, 그러면 실패한
+                    // 스크립팅이 저장소에 반쯤 쓰인 파일을 남긴다.
+                    ScriptOne = (target, stagingPath) =>
                     {
                         var urn = (Urn)target.Tag!;
 
@@ -293,7 +330,7 @@ namespace DBVC.Core
                             DisableTextMode(textObject);
                         }
 
-                        scripter.Options.FileName = outputPath;
+                        scripter.Options.FileName = stagingPath;
                         scripter.Script(new[] { urn });
                     }
                 };

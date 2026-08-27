@@ -579,18 +579,81 @@ namespace DBVC.Core.Tests
         {
             // 스크립팅에 실패한 객체는 "차이가 없다"가 아니라 "모른다"이다.
             // 차이 목록에 섞으면 사용자가 배포 대상으로 읽는다.
+            //
+            // 저장소에 파일이 있는 상태로 넘긴다. 실패한 객체가 extracted에서 빠지면
+            // FindMissingInDatabase가 그것을 "브랜치에만 있음"으로 판정해 배포 스크립트에
+            // CREATE로 들어간다 - 그 경로가 여기서 막히는지가 이 검사의 요점이다.
             var result = SmoManager.BuildComparison(
                 new List<SchemaDifference>(),
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                new List<string>(),
+                new List<string> { "dbo/Tables/Broken.sql" },
                 new List<string> { "dbo.Broken" },
                 comparedCount: 1);
 
-            Assert.That(result.Differences, Is.Empty);
+            Assert.That(result.Differences, Is.Empty,
+                "판정하지 못한 객체가 차이 목록에 배포 대상으로 나타났다");
             Assert.That(result.FailedObjects, Is.EquivalentTo(new[] { "dbo.Broken" }));
 
             // IsInSync는 차이만 본다. 실패가 있으면 화면이 따로 알린다.
             Assert.That(result.IsInSync, Is.True);
+        }
+
+        [Test]
+        public void CompareTargets_LeavesAFailedObjectOutOfDifferences_WhenTheBranchHasItsFile()
+        {
+            // 암호화된 모듈이나 VIEW DEFINITION 권한이 없는 객체는 스크립팅에서 던진다.
+            // 그때 "브랜치에만 있음"으로 판정되면 목록은 "배포 필요 (신규)"라고 말하고
+            // 배포 스크립트에 CREATE가 들어가, 실행하면 "이미 있습니다"로 배치가 끊긴다.
+            var repo = NewTempDir();
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(repo, "dbo", "Tables"));
+                File.WriteAllText(Path.Combine(repo, "dbo", "Tables", "Broken.sql"), "CREATE TABLE [dbo].[Broken](x int)");
+
+                var targets = new List<ScriptTargetInfo>
+                {
+                    new ScriptTargetInfo { Schema = "dbo", Name = "Broken", ObjectType = "Table" }
+                };
+
+                var result = SmoManager.CompareTargets(
+                    targets,
+                    repo,
+                    (target, stagingPath) => throw new InvalidOperationException("암호화된 개체입니다."));
+
+                Assert.That(result.FailedObjects, Is.EquivalentTo(new[] { "dbo.Broken" }));
+                Assert.That(result.Differences, Is.Empty,
+                    "스크립팅에 실패한 객체가 '브랜치에만 있음'으로 배포 대상이 되었다");
+                Assert.That(result.ComparedCount, Is.EqualTo(1));
+            }
+            finally
+            {
+                TryDelete(repo);
+            }
+        }
+
+        [Test]
+        public void CompareTargets_ReportsMissingInDatabase_ForBranchFilesThatWereNeverEnumerated()
+        {
+            // 위 검사가 "실패하면 무조건 조용해진다"로 통과하지 않도록 반대편을 함께 고정한다.
+            var repo = NewTempDir();
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(repo, "dbo", "Tables"));
+                File.WriteAllText(Path.Combine(repo, "dbo", "Tables", "Orders.sql"), "CREATE TABLE [dbo].[Orders](x int)");
+
+                var result = SmoManager.CompareTargets(
+                    new List<ScriptTargetInfo>(),
+                    repo,
+                    (target, stagingPath) => { });
+
+                Assert.That(result.Differences.Count, Is.EqualTo(1));
+                Assert.That(result.Differences[0].QualifiedName, Is.EqualTo("dbo.Orders"));
+                Assert.That(result.Differences[0].State, Is.EqualTo(ObjectDiffState.MissingInDatabase));
+            }
+            finally
+            {
+                TryDelete(repo);
+            }
         }
 
         private static string NewTempDir()
