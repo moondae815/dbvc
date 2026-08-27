@@ -342,17 +342,26 @@ namespace DBVC.Core.Tests
         public void CompareWithRepository_ReportsMissingInDatabase_WhenTheObjectWasDropped()
         {
             _testDatabase!.Execute("CREATE PROCEDURE dbo.GetOne AS SELECT 1");
+            try
+            {
+                var repoPath = NewTempDir();
+                new SmoManager(NewConfig(_testDatabase, repoPath, MappingMode.Write))
+                    .ScriptObjectsDetailed(ServerName, _database!);
+                _testDatabase.Execute("DROP PROCEDURE dbo.GetOne");
 
-            var repoPath = NewTempDir();
-            new SmoManager(NewConfig(_testDatabase, repoPath, MappingMode.Write))
-                .ScriptObjectsDetailed(ServerName, _database!);
-            _testDatabase.Execute("DROP PROCEDURE dbo.GetOne");
+                var result = new SmoManager(NewConfig(_testDatabase, repoPath, MappingMode.Deploy))
+                    .CompareWithRepository(ServerName, _database!);
 
-            var result = new SmoManager(NewConfig(_testDatabase, repoPath, MappingMode.Deploy))
-                .CompareWithRepository(ServerName, _database!);
-
-            var one = result!.Differences.Single(d => d.QualifiedName == "dbo.GetOne");
-            Assert.That(one.State, Is.EqualTo(ObjectDiffState.MissingInDatabase));
+                var one = result!.Differences.Single(d => d.QualifiedName == "dbo.GetOne");
+                Assert.That(one.State, Is.EqualTo(ObjectDiffState.MissingInDatabase));
+            }
+            finally
+            {
+                // 정상 경로에서 이미 DROP했다 — 여기 오기 전 어디서든 예외가 나면 그 DROP이
+                // 아직 안 됐을 수 있으므로 존재할 때만 지운다. 무조건 DROP하면 정상 경로를
+                // 지난 뒤엔 이미 없는 객체를 지우려다 finally 자체가 던져, 원래 예외를 가린다.
+                _testDatabase.Execute("IF OBJECT_ID(N'dbo.GetOne', N'P') IS NOT NULL DROP PROCEDURE dbo.GetOne");
+            }
         }
 
         [Test]
