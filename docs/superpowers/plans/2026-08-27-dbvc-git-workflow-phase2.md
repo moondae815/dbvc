@@ -1078,9 +1078,23 @@ Expected: 컴파일 실패 — 생성자가 아직 `IFolderBrowseDialog`를 받�
 94행의 대입을 바꾼다. 실제 구현은 Task 9에서 붙이므로 **이 단계에서는 아래를 쓴다.**
 
 ```csharp
-            // 기본 구현(WPF 대화상자)은 Task 9에서 붙인다. 그때 이 줄을
-            // `connectDialog ?? new RepositoryConnectDialogAdapter()` 로 되돌린다.
-            _connectDialog = connectDialog ?? throw new ArgumentNullException(nameof(connectDialog));
+            // 실제 대화상자는 Task 9에서 붙인다. 그때까지의 기본값은 무동작이다 —
+            // 여기서 던지면 connectDialog를 넘기지 않는 DbvcServices.CreateViewChangesViewModel이
+            // 죽어서 도구 창 자체가 열리지 않는다.
+            _connectDialog = connectDialog ?? new NoOpRepositoryConnectDialog();
+```
+
+같은 파일의 private 중첩 클래스들 옆에 더한다. **Task 9에서 지운다.**
+
+```csharp
+        /// <summary>
+        /// Task 9이 실제 대화상자를 붙이기 전까지의 기본값. 언제나 취소로 답한다.
+        /// 셸 밖 실행과 대화상자를 넘기지 않는 조립 경로가 죽지 않게 하는 것이 전부다.
+        /// </summary>
+        private sealed class NoOpRepositoryConnectDialog : IRepositoryConnectDialog
+        {
+            public RepositoryConnectRequest? Prompt(string serverName, string databaseName) => null;
+        }
 ```
 
 `ConnectRepository`(843~864행)를 통째로 바꾼다.
@@ -1786,7 +1800,7 @@ namespace DBVC.Vsix.Services
 
 - [ ] **Step 3: ViewModel의 기본 구현을 되돌린다**
 
-Task 6 Step 4에서 임시로 넣은 `throw new ArgumentNullException` 줄을 아래로 바꾼다.
+Task 6 Step 4에서 임시로 넣은 줄을 아래로 바꾸고, **`NoOpRepositoryConnectDialog` 중첩 클래스를 지운다.**
 
 ```csharp
             _connectDialog = connectDialog ?? new RepositoryConnectDialogAdapter();
