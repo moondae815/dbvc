@@ -230,9 +230,7 @@ namespace DBVC.Vsix.ViewModels
             _scheduler.Run(
                 () =>
                 {
-                    // 낡은 브랜치로 비교하면 방금 병합된 변경이 목록에서 통째로 빠지고,
-                    // 그것은 "배포 완료"로 보인다. 원격이 없으면 Core가 NoRemote를 돌려준다.
-                    _gitManager.PullChanges(server, database);
+                    PullBeforeComparing(server, database);
                     return _smoManager.CompareWithRepository(server, database, progress, token);
                 },
                 result => ApplyComparison(result, mode),
@@ -242,6 +240,28 @@ namespace DBVC.Vsix.ViewModels
                     if (ex is OperationCanceledException) return;
                     _notifier.ShowError("DBVC 차이 검사 실패", ex.Message);
                 });
+        }
+
+        /// <summary>
+        /// 비교 전에 브랜치를 최신으로 맞춘다. 낡은 브랜치로 비교하면 방금 병합된 변경이
+        /// 목록에서 통째로 빠지고, 그것은 "배포 완료"로 보인다(설계 3.1).
+        ///
+        /// <b>원격이 없으면 건너뛴다.</b> 이 Pull은 사용자가 누른 것이 아니라 차이 검사가
+        /// 스스로 도는 1단계다. 원격 없이 기존 폴더를 배포 클론으로 채택하는 것은 연결
+        /// 대화상자가 안내하는 정상 경로인데, 거기서 멈추면 패널의 유일한 버튼이 언제나
+        /// 오류를 내고 화면 전체가 쓸모없어진다. 원격이 <b>있는데</b> 실패하는 것은 다른
+        /// 이야기라 그대로 던져 멈춘다 — 그때는 낡은 브랜치로 비교할 위험이 실재한다.
+        /// </summary>
+        private void PullBeforeComparing(string server, string database)
+        {
+            try
+            {
+                _gitManager.PullChanges(server, database);
+            }
+            catch (GitRemoteNotConfiguredException)
+            {
+                // 통신을 시도조차 하지 않았고 저장소도 그대로다. 잃은 것이 없다.
+            }
         }
 
         private void ApplyComparison(ComparisonResult? result, MappingMode mode)

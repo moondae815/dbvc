@@ -593,7 +593,7 @@ namespace DBVC.Core
         {
             if (!repo.Network.Remotes.Any())
             {
-                throw new InvalidOperationException($"'{repoPath}' 저장소에 원격(remote)이 설정되어 있지 않아 {operationName}할 수 없습니다.");
+                throw new GitRemoteNotConfiguredException($"'{repoPath}' 저장소에 원격(remote)이 설정되어 있지 않아 {operationName}할 수 없습니다.");
             }
 
             // 원격만 있고 추적 브랜치가 없으면 libgit2가 영문 원문으로 거부한다. DBVC 온보딩이 실제로
@@ -602,7 +602,7 @@ namespace DBVC.Core
             if (!repo.Head.IsTracking)
             {
                 var branchName = repo.Head.FriendlyName;
-                throw new InvalidOperationException(
+                throw new GitRemoteNotConfiguredException(
                     $"'{repoPath}' 저장소의 현재 브랜치 '{branchName}'에 추적 중인 원격 브랜치가 없어 {operationName}할 수 없습니다. " +
                     $"Git 클라이언트에서 'git push -u origin {branchName}'을 한 번 실행해 추적을 설정한 뒤 다시 시도하세요.");
             }

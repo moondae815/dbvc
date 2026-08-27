@@ -194,6 +194,25 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
+        public void CompareCommand_SkipsThePull_WhenTheRepositoryHasNoRemote()
+        {
+            // 원격 없이 기존 폴더를 배포 클론으로 채택하는 것은 대화상자가 안내하는 정상
+            // 경로다. 거기서 멈추면 패널의 유일한 버튼이 언제나 오류를 내고 화면이 쓸모없어진다.
+            var vm = NewViewModel(MappingMode.Deploy, out _);
+            _git.Setup(g => g.PullChanges(Server, Database))
+                .Throws(new GitRemoteNotConfiguredException("원격(remote)이 설정되어 있지 않아 Pull할 수 없습니다."));
+            _smo.Setup(s => s.CompareWithRepository(Server, Database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns(ResultWith());
+
+            vm.CompareCommand.Execute(null);
+
+            Assert.That(_notifier.Errors, Is.Empty, "건너뛰어야 할 상황을 실패로 알렸다");
+            Assert.That(vm.SummaryText, Is.Not.Null, "Pull이 없다는 이유로 비교까지 멈췄다");
+            _smo.Verify(s => s.CompareWithRepository(
+                Server, Database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Test]
         public void SetTarget_ClearsPreviousResults()
         {
             // 낡은 결과를 최신인 척 보여주지 않는다. 원격 확인 표시와 같은 규칙이다.

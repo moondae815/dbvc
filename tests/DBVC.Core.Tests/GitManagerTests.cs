@@ -763,6 +763,28 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void PullChanges_ThrowsRemoteNotConfigured_WhenThereIsNoRemoteOrUpstream()
+        {
+            // 차이 검사는 스스로 도는 Pull이라 이 상황을 건너뛴다(설계 3.1). 타입이 좁혀져
+            // 있지 않으면 "통신하다 실패했다"까지 함께 삼켜, 낡은 브랜치로 비교하고도
+            // 조용히 넘어간다.
+            var noRemote = NewRepoWithCommit();
+            var noUpstream = NewRepoWithCommit();
+            using (var local = new Repository(noUpstream))
+            {
+                local.Network.Remotes.Add("origin", NewRepoWithCommit());
+            }
+
+            Assert.Multiple(() =>
+            {
+                Assert.Throws<GitRemoteNotConfiguredException>(
+                    () => NewGitManager("localhost", "norem", noRemote).PullChanges("localhost", "norem"));
+                Assert.Throws<GitRemoteNotConfiguredException>(
+                    () => NewGitManager("localhost", "noups", noUpstream).PullChanges("localhost", "noups"));
+            });
+        }
+
+        [Test]
         public void PullChanges_ExplainsInKorean_WhenTheCurrentBranchHasNoUpstream()
         {
             // DBVC 온보딩이 실제로 만들어내는 상태다. 사용자가 clone하지 않고 직접 git init한 폴더를
@@ -781,7 +803,7 @@ namespace DBVC.Core.Tests
 
             var git = NewGitManager("localhost", "testdb", localPath);
 
-            var ex = Assert.Throws<InvalidOperationException>(() => git.PullChanges("localhost", "testdb"));
+            var ex = Assert.Throws<GitRemoteNotConfiguredException>(() => git.PullChanges("localhost", "testdb"));
 
             Assert.That(ex!.Message, Does.Not.Contain("tracking information"),
                 "libgit2의 영문 원문이 사용자에게 그대로 노출되면 안 됩니다 - 가드를 지우면 실패해야 합니다");
@@ -806,7 +828,7 @@ namespace DBVC.Core.Tests
 
             var git = NewGitManager("localhost", "testdb", localPath);
 
-            var ex = Assert.Throws<InvalidOperationException>(() => git.PullChanges("localhost", "testdb"));
+            var ex = Assert.Throws<GitRemoteNotConfiguredException>(() => git.PullChanges("localhost", "testdb"));
 
             Assert.That(ex!.Message, Does.Not.Contain("tracking information"));
         }
@@ -1049,7 +1071,7 @@ namespace DBVC.Core.Tests
             var localPath = NewRepoWithCommit();
             var git = NewGitManager("localhost", "testdb", localPath);
 
-            var ex = Assert.Throws<InvalidOperationException>(() => git.PushChanges("localhost", "testdb"));
+            var ex = Assert.Throws<GitRemoteNotConfiguredException>(() => git.PushChanges("localhost", "testdb"));
 
             Assert.That(ex!.Message, Does.Contain("원격"));
             Assert.That(ex.Message, Does.Contain("Push할 수 없습니다"),
@@ -1074,7 +1096,7 @@ namespace DBVC.Core.Tests
 
             var git = NewGitManager("localhost", "testdb", localPath);
 
-            var ex = Assert.Throws<InvalidOperationException>(() => git.PushChanges("localhost", "testdb"));
+            var ex = Assert.Throws<GitRemoteNotConfiguredException>(() => git.PushChanges("localhost", "testdb"));
 
             Assert.That(ex!.Message, Does.Contain("추적"));
             Assert.That(ex.Message, Does.Contain($"git push -u origin {branchName}"),
@@ -1666,7 +1688,7 @@ namespace DBVC.Core.Tests
 
             var git = NewGitManager("localhost", "testdb", localPath);
 
-            var ex = Assert.Throws<InvalidOperationException>(() => git.FetchRemoteStatus("localhost", "testdb"));
+            var ex = Assert.Throws<GitRemoteNotConfiguredException>(() => git.FetchRemoteStatus("localhost", "testdb"));
 
             Assert.That(ex!.Message, Does.Contain("추적"));
             Assert.That(ex.Message, Does.Not.Contain("tracking information"));
