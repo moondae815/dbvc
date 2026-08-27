@@ -50,6 +50,11 @@ namespace DBVC.Vsix.Tests.ViewModels
 
         private DeploymentViewModel NewViewModel(MappingMode mode, out string repoPath)
         {
+            return NewViewModel(mode, out repoPath, new InlineBackgroundScheduler());
+        }
+
+        private DeploymentViewModel NewViewModel(MappingMode mode, out string repoPath, IBackgroundScheduler scheduler)
+        {
             repoPath = NewTempDir();
             var mapping = new MappingConfig
             {
@@ -72,7 +77,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             var vm = new DeploymentViewModel(
                 _config.Object, _git.Object, _smo.Object,
                 new ScriptExporter(_config.Object, _git.Object),
-                _notifier, _saveDialog, new InlineBackgroundScheduler(), _busy);
+                _notifier, _saveDialog, scheduler, _busy);
 
             vm.SetTarget(Server, Database, mode);
             return vm;
@@ -258,6 +263,92 @@ namespace DBVC.Vsix.Tests.ViewModels
             _busy.IsBusy = true;
 
             Assert.That(vm.CompareCommand.CanExecute(null), Is.False);
+        }
+
+        // ---------- diff 본문 ----------
+
+        [Test]
+        public void LoadSelectedTexts_ReadsOffTheUiThread_AndReportsBusyWhileItRuns()
+        {
+            // 동기로 두면 목록 클릭 한 번마다 SMO 접속과 DB 전체 열거가 UI 스레드에서 돈다.
+            // 객체 200개짜리 DB에서 열거만 871 ms다.
+            var scheduler = new DeferredScheduler();
+            var vm = NewViewModel(MappingMode.Deploy, out var repoPath, scheduler);
+            SelectOneDifference(vm, repoPath, "브랜치 원문");
+            _smo.Setup(s => s.ScriptObjectToText(Server, Database, "dbo.P")).Returns("DB 원문");
+
+            string? branch = null;
+            vm.LoadSelectedTexts((b, d) => branch = b);
+
+            Assert.That(scheduler.Pending, Is.Not.Null, "원문 읽기가 스케줄러를 타지 않았다");
+            Assert.That(branch, Is.Null, "일이 끝나기도 전에 화면을 그렸다");
+            Assert.That(_busy.IsBusy, Is.True, "진행 표시 없이 셸이 멈춘 것처럼 보인다");
+            Assert.That(_busy.IsCancellable, Is.False, "취소가 걸리지 않는 구간에 취소 버튼을 띄웠다");
+
+            scheduler.RunPending();
+
+            Assert.That(branch, Is.EqualTo("브랜치 원문"));
+            Assert.That(_busy.IsBusy, Is.False);
+        }
+
+        [Test]
+        public void LoadSelectedTexts_ReportsTheFailure_WhenReadingThrows()
+        {
+            // UI 스레드에서 그대로 터지면 셸이 함께 내려간다.
+            var vm = NewViewModel(MappingMode.Deploy, out var repoPath);
+            SelectOneDifference(vm, repoPath, "브랜치 원문");
+            _smo.Setup(s => s.ScriptObjectToText(Server, Database, "dbo.P"))
+                .Throws(new IOException("파일이 다른 프로세스에 잠겨 있습니다."));
+
+            string? branch = null;
+            Assert.DoesNotThrow(() => vm.LoadSelectedTexts((b, d) => branch = b));
+
+            Assert.That(branch, Is.Empty, "실패했는데 이전 객체의 원문이 그대로 남는다");
+            Assert.That(_busy.IsBusy, Is.False, "실패 뒤에도 진행 표시가 걸려 있다");
+            Assert.That(_notifier.Errors, Is.Not.Empty);
+        }
+
+        /// <summary>
+        /// 차이 하나를 목록에 넣고 고른다. 브랜치 파일도 함께 만든다.
+        /// 비교를 돌리지 않는 이유는 그것도 스케줄러를 타기 때문이다 — 여기서 확인하려는 것은
+        /// 원문 읽기가 스케줄러를 타는가이므로, 준비 과정이 같은 이음매를 쓰면 구분되지 않는다.
+        /// </summary>
+        private void SelectOneDifference(DeploymentViewModel vm, string repoPath, string branchFileText)
+        {
+            const string relativePath = "dbo/StoredProcedures/P.sql";
+            Directory.CreateDirectory(Path.Combine(repoPath, "dbo", "StoredProcedures"));
+            File.WriteAllText(Path.Combine(repoPath, "dbo", "StoredProcedures", "P.sql"), branchFileText);
+
+            vm.Differences.Add(new DifferenceItemViewModel(
+                new SchemaDifference("dbo.P", relativePath, "StoredProcedure", ObjectDiffState.Modified),
+                MappingMode.Deploy));
+            vm.SelectedDifference = vm.Differences[0];
+        }
+
+        /// <summary>작업을 붙들고 있다가 시켜야 돌린다 — "아직 끝나지 않은 동안"을 볼 수 있다.</summary>
+        private sealed class DeferredScheduler : IBackgroundScheduler
+        {
+            public Action? Pending { get; private set; }
+
+            public void Run<T>(Func<T> work, Action<T> onSucceeded, Action<Exception> onFailed)
+            {
+                Pending = () =>
+                {
+                    T value;
+                    try { value = work(); }
+                    catch (Exception ex) { onFailed(ex); return; }
+                    onSucceeded(value);
+                };
+            }
+
+            public void Post(Action action) => action();
+
+            public void RunPending()
+            {
+                var pending = Pending;
+                Pending = null;
+                pending?.Invoke();
+            }
         }
     }
 }

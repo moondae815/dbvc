@@ -160,10 +160,13 @@ namespace DBVC.Vsix.UI
         /// </summary>
         private void OnDeploymentSelectionChanged(object? sender, EventArgs e)
         {
-            var (branchText, databaseText) = _viewModel.Deployment.LoadSelectedTexts();
-            var model = _diffService.GetDiffModelFromString(branchText, databaseText);
-
-            ApplyDiffPanes(model, DeployLeftEditor, _deployLeftRenderer, DeployRightEditor, _deployRightRenderer);
+            // 콜백은 UI 스레드에서 돌아온다. 여기서 동기로 읽으면 클릭 한 번마다 SMO 접속과
+            // DB 전체 열거가 셸을 붙잡는다.
+            _viewModel.Deployment.LoadSelectedTexts((branchText, databaseText) =>
+            {
+                var model = _diffService.GetDiffModelFromString(branchText, databaseText);
+                ApplyDiffPanes(model, DeployLeftEditor, _deployLeftRenderer, DeployRightEditor, _deployRightRenderer);
+            });
         }
 
         /// <summary>

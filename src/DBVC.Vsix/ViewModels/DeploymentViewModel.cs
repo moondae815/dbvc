@@ -31,6 +31,10 @@ namespace DBVC.Vsix.ViewModels
         private readonly IBackgroundScheduler _scheduler;
 
         private CancellationTokenSource? _comparison;
+
+        /// <summary>원문 읽기의 세대. 늦게 도착한 이전 선택의 응답이 화면을 덮지 않게 한다.</summary>
+        private int _textLoadGeneration;
+
         private ComparisonResult? _lastResult;
         private string? _serverName;
         private string? _databaseName;
@@ -122,27 +126,79 @@ namespace DBVC.Vsix.ViewModels
         }
 
         /// <summary>
-        /// 선택된 객체의 좌우 원문. 왼쪽은 브랜치의 파일, 오른쪽은 DB의 현재 모습이다.
-        /// 뷰가 Diff를 그릴 때만 부르므로 여기서만 SMO를 한 번 더 탄다.
+        /// 선택된 객체의 좌우 원문을 <b>UI 스레드 밖에서</b> 읽어 <paramref name="apply"/>에
+        /// 넘긴다. 왼쪽은 브랜치의 파일, 오른쪽은 DB의 현재 모습이다.
+        ///
+        /// 동기로 두면 목록을 한 번 클릭할 때마다 SMO 접속과 DB 전체 열거가 UI 스레드에서
+        /// 돈다 — RunScriptingLoop이 대상을 ToList()로 확정하므로 객체 하나만 뜨는 경우에도
+        /// 9개 타입을 전부 훑고, 객체 200개짜리 DB에서 열거만 871 ms다
+        /// (SmoManager.ConfigureBulkEnumeration의 실측값). 운영 DB에서는 클릭 한 번에 SSMS가
+        /// 수 초씩 멈춘다. 변경 목록 쪽 핸들러는 git blob과 로컬 파일만 읽으므로 같지 않다.
+        ///
+        /// <paramref name="apply"/>는 UI 스레드에서 불린다.
         /// </summary>
-        public (string BranchText, string DatabaseText) LoadSelectedTexts()
+        public void LoadSelectedTexts(Action<string, string> apply)
         {
-            var selected = SelectedDifference;
-            if (selected == null || !HasTarget) return (string.Empty, string.Empty);
+            if (apply == null) throw new ArgumentNullException(nameof(apply));
 
-            var mapping = _configManager.TryGetMapping(_serverName!, _databaseName!);
+            var selected = SelectedDifference;
+            if (selected == null || !HasTarget)
+            {
+                apply(string.Empty, string.Empty);
+                return;
+            }
+
+            var server = _serverName!;
+            var database = _databaseName!;
+            var relativePath = selected.RelativePath;
+            var qualifiedName = selected.QualifiedName;
+            var state = selected.Difference.State;
+
+            // 빠르게 여러 항목을 클릭하면 응답이 뒤섞여 도착한다. 나중에 시작한 것이 화면의
+            // 주인이므로, 세대가 어긋난 응답은 그리지도 않고 Busy도 내려놓지 않는다.
+            var generation = ++_textLoadGeneration;
+
+            Busy.IsBusy = true;
+            // 취소 토큰이 걸리지 않는 구간이다. 버튼을 띄우면 눌러도 아무 일이 없다.
+            Busy.IsCancellable = false;
+            Busy.ProgressText = "선택한 객체의 원문을 읽는 중...";
+
+            _scheduler.Run(
+                () => ReadTexts(server, database, relativePath, qualifiedName, state),
+                texts =>
+                {
+                    if (generation != _textLoadGeneration) return;
+                    EndBusy();
+                    apply(texts.Branch, texts.Database);
+                },
+                ex =>
+                {
+                    if (generation != _textLoadGeneration) return;
+                    EndBusy();
+
+                    // 파일이 잠겼거나 권한이 없을 수 있다. UI 스레드에서 그대로 터지면
+                    // 셸이 함께 내려간다.
+                    apply(string.Empty, string.Empty);
+                    _notifier.ShowError("DBVC 원문 읽기 실패", ex.Message);
+                });
+        }
+
+        private (string Branch, string Database) ReadTexts(
+            string server, string database, string relativePath, string qualifiedName, ObjectDiffState state)
+        {
+            var mapping = _configManager.TryGetMapping(server, database);
             var branchText = string.Empty;
 
             if (mapping != null)
             {
-                var full = Path.Combine(mapping.GitPath, selected.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+                var full = Path.Combine(mapping.GitPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
                 if (File.Exists(full)) branchText = File.ReadAllText(full);
             }
 
             // DB에만 있는 객체는 왼쪽이, 브랜치에만 있는 객체는 오른쪽이 빈다.
-            var databaseText = selected.Difference.State == ObjectDiffState.MissingInDatabase
+            var databaseText = state == ObjectDiffState.MissingInDatabase
                 ? string.Empty
-                : _smoManager.ScriptObjectToText(_serverName!, _databaseName!, selected.QualifiedName) ?? string.Empty;
+                : _smoManager.ScriptObjectToText(server, database, qualifiedName) ?? string.Empty;
 
             return (branchText, databaseText);
         }
