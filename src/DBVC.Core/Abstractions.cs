@@ -71,6 +71,23 @@ namespace DBVC.Core
         bool IsRepository(string path);
 
         /// <summary>
+        /// 원격 저장소를 <paramref name="targetPath"/>에 받고 그 작업 트리 경로를 반환한다.
+        ///
+        /// 매핑이 생기기 전에 일어나므로 다른 API와 달리 (serverName, databaseName)을 받지 않는다.
+        /// <paramref name="targetPath"/>는 <b>없는 폴더</b>여야 한다 — 이 제약이 있어야
+        /// 실패·취소 뒤처리에서 "지워도 되는 폴더"를 판별할 필요가 없다.
+        /// </summary>
+        /// <param name="cancellationToken">
+        /// 취소되면 <see cref="OperationCanceledException"/>이 전파되고 만든 폴더는 지워진다.
+        /// 다만 취소가 즉시 걸리는 것은 받는 동안뿐이다 — libgit2의 checkout 콜백은 중단을 받지 않는다.
+        /// </param>
+        string CloneRepository(
+            string remoteUrl,
+            string targetPath,
+            IProgress<CloneProgress>? progress,
+            CancellationToken cancellationToken);
+
+        /// <summary>
         /// 저장소를 그대로 써도 되는지 판정한 결과. 매핑이 없으면 null이다.
         ///
         /// DBVC는 저장소의 유일한 주인이 아니다 — 외부 Git 클라이언트가 남긴 상태를 만나는 것이

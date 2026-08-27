@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using DBVC.Core.Models;
 using LibGit2Sharp;
 // LibGit2Sharp도 최상위 PushResult 클래스를 갖고 있어 두 using만으로는 모호하다(CS0104).
@@ -41,6 +42,41 @@ namespace DBVC.Core
         /// 해당 경로가 유효한 Git 저장소인지 확인한다. 매핑 등록 전 검증에 쓴다.
         /// </summary>
         public bool IsRepository(string path) => IsValidRepository(path);
+
+        /// <summary>
+        /// 원격 저장소를 받는다. (설계 3.11)
+        /// </summary>
+        public string CloneRepository(
+            string remoteUrl,
+            string targetPath,
+            IProgress<CloneProgress>? progress,
+            CancellationToken cancellationToken)
+        {
+            var options = new CloneOptions
+            {
+                OnCheckoutProgress = (path, completed, total) =>
+                    progress?.Report(new CloneProgress(ClonePhase.CheckingOut, completed, total))
+            };
+
+            // 자격 증명과 전송 진행률은 CloneOptions가 아니라 그 안의 FetchOptions에 있다.
+            // new CloneOptions()가 FetchOptions를 이미 채워 주므로 그대로 쓴다(실측 확인).
+            options.FetchOptions.OnTransferProgress = transfer =>
+            {
+                progress?.Report(new CloneProgress(
+                    ClonePhase.Transferring, transfer.ReceivedObjects, transfer.TotalObjects));
+
+                // false를 반환하면 libgit2가 전송을 끊고 UserCancelledException을 낸다.
+                // 취소가 즉시 걸리는 유일한 자리다.
+                return !cancellationToken.IsCancellationRequested;
+            };
+            options.FetchOptions.CredentialsProvider =
+                (url, usernameFromUrl, types) => ResolveCredentials(types, out _);
+
+            Repository.Clone(remoteUrl, targetPath, options);
+
+            // Repository.Clone의 반환값은 .git 디렉터리 경로다. 매핑에 들어갈 것은 작업 트리다.
+            return targetPath;
+        }
 
         /// <summary>
         /// 저장소가 그대로 써도 되는 상태인지 판정한다. 매핑이 없거나 유효한 저장소가 아니면 null이다.
