@@ -17,8 +17,8 @@ namespace DBVC.Core
     public static class SchemaComparison
     {
         public static IReadOnlyList<SchemaDifference> FindMissingInDatabase(
-            IEnumerable<string> repositoryRelativePaths,
-            ISet<string> extractedRelativePaths)
+            IEnumerable<string>? repositoryRelativePaths,
+            ISet<string>? extractedRelativePaths)
         {
             var missing = new List<SchemaDifference>();
             if (repositoryRelativePaths == null) return missing;
