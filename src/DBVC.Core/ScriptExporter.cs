@@ -70,6 +70,72 @@ namespace DBVC.Core
             return result;
         }
 
+        /// <summary>
+        /// 차이 검사 결과에서 배포 스크립트를 만든다.
+        ///
+        /// 재료는 <b>브랜치의 파일</b>이지 대상 DB에서 다시 뜬 것이 아니다. "develop에 병합된
+        /// 것만 테스트에 나간다"를 검사가 아니라 배치로 지킨다 — 배포 클론은 develop에
+        /// 고정되어 있고 병합 안 된 변경은 애초에 파일로 존재하지 않는다.
+        /// </summary>
+        public ScriptExportResult ExportFromComparison(
+            string serverName,
+            string databaseName,
+            IEnumerable<SchemaDifference>? differences,
+            DateTimeOffset generatedAt)
+        {
+            var result = new ScriptExportResult();
+
+            var mapping = _configManager.TryGetMapping(serverName, databaseName);
+            if (mapping == null)
+            {
+                Debug.WriteLine($"'{serverName}.{databaseName}'에 매핑된 Git 저장소가 없어 스크립트를 생성할 수 없습니다.");
+                return result;
+            }
+
+            var sections = new List<ScriptSection>();
+
+            foreach (var difference in differences ?? Enumerable.Empty<SchemaDifference>())
+            {
+                if (difference == null || string.IsNullOrWhiteSpace(difference.RelativePath)) continue;
+
+                var disposition = DeploymentClassifier.Classify(difference.State, difference.ObjectType);
+
+                if (disposition == ScriptDisposition.ExcludeManualChange)
+                {
+                    result.ExcludedObjects.Add(new ScriptExclusion(difference.QualifiedName, ScriptExclusionReason.ManualChangeRequired));
+                    continue;
+                }
+
+                if (disposition == ScriptDisposition.ExcludeNotInBranch)
+                {
+                    result.ExcludedObjects.Add(new ScriptExclusion(difference.QualifiedName, ScriptExclusionReason.NotInBranch));
+                    continue;
+                }
+
+                var sql = ReadWorkingTreeFile(mapping.GitPath, difference.RelativePath);
+                if (string.IsNullOrWhiteSpace(sql))
+                {
+                    // 검사할 때는 있었는데 지금 없다. 조용히 빼면 배포가 덜 된 채로 성공한 척한다.
+                    result.ExcludedObjects.Add(new ScriptExclusion(difference.QualifiedName, ScriptExclusionReason.NoContent));
+                    continue;
+                }
+
+                sections.Add(new ScriptSection
+                {
+                    QualifiedName = difference.QualifiedName,
+                    RelativePath = difference.RelativePath,
+                    Sql = sql
+                });
+            }
+
+            result.IncludedCount = sections.Count;
+            result.Script = sections.Count > 0
+                ? ScriptGenerator.BuildScript(sections, ScriptKind.Deployment, generatedAt, result.ExcludedObjects)
+                : string.Empty;
+
+            return result;
+        }
+
         private static string? ReadWorkingTreeFile(string repoPath, string relativePath)
         {
             try

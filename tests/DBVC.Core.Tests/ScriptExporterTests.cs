@@ -201,5 +201,96 @@ namespace DBVC.Core.Tests
                 Is.LessThan(result.Script.IndexOf("dbo.usp_Get", StringComparison.Ordinal)),
                 "테이블이 프로시저보다 앞에 와야 합니다");
         }
+
+        // ---------- ExportFromComparison: 차이 목록이 곧 분류의 입력이다 ----------
+
+        private void WriteRepositoryFile(string relativePath, string content)
+        {
+            var full = Path.Combine(_repoPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+            File.WriteAllText(full, content);
+        }
+
+        [Test]
+        public void ExportFromComparison_IncludesNewObjectsAndModifiedProcedures()
+        {
+            WriteRepositoryFile("dbo/Tables/Orders.sql", "CREATE TABLE dbo.Orders (Id INT)");
+            WriteRepositoryFile("dbo/StoredProcedures/GetUser.sql", "CREATE OR ALTER PROCEDURE dbo.GetUser AS SELECT 1");
+
+            var differences = new[]
+            {
+                new SchemaDifference("dbo.Orders", "dbo/Tables/Orders.sql", "Table", ObjectDiffState.MissingInDatabase),
+                new SchemaDifference("dbo.GetUser", "dbo/StoredProcedures/GetUser.sql", "StoredProcedure", ObjectDiffState.Modified)
+            };
+
+            var exporter = new ScriptExporter(_config, _git);
+            var result = exporter.ExportFromComparison(Server, Database, differences, GeneratedAt);
+
+            Assert.That(result.IncludedCount, Is.EqualTo(2));
+            Assert.That(result.ExcludedObjects, Is.Empty);
+            Assert.That(result.Script, Does.Contain("CREATE TABLE dbo.Orders"));
+            Assert.That(result.Script, Does.Contain("CREATE OR ALTER PROCEDURE dbo.GetUser"));
+        }
+
+        [Test]
+        public void ExportFromComparison_ExcludesModifiedTable_AsManualChange()
+        {
+            WriteRepositoryFile("dbo/Tables/Orders.sql", "CREATE TABLE dbo.Orders (Id INT)");
+
+            var differences = new[]
+            {
+                new SchemaDifference("dbo.Orders", "dbo/Tables/Orders.sql", "Table", ObjectDiffState.Modified)
+            };
+
+            var exporter = new ScriptExporter(_config, _git);
+            var result = exporter.ExportFromComparison(Server, Database, differences, GeneratedAt);
+
+            Assert.That(result.IncludedCount, Is.EqualTo(0));
+            Assert.That(result.ExcludedObjects.Count, Is.EqualTo(1));
+            Assert.That(result.ExcludedObjects[0].QualifiedName, Is.EqualTo("dbo.Orders"));
+            Assert.That(result.ExcludedObjects[0].Reason, Is.EqualTo(ScriptExclusionReason.ManualChangeRequired));
+            Assert.That(result.HasContent, Is.False);
+        }
+
+        [Test]
+        public void ExportFromComparison_ExcludesDatabaseOnlyObject_AsNotInBranch()
+        {
+            var differences = new[]
+            {
+                new SchemaDifference("dbo.Temp1", "dbo/Tables/Temp1.sql", "Table", ObjectDiffState.MissingInBranch)
+            };
+
+            var exporter = new ScriptExporter(_config, _git);
+            var result = exporter.ExportFromComparison(Server, Database, differences, GeneratedAt);
+
+            Assert.That(result.ExcludedObjects[0].Reason, Is.EqualTo(ScriptExclusionReason.NotInBranch));
+        }
+
+        [Test]
+        public void ExportFromComparison_ExcludesAsNoContent_WhenBranchFileIsMissing()
+        {
+            // 차이 목록은 파일이 있다고 말했는데 실제로 없다. 검사와 생성 사이에 누군가
+            // 지웠거나 권한이 막은 것이다. 조용히 빼면 배포가 덜 된 채로 성공한 척한다.
+            var differences = new[]
+            {
+                new SchemaDifference("dbo.Gone", "dbo/Views/Gone.sql", "View", ObjectDiffState.MissingInDatabase)
+            };
+
+            var exporter = new ScriptExporter(_config, _git);
+            var result = exporter.ExportFromComparison(Server, Database, differences, GeneratedAt);
+
+            Assert.That(result.ExcludedObjects[0].Reason, Is.EqualTo(ScriptExclusionReason.NoContent));
+        }
+
+        [Test]
+        public void ExportFromComparison_ReturnsEmpty_WhenThereIsNoMapping()
+        {
+            var emptyConfig = new ConfigManager(Path.Combine(NewTempDir(), "mappings.json"));
+            var exporter = new ScriptExporter(emptyConfig, new GitManager(emptyConfig));
+
+            var result = exporter.ExportFromComparison(Server, Database, new SchemaDifference[0], GeneratedAt);
+
+            Assert.That(result.HasContent, Is.False);
+        }
     }
 }
