@@ -234,6 +234,10 @@ namespace DBVC.Core
         ///
         /// 추출과 차이 검사가 이 루프를 공유하는 것이 요점이다. 검사용으로 루프를 따로 쓰면
         /// 취소가 한쪽에만 붙거나 실패 격리가 갈라지는 일이 실제로 일어난다.
+        ///
+        /// 스크립트는 작업 트리 밖의 임시 파일에 먼저 쓴다. 임시 파일을 작업 트리 안에 두지
+        /// 않는 이유는 두 가지다 — git이 미추적 파일로 잡아 변경 목록을 오염시키고, 스크립팅이
+        /// 중간에 실패하면 반쯤 쓰인 파일이 남는다.
         /// </summary>
         /// <param name="onScripted">
         /// <c>(target, stagingPath, outputPath)</c>. <c>stagingPath</c>는 이 콜백이 돌아오면
@@ -303,7 +307,12 @@ namespace DBVC.Core
         }
 
         /// <summary>
-        /// 갓 추출한 파일을 최종 경로에 반영한다. 바이트가 같으면 아무것도 하지 않는다.
+        /// 갓 추출한 파일을 최종 경로에 반영한다. 기존 파일과 바이트가 다를 때만 옮긴다.
+        ///
+        /// 내용이 같은데도 덮어쓰면 파일의 mtime이 바뀌고, 그러면 libgit2의 status가 인덱스에
+        /// 캐시된 stat 정보를 믿지 못해 추적 파일 전부를 다시 읽어 해시한다 — 객체 3000개
+        /// 기준으로 status 한 번이 18ms에서 6.6초가 된다. DBVC는 새로고침마다 전 객체를
+        /// 추출하므로 이 비용이 매번 붙는다.
         /// </summary>
         private static void PublishIfChanged(string stagingPath, string outputPath)
         {
