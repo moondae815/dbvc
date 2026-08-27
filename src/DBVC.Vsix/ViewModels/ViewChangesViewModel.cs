@@ -92,15 +92,18 @@ namespace DBVC.Vsix.ViewModels
             _cleaner = cleaner ?? new WorkingTreeCleaner();
             _connectDialog = connectDialog ?? new RepositoryConnectDialogAdapter();
             _scriptExporter = new ScriptExporter(_configManager, _gitManager);
+            Deployment = new DeploymentViewModel(
+                _configManager, _gitManager, _smoManager, _scriptExporter,
+                _notifier, _saveDialog, _scheduler, Busy);
             History = new ObjectHistoryViewModel(_gitManager);
 
             // 진행 중에는 모두 잠긴다. 같은 추출이 겹쳐 돌면 작업 트리를 동시에 건드리고
             // 나중에 끝난 쪽이 먼저 끝난 쪽의 목록을 덮어쓴다.
-            RefreshCommand = new RelayCommand(Refresh, () => !IsBusy);
-            RefreshAllCommand = new RelayCommand(RefreshAll, () => !IsBusy);
+            RefreshCommand = new RelayCommand(Refresh, () => !IsBusy && MappingPolicy.IsAllowed(Mode, DbvcOperation.Extract));
+            RefreshAllCommand = new RelayCommand(RefreshAll, () => !IsBusy && MappingPolicy.IsAllowed(Mode, DbvcOperation.Extract));
             CancelCommand = new RelayCommand(Cancel, () => IsBusy && Busy.IsCancellable);
-            SetupCommand = new RelayCommand(Setup, () => !IsBusy);
-            UpdateTrackerCommand = new RelayCommand(UpdateTracker, () => IsTrackerOutdated && !IsBusy);
+            SetupCommand = new RelayCommand(Setup, () => !IsBusy && MappingPolicy.IsAllowed(Mode, DbvcOperation.InstallTracker));
+            UpdateTrackerCommand = new RelayCommand(UpdateTracker, () => IsTrackerOutdated && !IsBusy && MappingPolicy.IsAllowed(Mode, DbvcOperation.InstallTracker));
             CommitCommand = new RelayCommand(Commit, CanCommit);
             ConnectCommand = new RelayCommand(Connect, () => _ssmsConnectionSource != null && !IsBusy);
             ConnectRepositoryCommand = new RelayCommand(ConnectRepository, CanConnectRepository);
@@ -350,12 +353,16 @@ namespace DBVC.Vsix.ViewModels
         /// <summary>접속·매핑·초기화 판정. UI에 닿는 것을 건드리지 않는다.</summary>
         private ContextProbe ProbeContext(string server, string database)
         {
+            var mapping = _configManager.TryGetMapping(server, database);
             var probe = new ContextProbe
             {
                 // 접속부터 확인한다. 실패를 "초기화되지 않음"으로 뭉개면
                 // 사용자는 DBVC 초기화 버튼만 보고 원인을 알 수 없다.
                 ConnectionError = _stateTracker.TestConnection(server, database),
-                IsMapped = _configManager.TryGetMapping(server, database) != null
+                IsMapped = mapping != null,
+                // 매핑이 없으면 개발(Write)로 본다 - 아직 저장소가 없는 대상은
+                // 지금까지의 동작(초기화 오버레이)을 그대로 유지해야 한다.
+                Mode = mapping?.Mode ?? MappingMode.Write
             };
 
             // 접속하지 못했으면 설치 버전은 물어볼 수 없다.
@@ -378,6 +385,9 @@ namespace DBVC.Vsix.ViewModels
         private void ApplyContextProbe(ContextProbe probe)
         {
             IsMapped = probe.IsMapped;
+            // IsInitialized보다 먼저 세운다 - 둘 다 패널 판정에 들어가는데, 순서가 뒤바뀌면
+            // 화면이 한 프레임 동안 틀린 패널(운영 대상의 초기화 오버레이)을 그리고서 바뀐다.
+            Mode = probe.Mode;
 
             if (probe.ConnectionError != null)
             {
@@ -401,6 +411,10 @@ namespace DBVC.Vsix.ViewModels
             // Refresh가 스스로 다시 IsBusy를 세우므로 먼저 내려놓는다.
             IsBusy = false;
 
+            // IsBlocked로 일찍 반환하기 전에 넘긴다 - 그러지 않으면 차단된 대상에서
+            // 배포 화면이 직전 대상의 차이 목록을 그대로 보여준 채 차단 오버레이 뒤에 남는다.
+            Deployment.SetTarget(ServerName, DatabaseName, Mode);
+
             if (IsBlocked)
             {
                 // 차단 상태에서 Refresh를 돌리면 틀린 기준으로 비교한 목록이 만들어진다.
@@ -408,7 +422,8 @@ namespace DBVC.Vsix.ViewModels
                 return;
             }
 
-            if (IsMapped && IsInitialized)
+            // 배포·감사 클론은 저장소에 쓰면 안 된다 - Refresh는 SMO 추출이라 곧 쓰기다.
+            if (IsMapped && IsInitialized && Mode == MappingMode.Write)
             {
                 Refresh();
             }
@@ -419,6 +434,7 @@ namespace DBVC.Vsix.ViewModels
             public string? ConnectionError { get; set; }
             public bool IsMapped { get; set; }
             public int InstalledVersion { get; set; }
+            public MappingMode Mode { get; set; } = MappingMode.Write;
 
             /// <summary>매핑이 없으면 null이다. 판정은 Core가 하고 여기서는 나르기만 한다.</summary>
             public RepositoryState? RepositoryState { get; set; }
@@ -435,7 +451,38 @@ namespace DBVC.Vsix.ViewModels
                 if (_isInitialized == value) return;
                 _isInitialized = value;
                 OnPropertyChanged();
+                RaisePanelChanged();
             }
+        }
+
+        private MappingMode _mode = MappingMode.Write;
+
+        /// <summary>현재 대상의 용도. 매핑이 없으면 기본값(개발)이다.</summary>
+        public MappingMode Mode
+        {
+            get => _mode;
+            private set
+            {
+                if (_mode == value) return;
+                _mode = value;
+                OnPropertyChanged();
+                RaisePanelChanged();
+                RaiseActionCanExecuteChanged();
+            }
+        }
+
+        /// <summary>배포·감사 화면. 진행 표시와 취소를 이 화면과 공유한다.</summary>
+        public DeploymentViewModel Deployment { get; }
+
+        public bool ShowChangeList => PanelSelector.Select(Mode, IsInitialized) == DbvcPanelKind.ChangeList;
+        public bool ShowSetupOverlay => PanelSelector.Select(Mode, IsInitialized) == DbvcPanelKind.SetupOverlay;
+        public bool ShowDeploymentPanel => PanelSelector.Select(Mode, IsInitialized) == DbvcPanelKind.DeploymentPanel;
+
+        private void RaisePanelChanged()
+        {
+            OnPropertyChanged(nameof(ShowChangeList));
+            OnPropertyChanged(nameof(ShowSetupOverlay));
+            OnPropertyChanged(nameof(ShowDeploymentPanel));
         }
 
         private string? _currentBranch;
@@ -558,8 +605,9 @@ namespace DBVC.Vsix.ViewModels
         private void Cancel()
         {
             // Cancel을 눌러도 IsBusy는 작업이 실제로 멈출 때까지 유지된다.
-            // 여기서 내리면 사용자가 다른 버튼을 눌러 두 작업이 겹친다.
+            // 취소 버튼은 하나뿐이므로 어느 화면이 걸어 둔 작업인지 묻지 않고 둘 다 멈춘다.
             _cancellableOperation?.Cancel();
+            Deployment.Cancel();
             ProgressText = "취소하는 중...";
         }
 
@@ -836,6 +884,7 @@ namespace DBVC.Vsix.ViewModels
         // !IsBusy를 Git 조회보다 앞에 둔다. 뒤에 두면 작업이 도는 동안에도 CanExecute가
         // 평가될 때마다 저장소를 읽는다.
         private bool CanPush() => HasContext && IsMapped && !IsBusy
+                                  && MappingPolicy.IsAllowed(Mode, DbvcOperation.Push)
                                   && _gitManager.HasCommitsToPush(ServerName!, DatabaseName!);
 
         /// <summary>
@@ -1294,7 +1343,8 @@ namespace DBVC.Vsix.ViewModels
                 && IsInitialized
                 && !IsBusy
                 && !string.IsNullOrWhiteSpace(CommitMessage)
-                && Changes.Any(c => c.IsSelected);
+                && Changes.Any(c => c.IsSelected)
+                && MappingPolicy.IsAllowed(Mode, DbvcOperation.Commit);
         }
 
         /// <summary>

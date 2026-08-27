@@ -107,6 +107,17 @@ namespace DBVC.Vsix.Tests.ViewModels
             return vm;
         }
 
+        /// <summary>
+        /// mode가 지정된 매핑을 가진 대상에 접속한 뷰모델. Deploy/Audit 게이팅과 패널 전환
+        /// 테스트가 이것을 쓴다.
+        /// </summary>
+        private ViewChangesViewModel NewViewModelForMappedTarget(MappingMode mode)
+        {
+            _config.Setup(c => c.TryGetMapping(Server, Database))
+                .Returns(new MappingConfig { ServerName = Server, DatabaseName = Database, GitPath = @"C:\repo", Mode = mode });
+            return NewConnectedViewModel();
+        }
+
         private static SsmsConnectionInfo Info(
             string server = Server,
             string database = Database,
@@ -2623,6 +2634,51 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(_notifier.ConfirmCallCount, Is.EqualTo(before),
                 "경고할 것이 없는데 확인을 물었습니다 - 매번 뜨면 사용자가 읽지 않게 된다");
+        }
+
+        // ---------- 용도별 패널·명령 게이팅 ----------
+
+        [Test]
+        public void SetupCommand_IsDisabled_WhenModeIsAudit()
+        {
+            // 화면이 오버레이를 띄우지 않더라도 명령이 살아 있으면 코드 경로가 하나 늘 때
+            // 다시 눌린다.
+            var vm = NewViewModelForMappedTarget(MappingMode.Audit);
+
+            Assert.That(vm.SetupCommand.CanExecute(null), Is.False);
+        }
+
+        [Test]
+        public void CommitCommand_IsDisabled_WhenModeIsDeploy()
+        {
+            var vm = NewViewModelForMappedTarget(MappingMode.Deploy);
+
+            Assert.That(vm.CommitCommand.CanExecute(null), Is.False);
+        }
+
+        [Test]
+        public void ShowDeploymentPanel_IsTrue_WhenModeIsNotWrite()
+        {
+            var vm = NewViewModelForMappedTarget(MappingMode.Deploy);
+
+            Assert.That(vm.ShowDeploymentPanel, Is.True);
+            Assert.That(vm.ShowSetupOverlay, Is.False);
+            Assert.That(vm.ShowChangeList, Is.False);
+        }
+
+        [Test]
+        public void ParentCommands_AreDisabled_WhileTheDeploymentPanelIsWorking()
+        {
+            // 두 화면이 같은 저장소와 같은 접속을 쓴다. 배포 쪽이 전체 비교를 도는 동안
+            // 여기서 Pull이 눌리면 작업 트리를 동시에 건드린다.
+            var vm = NewViewModelForMappedTarget(MappingMode.Write);
+            var wasEnabled = vm.PullCommand.CanExecute(null);
+
+            vm.Deployment.Busy.IsBusy = true;
+
+            Assert.That(wasEnabled, Is.True, "전제가 깨졌다 - 눌리지 않던 버튼으로는 잠김을 확인할 수 없다");
+            Assert.That(vm.PullCommand.CanExecute(null), Is.False);
+            Assert.That(vm.IsBusy, Is.True, "BusyState가 공유되지 않으면 부모가 자식의 작업을 모른다");
         }
     }
 }
