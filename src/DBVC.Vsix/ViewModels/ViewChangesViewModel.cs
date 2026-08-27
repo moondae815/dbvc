@@ -1265,19 +1265,8 @@ namespace DBVC.Vsix.ViewModels
         }
 
         /// <summary>
-        /// 보고를 그 자리에서 전달한다. <see cref="Progress{T}"/>는 생성된 스레드의
-        /// SynchronizationContext로 넘기는데, 백그라운드 스레드에는 그것이 없어 보고가
-        /// 스레드 풀로 흩어지고 순서가 뒤집힌다.
-        /// </summary>
-        private sealed class ExtractionProgressRelay : IProgress<ExtractionProgress>
-        {
-            private readonly Action<ExtractionProgress> _onReport;
-            public ExtractionProgressRelay(Action<ExtractionProgress> onReport) { _onReport = onReport; }
-            public void Report(ExtractionProgress value) => _onReport(value);
-        }
-
-        /// <summary>
-        /// clone 보고를 그 자리에서 전달한다. 이유는 <see cref="ExtractionProgressRelay"/>와 같다.
+        /// clone 보고를 그 자리에서 전달한다. 이유는 <see cref="ExtractionProgressRelay"/>와 같다
+        /// (그쪽은 DeploymentViewModel과 함께 쓰느라 이 파일 밖으로 옮겼다).
         /// </summary>
         private sealed class CloneProgressRelay : IProgress<CloneProgress>
         {
