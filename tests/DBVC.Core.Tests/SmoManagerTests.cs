@@ -395,6 +395,78 @@ namespace DBVC.Core.Tests
             public void Report(ExtractionProgress value) => _onReport(value);
         }
 
+        // ---------- RunScriptingLoop: 반영 단계를 갈아 끼울 수 있다 ----------
+
+        [Test]
+        public void RunScriptingLoop_DoesNotWriteToRepository_WhenPublishStepOnlyInspects()
+        {
+            // 차이 검사가 성립하는 유일한 근거다. 저장소에 한 글자라도 쓰면
+            // 되돌리는 단계가 필요해지고, 그 단계가 실패하는 날 작업 트리가 망가진다.
+            var root = NewTempDir();
+            var targets = new[]
+            {
+                new ScriptTargetInfo { Schema = "dbo", Name = "Users", ObjectType = "Table" }
+            };
+
+            var seen = new List<string>();
+            var result = SmoManager.RunScriptingLoop(
+                targets,
+                root,
+                (t, stagingPath) => File.WriteAllText(stagingPath, $"-- {t.Name}"),
+                (t, stagingPath, outputPath) => seen.Add(File.ReadAllText(stagingPath)));
+
+            Assert.That(result.SucceededCount, Is.EqualTo(1));
+            Assert.That(seen, Is.EquivalentTo(new[] { "-- Users" }));
+            Assert.That(Directory.GetFiles(root, "*", SearchOption.AllDirectories), Is.Empty);
+        }
+
+        [Test]
+        public void RunScriptingLoop_PassesTheConventionalOutputPath_EvenWhenNothingIsWritten()
+        {
+            // 비교는 "저장소의 이 경로에 파일이 있는가"를 물어야 하므로,
+            // 파일을 쓰지 않더라도 규약 경로는 그대로 계산되어야 한다.
+            var root = NewTempDir();
+            var targets = new[]
+            {
+                new ScriptTargetInfo { Schema = "dbo", Name = "GetUser", ObjectType = "StoredProcedure" }
+            };
+
+            string? captured = null;
+            SmoManager.RunScriptingLoop(
+                targets,
+                root,
+                (t, stagingPath) => File.WriteAllText(stagingPath, "-- p"),
+                (t, stagingPath, outputPath) => captured = outputPath);
+
+            Assert.That(captured, Is.EqualTo(
+                Path.Combine(root, "dbo", "StoredProcedures", "GetUser.sql")));
+        }
+
+        [Test]
+        public void RunScriptingLoop_RecordsFailureAndContinues_WhenPublishStepThrows()
+        {
+            // 판정 하나가 터져도 나머지 객체의 판정은 나와야 한다. 기존 스크립팅 실패와
+            // 같은 규칙이다 — 부분 결과가 없는 것보다 낫다.
+            var root = NewTempDir();
+            var targets = new[]
+            {
+                new ScriptTargetInfo { Schema = "dbo", Name = "A", ObjectType = "Table" },
+                new ScriptTargetInfo { Schema = "dbo", Name = "B", ObjectType = "Table" }
+            };
+
+            var result = SmoManager.RunScriptingLoop(
+                targets,
+                root,
+                (t, stagingPath) => File.WriteAllText(stagingPath, "-- x"),
+                (t, stagingPath, outputPath) =>
+                {
+                    if (t.Name == "A") throw new InvalidOperationException("nope");
+                });
+
+            Assert.That(result.SucceededCount, Is.EqualTo(1));
+            Assert.That(result.FailedObjects, Is.EquivalentTo(new[] { "dbo.A" }));
+        }
+
         // ---------- 스크립팅 옵션 ----------
 
         [Test]

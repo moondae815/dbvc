@@ -206,22 +206,45 @@ namespace DBVC.Core
         }
 
         /// <summary>
-        /// 대상 객체들을 하나씩 스크립팅한다.
-        /// 설계 3.1에 따라 개별 객체의 실패는 격리되어 전체 프로세스를 중단시키지 않는다.
+        /// 추출해서 저장소에 반영한다. <see cref="RunScriptingLoop"/>에 지금까지의 반영
+        /// 방식(내용이 같으면 건드리지 않는 복사)을 넘기는 래퍼다.
         ///
-        /// 스크립트는 작업 트리 밖의 임시 파일에 먼저 쓰고, 기존 파일과 바이트가 다를 때만
-        /// 옮긴다. 내용이 같은데도 덮어쓰면 파일의 mtime이 바뀌고, 그러면 libgit2의 status가
-        /// 인덱스에 캐시된 stat 정보를 믿지 못해 추적 파일 전부를 다시 읽어 해시한다 —
-        /// 객체 3000개 기준으로 status 한 번이 18ms에서 6.6초가 된다. DBVC는 새로고침마다
-        /// 전 객체를 추출하므로 이 비용이 매번 붙는다.
-        ///
-        /// 임시 파일을 작업 트리 안에 두지 않는 이유는 두 가지다 — git이 미추적 파일로 잡아
-        /// 변경 목록을 오염시키고, 스크립팅이 중간에 실패하면 반쯤 쓰인 파일이 남는다.
+        /// 서명을 그대로 두는 이유는 이 오버로드를 부르는 테스트가 여럿이고, 그것들이
+        /// 검증하는 것은 "반영"의 규칙이지 루프의 구조가 아니기 때문이다.
         /// </summary>
         internal static ScriptResult ScriptAll(
             IEnumerable<ScriptTargetInfo> targets,
             string localGitPath,
             Action<ScriptTargetInfo, string> scriptOne,
+            IProgress<ExtractionProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            return RunScriptingLoop(
+                targets,
+                localGitPath,
+                scriptOne,
+                (target, stagingPath, outputPath) => PublishIfChanged(stagingPath, outputPath),
+                progress,
+                cancellationToken);
+        }
+
+        /// <summary>
+        /// 객체마다 스테이징에 뜬 뒤 <paramref name="onScripted"/>에게 넘긴다.
+        /// 취소·진행률·객체별 실패 격리·스테이징 정리가 여기 한 벌만 있다.
+        ///
+        /// 추출과 차이 검사가 이 루프를 공유하는 것이 요점이다. 검사용으로 루프를 따로 쓰면
+        /// 취소가 한쪽에만 붙거나 실패 격리가 갈라지는 일이 실제로 일어난다.
+        /// </summary>
+        /// <param name="onScripted">
+        /// <c>(target, stagingPath, outputPath)</c>. <c>stagingPath</c>는 이 콜백이 돌아오면
+        /// 지워지므로 콜백 안에서만 읽을 수 있다. <c>outputPath</c>는 규약이 정한 저장소 경로이며
+        /// 파일이 실제로 있는지는 보장하지 않는다.
+        /// </param>
+        internal static ScriptResult RunScriptingLoop(
+            IEnumerable<ScriptTargetInfo> targets,
+            string repositoryPath,
+            Action<ScriptTargetInfo, string> scriptOne,
+            Action<ScriptTargetInfo, string, string> onScripted,
             IProgress<ExtractionProgress>? progress = null,
             CancellationToken cancellationToken = default)
         {
@@ -248,11 +271,11 @@ namespace DBVC.Core
                     try
                     {
                         var outputPath = Path.Combine(
-                            localGitPath,
+                            repositoryPath,
                             target.RelativePath.Replace('/', Path.DirectorySeparatorChar));
 
                         scriptOne(target, stagingPath);
-                        PublishIfChanged(stagingPath, outputPath);
+                        onScripted(target, stagingPath, outputPath);
                         result.SucceededCount++;
                     }
                     catch (Exception ex)
@@ -293,7 +316,7 @@ namespace DBVC.Core
             File.Copy(stagingPath, outputPath, overwrite: true);
         }
 
-        private static bool HasSameBytes(string stagingPath, string outputPath)
+        internal static bool HasSameBytes(string stagingPath, string outputPath)
         {
             if (!File.Exists(outputPath)) return false;
 
