@@ -50,7 +50,7 @@ namespace DBVC.Core
                 if (string.IsNullOrWhiteSpace(sql))
                 {
                     // 되돌릴 이전 리비전이 없거나 추출된 파일이 없는 경우다. 오류가 아니라 제외 대상이다.
-                    result.ExcludedObjects.Add(target.QualifiedName);
+                    result.ExcludedObjects.Add(new ScriptExclusion(target.QualifiedName, ScriptExclusionReason.NoContent));
                     continue;
                 }
 
@@ -92,7 +92,9 @@ namespace DBVC.Core
     {
         public string Script { get; set; } = string.Empty;
         public int IncludedCount { get; set; }
-        public List<string> ExcludedObjects { get; } = new List<string>();
+
+        /// <summary>제외된 객체와 사유. 사용자가 할 일이 사유마다 다르다.</summary>
+        public List<ScriptExclusion> ExcludedObjects { get; } = new List<ScriptExclusion>();
 
         /// <summary>파일로 저장할 내용이 있는지.</summary>
         public bool HasContent => IncludedCount > 0 && !string.IsNullOrWhiteSpace(Script);

@@ -1536,7 +1536,7 @@ namespace DBVC.Vsix.ViewModels
 
             return message + Environment.NewLine +
                 $"{result.ExcludedObjects.Count}개 객체는 {reason} 제외했습니다: " +
-                string.Join(", ", result.ExcludedObjects);
+                string.Join(", ", result.ExcludedObjects.Select(e => e.QualifiedName));
         }
 
         /// <summary>체크된 항목에 대응하는 변경 레코드를 돌려준다.</summary>
