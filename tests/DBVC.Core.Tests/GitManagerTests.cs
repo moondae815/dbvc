@@ -1480,18 +1480,6 @@ namespace DBVC.Core.Tests
 
         // ---------- 원격 확인 ----------
 
-        /// <summary>저장소에 커밋 하나를 더한다.</summary>
-        private void CommitTo(string repoPath, string fileName, string content, string message)
-        {
-            var full = Path.Combine(repoPath, fileName.Replace('/', Path.DirectorySeparatorChar));
-            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-            File.WriteAllText(full, content);
-
-            using var repo = new Repository(repoPath);
-            Commands.Stage(repo, "*");
-            repo.Commit(message, TestSignature, TestSignature);
-        }
-
         [Test]
         public void FetchRemoteStatus_ReportsBehind_WhenTheRemoteHasNewCommits()
         {
@@ -1499,7 +1487,8 @@ namespace DBVC.Core.Tests
             var localPath = NewTempDir();
             new GitManager().CloneRepository(originPath, localPath, null, CancellationToken.None);
 
-            CommitTo(originPath, "dbo/Views/V1.sql", "CREATE OR ALTER VIEW V1 AS SELECT 1 AS X;", "add view");
+            // 기존 헬퍼를 그대로 쓴다. 같은 일을 하는 것을 하나 더 만들면 둘 중 하나만 고쳐진다.
+            CommitOneFile(originPath, "dbo/Views/V1.sql", "CREATE OR ALTER VIEW V1 AS SELECT 1 AS X;", "add view");
 
             var status = NewGitManager("localhost", "testdb", localPath)
                 .FetchRemoteStatus("localhost", "testdb");
@@ -1515,7 +1504,7 @@ namespace DBVC.Core.Tests
             var localPath = NewTempDir();
             new GitManager().CloneRepository(originPath, localPath, null, CancellationToken.None);
 
-            CommitTo(localPath, "dbo/Views/V2.sql", "CREATE OR ALTER VIEW V2 AS SELECT 2 AS X;", "local only");
+            CommitOneFile(localPath, "dbo/Views/V2.sql", "CREATE OR ALTER VIEW V2 AS SELECT 2 AS X;", "local only");
 
             var status = NewGitManager("localhost", "testdb", localPath)
                 .FetchRemoteStatus("localhost", "testdb");

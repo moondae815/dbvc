@@ -438,13 +438,13 @@ namespace DBVC.Core
                 // 빈 refspec은 "원격에 설정된 기본 refspec을 쓰라"는 뜻이다.
                 Commands.Fetch(repo, remoteName, Array.Empty<string>(), fetchOptions, null);
             }
-            catch (Exception ex)
+            // Pull·Push와 같은 모양으로 좀힌다. 안내할 것이 있을 때만 가로채고,
+            // 없으면 원본 예외를 그대로 흘려보낸다 — 모든 예외를 감싸면 코딩 실수까지
+            // "원격과 통신하지 못했다"로 둔갑해서 원인을 찾을 수 없게 된다.
+            catch (LibGit2SharpException ex) when (guidance != null)
             {
-                var message = guidance == null
-                    ? ex.Message
-                    : ex.Message + Environment.NewLine + Environment.NewLine + guidance;
-
-                throw new GitRemoteException(message, ex);
+                throw new GitRemoteException(
+                    ex.Message + Environment.NewLine + Environment.NewLine + guidance, ex);
             }
 
             var details = repo.Head.TrackingDetails;
