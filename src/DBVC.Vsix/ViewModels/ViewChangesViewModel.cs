@@ -112,6 +112,7 @@ namespace DBVC.Vsix.ViewModels
             PushCommand = new RelayCommand(Push, CanPush);
             GenerateDeploymentScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Deployment), CanGenerateScript);
             GenerateRollbackScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Rollback), CanGenerateScript);
+            CheckRemoteCommand = new RelayCommand(CheckRemote, CanCheckRemote);
         }
 
         // ---------- 연결 컨텍스트 ----------
@@ -203,6 +204,8 @@ namespace DBVC.Vsix.ViewModels
             // 대상이 바뀌면 이전 대상의 브랜치와 차단 사유가 남아 있으면 안 된다 -
             // 남으면 새 대상의 화면이 엉뚱한 저장소를 근거로 덮인다.
             CurrentBranch = null;
+            // 원격 상태도 이전 대상의 것이다. 남으면 엉뚱한 저장소의 숫자를 읽는다.
+            RemoteStatusText = null;
             BlockMessage = null;
             // 대상이 바뀌면 "개체 탐색기 선택이 다릅니다"의 판정 근거가 사라진다.
             // 여전히 다르다면 다음 CheckSsmsSelection()에서 다시 뜬다.
@@ -650,6 +653,64 @@ namespace DBVC.Vsix.ViewModels
 
         /// <summary>로컬 저장소의 커밋을 원격 저장소에 올린다.</summary>
         public ICommand PushCommand { get; }
+
+        public ICommand CheckRemoteCommand { get; }
+
+        private string? _remoteStatusText;
+
+        /// <summary>
+        /// 마지막으로 원격을 확인한 결과. 누르기 전에는 <c>null</c>이다 —
+        /// 낡은 숫자를 최신인 척 보여주는 것이 아무것도 안 보여주는 것보다 나쁘다.
+        /// </summary>
+        public string? RemoteStatusText
+        {
+            get => _remoteStatusText;
+            private set
+            {
+                if (_remoteStatusText == value) return;
+                _remoteStatusText = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasRemoteStatus));
+            }
+        }
+
+        public bool HasRemoteStatus => !string.IsNullOrWhiteSpace(RemoteStatusText);
+
+        private bool CanCheckRemote() => IsMapped && !IsBusy && !IsBlocked;
+
+        /// <summary>
+        /// 원격을 받아 앞섬·뒤처짐을 센다. 수동 버튼으로만 돈다 — 새로고침에 붙이면
+        /// 응답 없는 원격이 변경 목록을 보는 일까지 느리게 만든다.
+        /// </summary>
+        private void CheckRemote()
+        {
+            if (!CanCheckRemote()) return;
+
+            var server = ServerName!;
+            var database = DatabaseName!;
+
+            IsBusy = true;
+            ProgressText = "원격을 확인하는 중...";
+            RaiseActionCanExecuteChanged();
+
+            _scheduler.Run(
+                () => _gitManager.FetchRemoteStatus(server, database),
+                status =>
+                {
+                    IsBusy = false;
+                    ProgressText = null;
+                    RemoteStatusText = $"받을 커밋 {status.BehindBy}개 · 올릴 커밋 {status.AheadBy}개";
+                    RaiseActionCanExecuteChanged();
+                },
+                ex =>
+                {
+                    IsBusy = false;
+                    ProgressText = null;
+                    RemoteStatusText = null;
+                    RaiseActionCanExecuteChanged();
+                    _notifier.ShowError("DBVC 원격 확인 실패", ex.Message);
+                });
+        }
 
         /// <summary>선택된 객체들의 현재 DDL을 단일 스크립트로 내보낸다. (Feature 8)</summary>
         public ICommand GenerateDeploymentScriptCommand { get; }
@@ -1516,6 +1577,7 @@ namespace DBVC.Vsix.ViewModels
             (ConnectRepositoryCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (PullCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (PushCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (CheckRemoteCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

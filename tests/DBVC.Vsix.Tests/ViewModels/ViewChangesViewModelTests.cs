@@ -1458,6 +1458,75 @@ namespace DBVC.Vsix.Tests.ViewModels
                 Times.Never);
         }
 
+        // ---------- 원격 확인 ----------
+
+        [Test]
+        public void CheckRemoteCommand_ShowsAheadAndBehindCounts_WhenTheRemoteAnswers()
+        {
+            _git.Setup(g => g.FetchRemoteStatus(Server, Database)).Returns(new RemoteStatus(2, 1));
+            var vm = NewConnectedViewModel();
+
+            vm.CheckRemoteCommand.Execute(null);
+
+            Assert.That(vm.RemoteStatusText, Does.Contain("받을 커밋 1개"));
+            Assert.That(vm.RemoteStatusText, Does.Contain("올릴 커밋 2개"));
+            Assert.That(vm.HasRemoteStatus, Is.True);
+        }
+
+        [Test]
+        public void RemoteStatusText_IsEmpty_BeforeTheUserAsks()
+        {
+            // 누르기 전에는 아무것도 뜨지 않는다. 낡은 숫자를 최신인 척 보여주지 않기 위해서다.
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.HasRemoteStatus, Is.False);
+            _git.Verify(g => g.FetchRemoteStatus(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Test]
+        public void RemoteStatusText_IsCleared_WhenTheTargetChanges()
+        {
+            _git.Setup(g => g.FetchRemoteStatus(Server, Database)).Returns(new RemoteStatus(2, 1));
+            var vm = NewConnectedViewModel();
+            vm.CheckRemoteCommand.Execute(null);
+
+            _ssms.Setup(s => s.TryGetCurrent())
+                .Returns(new SsmsConnectionInfo("S2", "D2", SqlAuthMode.Windows, null, null, null));
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.HasRemoteStatus, Is.False,
+                "다른 대상의 원격 상태가 남으면 사용자가 엉뚱한 저장소의 숫자를 읽습니다");
+        }
+
+        [Test]
+        public void CheckRemoteCommand_ReportsTheReason_WhenTheRemoteCannotBeReached()
+        {
+            _git.Setup(g => g.FetchRemoteStatus(Server, Database))
+                .Throws(new GitRemoteException("원격과 통신하지 못했습니다."));
+            var vm = NewConnectedViewModel();
+
+            vm.CheckRemoteCommand.Execute(null);
+
+            Assert.That(_notifier.Errors, Is.Not.Empty);
+            Assert.That(vm.HasRemoteStatus, Is.False);
+        }
+
+        [Test]
+        public void CheckRemoteCommand_IsDisabled_WhenTheRepositoryIsBlocked()
+        {
+            // 차단은 경고가 아니다. 기준이 어긋난 저장소에서 낸 숫자는 조용히 거짓말이다.
+            _git.Setup(g => g.GetRepositoryState(It.IsAny<string>(), It.IsAny<string>()))
+                .Returns(new RepositoryState
+                {
+                    CurrentBranch = "develop",
+                    BlockReason = RepositoryBlockReason.BranchMismatch,
+                    BlockMessage = "고정된 브랜치와 다릅니다."
+                });
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.CheckRemoteCommand.CanExecute(null), Is.False);
+        }
+
         // ---------- Commit ----------
 
         [Test]
