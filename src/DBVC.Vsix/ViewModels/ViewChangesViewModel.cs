@@ -43,13 +43,10 @@ namespace DBVC.Vsix.ViewModels
         private CancellationTokenSource? _cancellableOperation;
 
         /// <summary>
-        /// 지금 걸려 있는 작업을 <see cref="Cancel"/>이 실제로 멈출 수 있는지.
-        ///
-        /// <see cref="IsBusy"/>만으로 취소 버튼을 띄우면 안 된다. Cancel이 취소하는 것은 추출용
-        /// 토큰뿐인데 연결·커밋·Pull·Push도 IsBusy를 세운다 — 그때 버튼이 뜨면 눌러도 아무 일이
-        /// 없고 "취소하는 중..."만 남는다. 없는 취소를 있는 척하는 버튼보다 없는 편이 정직하다.
+        /// 진행 표시와 취소 버튼의 유일한 상태. 배포·감사 화면(DeploymentViewModel)이
+        /// 같은 인스턴스를 본다 — 나누면 도구 줄에 진행 표시가 둘 생긴다.
         /// </summary>
-        private bool _cancellableWorkOutstanding;
+        public BusyState Busy { get; } = new BusyState();
 
         /// <summary>새로고침 시점의 변경 레코드. 커밋 후 처리 완료 표시에 사용한다.</summary>
         private IReadOnlyList<ChangeRecord> _lastChangeRecords = new List<ChangeRecord>();
@@ -101,7 +98,7 @@ namespace DBVC.Vsix.ViewModels
             // 나중에 끝난 쪽이 먼저 끝난 쪽의 목록을 덮어쓴다.
             RefreshCommand = new RelayCommand(Refresh, () => !IsBusy);
             RefreshAllCommand = new RelayCommand(RefreshAll, () => !IsBusy);
-            CancelCommand = new RelayCommand(Cancel, () => IsBusy && _cancellableWorkOutstanding);
+            CancelCommand = new RelayCommand(Cancel, () => IsBusy && Busy.IsCancellable);
             SetupCommand = new RelayCommand(Setup, () => !IsBusy);
             UpdateTrackerCommand = new RelayCommand(UpdateTracker, () => IsTrackerOutdated && !IsBusy);
             CommitCommand = new RelayCommand(Commit, CanCommit);
@@ -112,6 +109,17 @@ namespace DBVC.Vsix.ViewModels
             GenerateDeploymentScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Deployment), CanGenerateScript);
             GenerateRollbackScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Rollback), CanGenerateScript);
             CheckRemoteCommand = new RelayCommand(CheckRemote, CanCheckRemote);
+
+            // BusyState가 바뀌면 이 화면의 바인딩과 버튼 상태를 다시 계산한다.
+            // 배포 화면이 일을 시작해도 여기 버튼이 함께 잠겨야 한다 — 같은 저장소와
+            // 같은 접속을 쓰므로 겹쳐 돌면 서로의 결과를 덮어쓴다.
+            Busy.Changed += (s, e) =>
+            {
+                OnPropertyChanged(nameof(IsBusy));
+                OnPropertyChanged(nameof(IsNotBusy));
+                OnPropertyChanged(nameof(ProgressText));
+                RaiseActionCanExecuteChanged();
+            };
         }
 
         // ---------- 연결 컨텍스트 ----------
@@ -524,23 +532,14 @@ namespace DBVC.Vsix.ViewModels
             }
         }
 
-        private bool _isBusy;
-
         /// <summary>
         /// 백그라운드 작업이 진행 중인지. 진행 중에는 모든 동작 버튼이 잠긴다 —
         /// 같은 추출이 겹쳐 돌면 서로의 결과를 덮어쓰고 작업 트리를 동시에 건드린다.
         /// </summary>
         public bool IsBusy
         {
-            get => _isBusy;
-            private set
-            {
-                if (_isBusy == value) return;
-                _isBusy = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(IsNotBusy));
-                RaiseActionCanExecuteChanged();
-            }
+            get => Busy.IsBusy;
+            private set => Busy.IsBusy = value;
         }
 
         /// <summary>
@@ -549,18 +548,11 @@ namespace DBVC.Vsix.ViewModels
         /// </summary>
         public bool IsNotBusy => !IsBusy;
 
-        private string? _progressText;
-
         /// <summary>진행 표시 옆에 붙는 한 줄. 작업이 없으면 null이다.</summary>
         public string? ProgressText
         {
-            get => _progressText;
-            private set
-            {
-                if (_progressText == value) return;
-                _progressText = value;
-                OnPropertyChanged();
-            }
+            get => Busy.ProgressText;
+            private set => Busy.ProgressText = value;
         }
 
         private void Cancel()
@@ -963,7 +955,7 @@ namespace DBVC.Vsix.ViewModels
             _cancellableOperation = new CancellationTokenSource();
             var token = _cancellableOperation.Token;
 
-            _cancellableWorkOutstanding = true;
+            Busy.IsCancellable = true;
             IsBusy = true;
             ProgressText = "원격 저장소를 받는 중...";
             RaiseActionCanExecuteChanged();
@@ -982,9 +974,9 @@ namespace DBVC.Vsix.ViewModels
                 _scheduler.Post(() =>
                 {
                     ProgressText = text;
-                    if (_cancellableWorkOutstanding != stillCancellable)
+                    if (Busy.IsCancellable != stillCancellable)
                     {
-                        _cancellableWorkOutstanding = stillCancellable;
+                        Busy.IsCancellable = stillCancellable;
                         RaiseActionCanExecuteChanged();
                     }
                 });
@@ -994,14 +986,14 @@ namespace DBVC.Vsix.ViewModels
                 () => _gitManager.CloneRepository(remoteUrl, targetPath, progress, token),
                 localPath =>
                 {
-                    _cancellableWorkOutstanding = false;
+                    Busy.IsCancellable = false;
                     IsBusy = false;
                     ProgressText = null;
                     AdoptRepository(localPath);
                 },
                 ex =>
                 {
-                    _cancellableWorkOutstanding = false;
+                    Busy.IsCancellable = false;
                     IsBusy = false;
                     ProgressText = null;
                     RaiseActionCanExecuteChanged();
@@ -1136,7 +1128,7 @@ namespace DBVC.Vsix.ViewModels
             _cancellableOperation = new CancellationTokenSource();
             var token = _cancellableOperation.Token;
 
-            _cancellableWorkOutstanding = true;
+            Busy.IsCancellable = true;
             IsBusy = true;
             ProgressText = "시작하는 중...";
 
@@ -1145,7 +1137,7 @@ namespace DBVC.Vsix.ViewModels
                 ApplyRefreshOutcome,
                 ex =>
                 {
-                    _cancellableWorkOutstanding = false;
+                    Busy.IsCancellable = false;
                     IsBusy = false;
                     ProgressText = null;
                     RaiseActionCanExecuteChanged();
@@ -1266,7 +1258,7 @@ namespace DBVC.Vsix.ViewModels
             }
 
             WarningMessage = outcome.Warnings.Count > 0 ? string.Join(" / ", outcome.Warnings) : null;
-            _cancellableWorkOutstanding = false;
+            Busy.IsCancellable = false;
             ProgressText = null;
             IsBusy = false;
             RaiseActionCanExecuteChanged();
