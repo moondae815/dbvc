@@ -141,6 +141,12 @@ namespace DBVC.Core
             string databaseName,
             IProgress<ExtractionProgress>? progress = null,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// 객체 하나의 현재 DDL을 텍스트로 읽는다. 저장소에 쓰지 않는다.
+        /// 대상에 없거나 스크립팅에 실패하면 <c>null</c>이다.
+        /// </summary>
+        string? ScriptObjectToText(string serverName, string databaseName, string qualifiedName);
     }
 
     /// <summary>

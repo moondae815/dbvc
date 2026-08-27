@@ -135,6 +135,34 @@ namespace DBVC.Core
         }
 
         /// <summary>
+        /// 객체 하나를 스크립팅해 텍스트로 돌려준다. 저장소에 쓰지 않는다 — diff 본문 전용이다.
+        ///
+        /// 비교(<see cref="CompareWithRepository"/>)가 뜬 텍스트를 들고 있지 않는 이유는
+        /// 객체 수천 개분을 메모리에 쌓게 되기 때문이다. 사용자가 실제로 열어 보는 것은
+        /// 한 번에 하나뿐이므로 그때 다시 뜬다.
+        /// </summary>
+        /// <returns>대상에 없거나 스크립팅에 실패하면 <c>null</c>.</returns>
+        public string? ScriptObjectToText(string serverName, string databaseName, string qualifiedName)
+        {
+            if (string.IsNullOrWhiteSpace(qualifiedName)) return null;
+
+            using var session = OpenScriptingSession(serverName, databaseName, new List<string> { qualifiedName });
+            if (session == null) return null;
+
+            string? text = null;
+
+            // 저장소 경로는 쓰이지 않지만 규약 경로 계산에 필요하다. 임시 폴더를 넘겨도
+            // 되지만 매핑 경로를 그대로 넘기는 편이 outputPath가 실제와 같아 헷갈리지 않는다.
+            RunScriptingLoop(
+                session.Targets,
+                session.RepositoryPath,
+                session.ScriptOne,
+                (target, stagingPath, outputPath) => text = File.ReadAllText(stagingPath));
+
+            return text;
+        }
+
+        /// <summary>
         /// 추출 루프가 모은 판정과 저장소 스캔이 찾은 "브랜치에만 있음"을 합친다.
         /// DB에 닿지 않으므로 조합 자체는 DB 없이 테스트된다.
         /// </summary>
@@ -180,7 +208,7 @@ namespace DBVC.Core
 
         /// <summary>
         /// 접속하고 대상을 열거해 세 진입점(<see cref="ScriptObjectsDetailed"/>,
-        /// <see cref="CompareWithRepository"/>, 그리고 후속 작업의 ScriptObjectToText)이 나눠 쓸
+        /// <see cref="CompareWithRepository"/>, <see cref="ScriptObjectToText"/>)이 나눠 쓸
         /// 세션을 만든다. 실패하면 <c>null</c>이다 — 지금까지 <see cref="ScriptObjectsDetailed"/>가
         /// null로 뭉개던 모든 자리와 같은 규칙이다.
         ///
