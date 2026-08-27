@@ -887,11 +887,69 @@ namespace DBVC.Vsix.ViewModels
             ApplyContext();
         }
 
+        /// <summary>
+        /// 원격에서 받아 매핑까지 만든다. 저장소를 받는 동안 SSMS가 멈추면 안 되므로
+        /// 새로고침과 같은 이음매로 UI 스레드 밖에 내보낸다.
+        /// </summary>
         private void CloneAndConnect(string remoteUrl, string targetPath)
         {
-            // Task 7에서 진행률·취소·실패 처리와 함께 배선한다.
-            var path = _gitManager.CloneRepository(remoteUrl, targetPath, null, CancellationToken.None);
-            AdoptRepository(path);
+            _extractionCancellation?.Dispose();
+            _extractionCancellation = new CancellationTokenSource();
+            var token = _extractionCancellation.Token;
+
+            _cancellableWorkOutstanding = true;
+            IsBusy = true;
+            ProgressText = "원격 저장소를 받는 중...";
+            RaiseActionCanExecuteChanged();
+
+            // 보고는 백그라운드 스레드에서 온다. 바인딩 속성은 UI 스레드에서만 바꾼다.
+            var progress = new CloneProgressRelay(p =>
+            {
+                var text = p.Phase == ClonePhase.Transferring
+                    ? (p.Total > 0 ? $"받는 중... {p.Completed}/{p.Total} 객체" : "받는 중...")
+                    : "펼치는 중...";
+
+                // 펼치는 단계는 libgit2가 중단을 받지 않는다. 취소 버튼을 살려 두면
+                // 눌러도 아무 일이 없고 "취소하는 중..."만 남는다.
+                var stillCancellable = p.Phase == ClonePhase.Transferring;
+
+                _scheduler.Post(() =>
+                {
+                    ProgressText = text;
+                    if (_cancellableWorkOutstanding != stillCancellable)
+                    {
+                        _cancellableWorkOutstanding = stillCancellable;
+                        RaiseActionCanExecuteChanged();
+                    }
+                });
+            });
+
+            _scheduler.Run(
+                () => _gitManager.CloneRepository(remoteUrl, targetPath, progress, token),
+                localPath =>
+                {
+                    _cancellableWorkOutstanding = false;
+                    IsBusy = false;
+                    ProgressText = null;
+                    AdoptRepository(localPath);
+                },
+                ex =>
+                {
+                    _cancellableWorkOutstanding = false;
+                    IsBusy = false;
+                    ProgressText = null;
+                    RaiseActionCanExecuteChanged();
+
+                    // 취소는 실패가 아니다. 받다 만 폴더는 Core가 이미 지웠고 매핑도 만들지
+                    // 않았으므로 사용자는 같은 경로로 다시 시도할 수 있다.
+                    if (ex is OperationCanceledException)
+                    {
+                        WarningMessage = "원격 저장소 받기를 취소했습니다. 다시 시도할 수 있습니다.";
+                        return;
+                    }
+
+                    _notifier.ShowError("DBVC 저장소 받기 실패", ex.Message);
+                });
         }
 
         /// <summary>
@@ -1167,6 +1225,16 @@ namespace DBVC.Vsix.ViewModels
             private readonly Action<ExtractionProgress> _onReport;
             public ExtractionProgressRelay(Action<ExtractionProgress> onReport) { _onReport = onReport; }
             public void Report(ExtractionProgress value) => _onReport(value);
+        }
+
+        /// <summary>
+        /// clone 보고를 그 자리에서 전달한다. 이유는 <see cref="ExtractionProgressRelay"/>와 같다.
+        /// </summary>
+        private sealed class CloneProgressRelay : IProgress<CloneProgress>
+        {
+            private readonly Action<CloneProgress> _onReport;
+            public CloneProgressRelay(Action<CloneProgress> onReport) { _onReport = onReport; }
+            public void Report(CloneProgress value) => _onReport(value);
         }
 
         private sealed class RefreshOutcome

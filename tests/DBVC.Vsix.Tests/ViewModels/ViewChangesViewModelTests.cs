@@ -906,6 +906,90 @@ namespace DBVC.Vsix.Tests.ViewModels
                 "유효하지 않은 경로를 저장하면 이후 모든 동작이 조용히 실패합니다");
         }
 
+        [Test]
+        public void ConnectRepositoryCommand_ClonesAndSavesTheMapping_WhenTheUserChoosesToClone()
+        {
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _connectDialog.RequestToReturn =
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+            _git.Setup(g => g.CloneRepository(
+                    "git@host:org/db-schema.git", @"C:\repos\db-schema",
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns(@"C:\repos\db-schema");
+            var vm = NewConnectedViewModel();
+
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            _config.Verify(c => c.AddMapping(Server, Database, @"C:\repos\db-schema"), Times.Once);
+        }
+
+        [Test]
+        public void ConnectRepositoryCommand_DoesNotSaveTheMapping_WhenCloneFails()
+        {
+            // 절반만 받아진 저장소가 매핑되면 이후 모든 동작이 조용히 이상해진다.
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _connectDialog.RequestToReturn =
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+            _git.Setup(g => g.CloneRepository(
+                    It.IsAny<string>(), It.IsAny<string>(),
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                .Throws(new GitRemoteException("원격과 통신하지 못했습니다."));
+            var vm = NewConnectedViewModel();
+
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            Assert.That(_notifier.Errors, Is.Not.Empty);
+        }
+
+        [Test]
+        public void ConnectRepositoryCommand_DoesNotReportCancellationAsAnError_WhenTheUserCancelsTheClone()
+        {
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _connectDialog.RequestToReturn =
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+            _git.Setup(g => g.CloneRepository(
+                    It.IsAny<string>(), It.IsAny<string>(),
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                .Throws(new OperationCanceledException("원격 저장소 받기를 취소했습니다."));
+            var vm = NewConnectedViewModel();
+
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            Assert.That(_notifier.Errors, Is.Empty,
+                "사용자가 누른 취소를 오류 상자로 알리면 자기가 누른 것을 오류로 되읽습니다");
+            _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Test]
+        public void ConnectRepositoryCommand_StopsOfferingCancel_WhenTheCloneReachesCheckout()
+        {
+            // libgit2의 checkout 콜백은 중단을 받지 않는다. 눌러도 안 멈추는 버튼을
+            // 살려 두면 사용자가 도구가 굳었다고 읽는다.
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _connectDialog.RequestToReturn =
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+
+            ViewChangesViewModel? vm = null;
+            var cancellableDuringCheckout = true;
+
+            _git.Setup(g => g.CloneRepository(
+                    It.IsAny<string>(), It.IsAny<string>(),
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns((string url, string path, IProgress<CloneProgress>? progress, CancellationToken token) =>
+                {
+                    progress?.Report(new CloneProgress(ClonePhase.Transferring, 10, 100));
+                    progress?.Report(new CloneProgress(ClonePhase.CheckingOut, 1, 10));
+                    cancellableDuringCheckout = vm!.CancelCommand.CanExecute(null);
+                    return path;
+                });
+
+            vm = NewConnectedViewModel();
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            Assert.That(cancellableDuringCheckout, Is.False);
+        }
+
         // ---------- 객체 이력 ----------
 
         [Test]
