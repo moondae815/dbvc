@@ -17,6 +17,9 @@ namespace DBVC.Core.Tests
     [TestFixture]
     public class GitManagerTests
     {
+        private const string Server = "localhost";
+        private const string Database = "testdb";
+
         private readonly System.Collections.Generic.List<string> _tempDirs = new System.Collections.Generic.List<string>();
 
         [TearDown]
@@ -178,6 +181,30 @@ namespace DBVC.Core.Tests
                 Is.False);
         }
 
+        [Test]
+        public void CloneRepository_ChecksOutTheRequestedBranch()
+        {
+            // 배포 클론은 develop에 고정된다. 원격 HEAD(master)를 받아 두면 받자마자
+            // 브랜치 불일치로 차단되고, 사용자는 외부 클라이언트를 다시 꺼내야 한다.
+            var originPath = NewTempDir();
+            Repository.Init(originPath, isBare: false);
+            using (var origin = new Repository(originPath))
+            {
+                File.WriteAllText(Path.Combine(originPath, "seed.sql"), "-- seed");
+                Commands.Stage(origin, "seed.sql");
+                origin.Commit("seed", TestSignature, TestSignature);
+                origin.CreateBranch("develop");
+            }
+
+            var targetPath = Path.Combine(NewTempDir(), "clone");
+            var git = new GitManager(new ConfigManager(Path.Combine(NewTempDir(), "mappings.json")));
+
+            git.CloneRepository(originPath, targetPath, null, CancellationToken.None, "develop");
+
+            using var cloned = new Repository(targetPath);
+            Assert.That(cloned.Head.FriendlyName, Is.EqualTo("develop"));
+        }
+
         // ---------- GetRepositoryState ----------
 
         [Test]
@@ -223,6 +250,65 @@ namespace DBVC.Core.Tests
             var state = new GitManager(config).GetRepositoryState("srv", "db");
 
             Assert.That(state, Is.Null);
+        }
+
+        [Test]
+        public void GetRepositoryState_ReportsWorkingTreeDirty_WhenDeployCloneHasUncommittedFile()
+        {
+            // 배포 클론은 커밋하지 않으므로 정상이면 항상 깨끗하다. 더럽다는 것은
+            // 누군가 외부에서 손을 댔다는 뜻이고, 그 상태로 비교하면 결과가 사실과 다르다.
+            var repoPath = NewRepositoryWithCommit(out var config, out var git, MappingMode.Deploy);
+            File.WriteAllText(Path.Combine(repoPath, "dirty.sql"), "-- 손댄 파일");
+
+            var state = git.GetRepositoryState(Server, Database);
+
+            Assert.That(state, Is.Not.Null);
+            Assert.That(state!.BlockReason, Is.EqualTo(RepositoryBlockReason.WorkingTreeDirty));
+            Assert.That(state.BlockMessage, Does.Contain("커밋되지 않은"));
+        }
+
+        [Test]
+        public void GetRepositoryState_IgnoresDirtyWorkingTree_WhenModeIsWrite()
+        {
+            var repoPath = NewRepositoryWithCommit(out var config, out var git, MappingMode.Write);
+            File.WriteAllText(Path.Combine(repoPath, "extracted.sql"), "-- 방금 추출한 파일");
+
+            var state = git.GetRepositoryState(Server, Database);
+
+            Assert.That(state, Is.Not.Null);
+            Assert.That(state!.BlockReason, Is.EqualTo(RepositoryBlockReason.None));
+        }
+
+        /// <summary>커밋 하나가 든 저장소와 그것을 가리키는 매핑을 만든다.</summary>
+        private string NewRepositoryWithCommit(out ConfigManager config, out GitManager git, MappingMode mode)
+        {
+            var repoPath = NewTempDir();
+            Repository.Init(repoPath);
+
+            using (var repo = new Repository(repoPath))
+            {
+                File.WriteAllText(Path.Combine(repoPath, "seed.sql"), "-- seed");
+                Commands.Stage(repo, "seed.sql");
+                repo.Commit("seed", TestSignature, TestSignature);
+            }
+
+            string branch;
+            using (var repo = new Repository(repoPath))
+            {
+                branch = repo.Head.FriendlyName;
+            }
+
+            config = new ConfigManager(Path.Combine(NewTempDir(), "mappings.json"));
+            config.AddMapping(new MappingConfig
+            {
+                ServerName = Server,
+                DatabaseName = Database,
+                GitPath = repoPath,
+                Mode = mode,
+                Branch = branch
+            });
+            git = new GitManager(config);
+            return repoPath;
         }
 
         // ---------- GetChangedFiles ----------
@@ -425,6 +511,32 @@ namespace DBVC.Core.Tests
             var ordersBlob = (Blob)ordersEntry.Target;
             Assert.That(ordersBlob.GetContentText(), Is.EqualTo("CREATE TABLE Orders (Id INT, Name NVARCHAR(50));"),
                 "같은 커밋에 포함된 수정 내용도 그대로 반영되어야 합니다");
+        }
+
+        [Test]
+        public void CommitChanges_Throws_WhenModeIsDeploy()
+        {
+            // 테스트 DB에서 나온 추출물은 새 변경이 아니라 배포 결과다. 커밋하면
+            // develop에 자기 자신을 되먹이고, 배포가 덜 된 상태였다면 그것을 정답으로 굳힌다.
+            var repoPath = NewRepositoryWithCommit(out _, out var git, MappingMode.Deploy);
+            File.WriteAllText(Path.Combine(repoPath, "new.sql"), "-- x");
+
+            var ex = Assert.Throws<OperationNotAllowedException>(
+                () => git.CommitChanges(Server, Database, "메시지"));
+
+            Assert.That(ex!.Operation, Is.EqualTo(DbvcOperation.Commit));
+            Assert.That(ex.Message, Does.Contain("배포"));
+        }
+
+        [Test]
+        public void CommitChanges_Succeeds_WhenModeIsWrite()
+        {
+            var repoPath = NewRepositoryWithCommit(out _, out var git, MappingMode.Write);
+            File.WriteAllText(Path.Combine(repoPath, "new.sql"), "-- x");
+
+            var result = git.CommitChanges(Server, Database, "메시지");
+
+            Assert.That(result, Is.EqualTo(GitCommitResult.Committed));
         }
 
         // ---------- GetHistory ----------
@@ -651,6 +763,28 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void PullChanges_ThrowsRemoteNotConfigured_WhenThereIsNoRemoteOrUpstream()
+        {
+            // 차이 검사는 스스로 도는 Pull이라 이 상황을 건너뛴다(설계 3.1). 타입이 좁혀져
+            // 있지 않으면 "통신하다 실패했다"까지 함께 삼켜, 낡은 브랜치로 비교하고도
+            // 조용히 넘어간다.
+            var noRemote = NewRepoWithCommit();
+            var noUpstream = NewRepoWithCommit();
+            using (var local = new Repository(noUpstream))
+            {
+                local.Network.Remotes.Add("origin", NewRepoWithCommit());
+            }
+
+            Assert.Multiple(() =>
+            {
+                Assert.Throws<GitRemoteNotConfiguredException>(
+                    () => NewGitManager("localhost", "norem", noRemote).PullChanges("localhost", "norem"));
+                Assert.Throws<GitRemoteNotConfiguredException>(
+                    () => NewGitManager("localhost", "noups", noUpstream).PullChanges("localhost", "noups"));
+            });
+        }
+
+        [Test]
         public void PullChanges_ExplainsInKorean_WhenTheCurrentBranchHasNoUpstream()
         {
             // DBVC 온보딩이 실제로 만들어내는 상태다. 사용자가 clone하지 않고 직접 git init한 폴더를
@@ -669,7 +803,7 @@ namespace DBVC.Core.Tests
 
             var git = NewGitManager("localhost", "testdb", localPath);
 
-            var ex = Assert.Throws<InvalidOperationException>(() => git.PullChanges("localhost", "testdb"));
+            var ex = Assert.Throws<GitRemoteNotConfiguredException>(() => git.PullChanges("localhost", "testdb"));
 
             Assert.That(ex!.Message, Does.Not.Contain("tracking information"),
                 "libgit2의 영문 원문이 사용자에게 그대로 노출되면 안 됩니다 - 가드를 지우면 실패해야 합니다");
@@ -694,7 +828,7 @@ namespace DBVC.Core.Tests
 
             var git = NewGitManager("localhost", "testdb", localPath);
 
-            var ex = Assert.Throws<InvalidOperationException>(() => git.PullChanges("localhost", "testdb"));
+            var ex = Assert.Throws<GitRemoteNotConfiguredException>(() => git.PullChanges("localhost", "testdb"));
 
             Assert.That(ex!.Message, Does.Not.Contain("tracking information"));
         }
@@ -921,12 +1055,23 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void PushChanges_Throws_WhenModeIsAudit()
+        {
+            NewRepositoryWithCommit(out _, out var git, MappingMode.Audit);
+
+            var ex = Assert.Throws<OperationNotAllowedException>(
+                () => git.PushChanges(Server, Database));
+
+            Assert.That(ex!.Operation, Is.EqualTo(DbvcOperation.Push));
+        }
+
+        [Test]
         public void PushChanges_ExplainsInKorean_WhenTheRepositoryHasNoRemote()
         {
             var localPath = NewRepoWithCommit();
             var git = NewGitManager("localhost", "testdb", localPath);
 
-            var ex = Assert.Throws<InvalidOperationException>(() => git.PushChanges("localhost", "testdb"));
+            var ex = Assert.Throws<GitRemoteNotConfiguredException>(() => git.PushChanges("localhost", "testdb"));
 
             Assert.That(ex!.Message, Does.Contain("원격"));
             Assert.That(ex.Message, Does.Contain("Push할 수 없습니다"),
@@ -951,7 +1096,7 @@ namespace DBVC.Core.Tests
 
             var git = NewGitManager("localhost", "testdb", localPath);
 
-            var ex = Assert.Throws<InvalidOperationException>(() => git.PushChanges("localhost", "testdb"));
+            var ex = Assert.Throws<GitRemoteNotConfiguredException>(() => git.PushChanges("localhost", "testdb"));
 
             Assert.That(ex!.Message, Does.Contain("추적"));
             Assert.That(ex.Message, Does.Contain($"git push -u origin {branchName}"),
@@ -1543,7 +1688,7 @@ namespace DBVC.Core.Tests
 
             var git = NewGitManager("localhost", "testdb", localPath);
 
-            var ex = Assert.Throws<InvalidOperationException>(() => git.FetchRemoteStatus("localhost", "testdb"));
+            var ex = Assert.Throws<GitRemoteNotConfiguredException>(() => git.FetchRemoteStatus("localhost", "testdb"));
 
             Assert.That(ex!.Message, Does.Contain("추적"));
             Assert.That(ex.Message, Does.Not.Contain("tracking information"));

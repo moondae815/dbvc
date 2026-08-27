@@ -395,6 +395,78 @@ namespace DBVC.Core.Tests
             public void Report(ExtractionProgress value) => _onReport(value);
         }
 
+        // ---------- RunScriptingLoop: 반영 단계를 갈아 끼울 수 있다 ----------
+
+        [Test]
+        public void RunScriptingLoop_DoesNotWriteToRepository_WhenPublishStepOnlyInspects()
+        {
+            // 차이 검사가 성립하는 유일한 근거다. 저장소에 한 글자라도 쓰면
+            // 되돌리는 단계가 필요해지고, 그 단계가 실패하는 날 작업 트리가 망가진다.
+            var root = NewTempDir();
+            var targets = new[]
+            {
+                new ScriptTargetInfo { Schema = "dbo", Name = "Users", ObjectType = "Table" }
+            };
+
+            var seen = new List<string>();
+            var result = SmoManager.RunScriptingLoop(
+                targets,
+                root,
+                (t, stagingPath) => File.WriteAllText(stagingPath, $"-- {t.Name}"),
+                (t, stagingPath, outputPath) => seen.Add(File.ReadAllText(stagingPath)));
+
+            Assert.That(result.SucceededCount, Is.EqualTo(1));
+            Assert.That(seen, Is.EquivalentTo(new[] { "-- Users" }));
+            Assert.That(Directory.GetFiles(root, "*", SearchOption.AllDirectories), Is.Empty);
+        }
+
+        [Test]
+        public void RunScriptingLoop_PassesTheConventionalOutputPath_EvenWhenNothingIsWritten()
+        {
+            // 비교는 "저장소의 이 경로에 파일이 있는가"를 물어야 하므로,
+            // 파일을 쓰지 않더라도 규약 경로는 그대로 계산되어야 한다.
+            var root = NewTempDir();
+            var targets = new[]
+            {
+                new ScriptTargetInfo { Schema = "dbo", Name = "GetUser", ObjectType = "StoredProcedure" }
+            };
+
+            string? captured = null;
+            SmoManager.RunScriptingLoop(
+                targets,
+                root,
+                (t, stagingPath) => File.WriteAllText(stagingPath, "-- p"),
+                (t, stagingPath, outputPath) => captured = outputPath);
+
+            Assert.That(captured, Is.EqualTo(
+                Path.Combine(root, "dbo", "StoredProcedures", "GetUser.sql")));
+        }
+
+        [Test]
+        public void RunScriptingLoop_RecordsFailureAndContinues_WhenPublishStepThrows()
+        {
+            // 판정 하나가 터져도 나머지 객체의 판정은 나와야 한다. 기존 스크립팅 실패와
+            // 같은 규칙이다 — 부분 결과가 없는 것보다 낫다.
+            var root = NewTempDir();
+            var targets = new[]
+            {
+                new ScriptTargetInfo { Schema = "dbo", Name = "A", ObjectType = "Table" },
+                new ScriptTargetInfo { Schema = "dbo", Name = "B", ObjectType = "Table" }
+            };
+
+            var result = SmoManager.RunScriptingLoop(
+                targets,
+                root,
+                (t, stagingPath) => File.WriteAllText(stagingPath, "-- x"),
+                (t, stagingPath, outputPath) =>
+                {
+                    if (t.Name == "A") throw new InvalidOperationException("nope");
+                });
+
+            Assert.That(result.SucceededCount, Is.EqualTo(1));
+            Assert.That(result.FailedObjects, Is.EquivalentTo(new[] { "dbo.A" }));
+        }
+
         // ---------- 스크립팅 옵션 ----------
 
         [Test]
@@ -465,6 +537,123 @@ namespace DBVC.Core.Tests
         {
             var filter = SmoManager.BuildFilter(new List<string> { "DBO.USERS" });
             Assert.That(SmoManager.ShouldInclude(Target("dbo", "Table", "Users"), filter), Is.True);
+        }
+
+        // ---------- BuildComparison: 두 갈래의 차이를 한 목록으로 합친다 ----------
+
+        [Test]
+        public void BuildComparison_MergesScriptedDifferencesWithMissingInDatabase()
+        {
+            var scripted = new List<SchemaDifference>
+            {
+                new SchemaDifference("dbo.Users", "dbo/Tables/Users.sql", "Table", ObjectDiffState.Modified)
+            };
+            var extracted = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "dbo/Tables/Users.sql" };
+            var repoPaths = new List<string> { "dbo/Tables/Users.sql", "dbo/Views/ActiveUsers.sql" };
+
+            var result = SmoManager.BuildComparison(scripted, extracted, repoPaths, new List<string>(), comparedCount: 1);
+
+            Assert.That(result.ComparedCount, Is.EqualTo(1));
+            Assert.That(result.IsInSync, Is.False);
+            Assert.That(result.Differences.Select(d => d.QualifiedName),
+                Is.EquivalentTo(new[] { "dbo.Users", "dbo.ActiveUsers" }));
+            Assert.That(result.Differences.Single(d => d.QualifiedName == "dbo.ActiveUsers").State,
+                Is.EqualTo(ObjectDiffState.MissingInDatabase));
+        }
+
+        [Test]
+        public void BuildComparison_ReportsInSync_WhenNothingDiffers()
+        {
+            var extracted = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "dbo/Tables/Users.sql" };
+            var repoPaths = new List<string> { "dbo/Tables/Users.sql" };
+
+            var result = SmoManager.BuildComparison(
+                new List<SchemaDifference>(), extracted, repoPaths, new List<string>(), comparedCount: 1);
+
+            Assert.That(result.IsInSync, Is.True);
+            Assert.That(result.ComparedCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void BuildComparison_CarriesFailedObjects_SeparatelyFromDifferences()
+        {
+            // 스크립팅에 실패한 객체는 "차이가 없다"가 아니라 "모른다"이다.
+            // 차이 목록에 섞으면 사용자가 배포 대상으로 읽는다.
+            //
+            // 저장소에 파일이 있는 상태로 넘긴다. 실패한 객체가 extracted에서 빠지면
+            // FindMissingInDatabase가 그것을 "브랜치에만 있음"으로 판정해 배포 스크립트에
+            // CREATE로 들어간다 - 그 경로가 여기서 막히는지가 이 검사의 요점이다.
+            var result = SmoManager.BuildComparison(
+                new List<SchemaDifference>(),
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                new List<string> { "dbo/Tables/Broken.sql" },
+                new List<string> { "dbo.Broken" },
+                comparedCount: 1);
+
+            Assert.That(result.Differences, Is.Empty,
+                "판정하지 못한 객체가 차이 목록에 배포 대상으로 나타났다");
+            Assert.That(result.FailedObjects, Is.EquivalentTo(new[] { "dbo.Broken" }));
+
+            // IsInSync는 차이만 본다. 실패가 있으면 화면이 따로 알린다.
+            Assert.That(result.IsInSync, Is.True);
+        }
+
+        [Test]
+        public void CompareTargets_LeavesAFailedObjectOutOfDifferences_WhenTheBranchHasItsFile()
+        {
+            // 암호화된 모듈이나 VIEW DEFINITION 권한이 없는 객체는 스크립팅에서 던진다.
+            // 그때 "브랜치에만 있음"으로 판정되면 목록은 "배포 필요 (신규)"라고 말하고
+            // 배포 스크립트에 CREATE가 들어가, 실행하면 "이미 있습니다"로 배치가 끊긴다.
+            var repo = NewTempDir();
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(repo, "dbo", "Tables"));
+                File.WriteAllText(Path.Combine(repo, "dbo", "Tables", "Broken.sql"), "CREATE TABLE [dbo].[Broken](x int)");
+
+                var targets = new List<ScriptTargetInfo>
+                {
+                    new ScriptTargetInfo { Schema = "dbo", Name = "Broken", ObjectType = "Table" }
+                };
+
+                var result = SmoManager.CompareTargets(
+                    targets,
+                    repo,
+                    (target, stagingPath) => throw new InvalidOperationException("암호화된 개체입니다."));
+
+                Assert.That(result.FailedObjects, Is.EquivalentTo(new[] { "dbo.Broken" }));
+                Assert.That(result.Differences, Is.Empty,
+                    "스크립팅에 실패한 객체가 '브랜치에만 있음'으로 배포 대상이 되었다");
+                Assert.That(result.ComparedCount, Is.EqualTo(1));
+            }
+            finally
+            {
+                TryDelete(repo);
+            }
+        }
+
+        [Test]
+        public void CompareTargets_ReportsMissingInDatabase_ForBranchFilesThatWereNeverEnumerated()
+        {
+            // 위 검사가 "실패하면 무조건 조용해진다"로 통과하지 않도록 반대편을 함께 고정한다.
+            var repo = NewTempDir();
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(repo, "dbo", "Tables"));
+                File.WriteAllText(Path.Combine(repo, "dbo", "Tables", "Orders.sql"), "CREATE TABLE [dbo].[Orders](x int)");
+
+                var result = SmoManager.CompareTargets(
+                    new List<ScriptTargetInfo>(),
+                    repo,
+                    (target, stagingPath) => { });
+
+                Assert.That(result.Differences.Count, Is.EqualTo(1));
+                Assert.That(result.Differences[0].QualifiedName, Is.EqualTo("dbo.Orders"));
+                Assert.That(result.Differences[0].State, Is.EqualTo(ObjectDiffState.MissingInDatabase));
+            }
+            finally
+            {
+                TryDelete(repo);
+            }
         }
 
         private static string NewTempDir()

@@ -133,7 +133,7 @@
             </DockPanel>
         </Border>
 
-        <Grid Grid.Row="2" Visibility="{Binding IsInitialized, Converter={StaticResource BoolToVis}}">
+        <Grid x:Name="ChangeListGrid" Grid.Row="2" Visibility="{Binding ShowChangeList, Converter={StaticResource BoolToVis}}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -250,13 +250,98 @@
         </Grid>
 
         <!-- The Setup Overlay. 경고는 위 배너가 담당하므로 여기서 중복 표시하지 않는다. -->
-        <Grid Grid.Row="2" Visibility="{Binding IsInitialized, Converter={StaticResource InverseBoolToVis}}"
+        <Grid x:Name="SetupOverlayGrid" Grid.Row="2" Visibility="{Binding ShowSetupOverlay, Converter={StaticResource BoolToVis}}"
               Background="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                         TextElement.Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}">
                 <TextBlock Text="이 데이터베이스는 아직 DBVC로 초기화되지 않았습니다." FontSize="16" Margin="0,0,0,20"/>
                 <Button Content="DBVC 초기화" Command="{Binding SetupCommand}" Width="150" Height="40" FontSize="14" Cursor="Hand"/>
             </StackPanel>
+        </Grid>
+
+        <!--
+            배포·감사 패널. IsInitialized를 보지 않는다 - 운영·테스트 대상은 미초기화가
+            정상이고, 거기서 초기화 오버레이가 뜨면 사용자가 누르는 버튼이 곧 금지된
+            DDL 트리거 설치다(상위 설계 1.4).
+        -->
+        <!--
+            Visibility는 바깥 ViewChangesViewModel의 ShowDeploymentPanel을 봐야 하므로, DataContext를
+            Deployment로 바꾸는 자리를 안쪽 Grid로 한 단 더 둔다. 같은 요소에 DataContext 재정의와
+            Visibility 바인딩을 함께 두면 Visibility도 새 DataContext(Deployment) 기준으로 풀려
+            ShowDeploymentPanel을 못 찾고 바인딩이 조용히 실패한다 - 그 경우 Visibility는 기본값인
+            Visible로 남아 Write 대상에서도 이 패널이 사라지지 않는다.
+        -->
+        <Grid x:Name="DeploymentPanelGrid" Grid.Row="2" Visibility="{Binding ShowDeploymentPanel, Converter={StaticResource BoolToVis}}"
+              Background="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"
+              TextElement.Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}">
+            <Grid DataContext="{Binding Deployment}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="5" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!--
+                    버튼은 둘뿐이다. "다시 검사"는 새 화면이 아니라 [차이 검사]를 다시 누르는 것이다 -
+                    별도 단계로 만들면 오히려 안 눌린다.
+                -->
+                <WrapPanel Grid.Row="0" Margin="5">
+                    <Button Content="차이 검사" Command="{Binding CompareCommand}" Margin="0,0,5,0" Padding="10,3"
+                            ToolTip="원격에서 가져온 뒤 대상 데이터베이스 전체를 브랜치와 비교합니다. 저장소에는 아무것도 쓰지 않습니다."/>
+                    <Button Content="배포 스크립트 저장..." Command="{Binding SaveScriptCommand}" Margin="0,0,5,0" Padding="10,3"
+                            ToolTip="차이 목록으로 실행 가능한 스크립트를 만듭니다. 자동화할 수 없는 항목은 머리말에 사유와 함께 빠집니다."/>
+                </WrapPanel>
+
+                <TextBlock Grid.Row="1" Margin="5,0,5,5" TextWrapping="Wrap"
+                           Text="{Binding SummaryText}"/>
+
+                <!--
+                    작업 중에는 목록을 잠근다. 항목을 고르면 원문 읽기가 같은 BusyState를 쓰는데,
+                    그것은 차이 검사보다 빨리 끝나므로 먼저 IsBusy를 내려놓는다 - 그러면 검사가
+                    아직 도는 중에 두 버튼이 되살아나고, 다시 누른 검사가 같은 대상을 상대로
+                    겹쳐 돌아 나중에 끝난 쪽이 먼저 끝난 쪽의 목록을 덮어쓴다. 버튼은
+                    CanExecute가 잠그지만 목록에는 명령이 없어 화면이 막아야 한다(IsNotBusy).
+                    이 안쪽 Grid의 DataContext는 Deployment이므로 Busy를 거쳐 푼다.
+                -->
+                <ListView x:Name="DeploymentDifferenceList" Grid.Row="2" Margin="5,0,5,0"
+                          IsEnabled="{Binding Busy.IsNotBusy}"
+                          ItemsSource="{Binding Differences}"
+                          SelectedItem="{Binding SelectedDifference, Mode=TwoWay}">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="객체" Width="240" DisplayMemberBinding="{Binding QualifiedName}"/>
+                            <GridViewColumn Header="유형" Width="110" DisplayMemberBinding="{Binding ObjectTypeText}"/>
+                            <GridViewColumn Header="상태" Width="160" DisplayMemberBinding="{Binding StateText}"/>
+                            <GridViewColumn Header="경로" Width="320" DisplayMemberBinding="{Binding RelativePath}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+
+                <GridSplitter Grid.Row="3" Height="5" HorizontalAlignment="Stretch"/>
+
+                <Grid Grid.Row="4" Margin="5,0,5,5">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="5" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="브랜치" FontWeight="SemiBold" Margin="0,0,0,3"/>
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="데이터베이스" FontWeight="SemiBold" Margin="0,0,0,3"/>
+
+                    <avalonEdit:TextEditor x:Name="DeployLeftEditor" Grid.Row="1" Grid.Column="0"
+                                           IsReadOnly="True" SyntaxHighlighting="TSQL"/>
+                    <GridSplitter Grid.Row="1" Grid.Column="1" Width="5" HorizontalAlignment="Stretch"/>
+                    <avalonEdit:TextEditor x:Name="DeployRightEditor" Grid.Row="1" Grid.Column="2"
+                                           IsReadOnly="True" SyntaxHighlighting="TSQL"/>
+                </Grid>
+            </Grid>
         </Grid>
 
         <!--

@@ -238,6 +238,243 @@ namespace DBVC.Core.Tests
             }
         }
 
+        [Test]
+        public void CompareWithRepository_ReportsInSync_RightAfterAFullExtraction()
+        {
+            // 이 설계 전체가 SMO 출력의 결정성에 기댄다. 흔들리면 전부 Modified로 나오고
+            // 화면이 무의미해진다. 깨지면 대비책은 텍스트 정규화(BOM·개행·후행 공백) 비교로
+            // 떨어뜨리는 것이다.
+            _testDatabase!.Execute("CREATE PROCEDURE dbo.GetOne AS SELECT 1");
+            _testDatabase.Execute("CREATE TABLE dbo.Widgets (Id INT NOT NULL PRIMARY KEY, Name NVARCHAR(50) NULL)");
+            try
+            {
+                var repoPath = NewTempDir();
+                var config = NewConfig(_testDatabase, repoPath, MappingMode.Write);
+                new SmoManager(config).ScriptObjectsDetailed(ServerName, _database!);
+
+                // 비교는 mode가 write가 아니어야 돈다. 같은 저장소를 배포 용도로 다시 매핑한다.
+                var deployConfig = NewConfig(_testDatabase, repoPath, MappingMode.Deploy);
+                var result = new SmoManager(deployConfig).CompareWithRepository(ServerName, _database!);
+
+                Assert.That(result, Is.Not.Null);
+                Assert.That(result!.Differences.Select(d => d.QualifiedName), Is.Empty);
+                Assert.That(result.ComparedCount, Is.GreaterThan(0));
+            }
+            finally
+            {
+                _testDatabase.Execute("DROP PROCEDURE dbo.GetOne");
+                _testDatabase.Execute("DROP TABLE dbo.Widgets");
+            }
+        }
+
+        [Test]
+        public void CompareWithRepository_WritesNothingIntoTheRepository()
+        {
+            // 저장소를 건드리지 않는다는 것이 이 방식을 고른 이유다. 한 글자라도 쓰면
+            // 되돌리는 단계가 필요해지고, 그 단계가 실패하는 날 작업 트리가 망가진다.
+            _testDatabase!.Execute("CREATE PROCEDURE dbo.GetOne AS SELECT 1");
+            try
+            {
+                var repoPath = NewTempDir();
+                var deployConfig = NewConfig(_testDatabase, repoPath, MappingMode.Deploy);
+
+                new SmoManager(deployConfig).CompareWithRepository(ServerName, _database!);
+
+                Assert.That(Directory.GetFileSystemEntries(repoPath), Is.Empty);
+            }
+            finally
+            {
+                _testDatabase.Execute("DROP PROCEDURE dbo.GetOne");
+            }
+        }
+
+        [Test]
+        public void CompareWithRepository_ReportsOnlyTheAlteredObject_AsModified()
+        {
+            _testDatabase!.Execute("CREATE PROCEDURE dbo.GetOne AS SELECT 1");
+            _testDatabase.Execute("CREATE PROCEDURE dbo.GetTwo AS SELECT 2");
+            try
+            {
+                var repoPath = NewTempDir();
+                new SmoManager(NewConfig(_testDatabase, repoPath, MappingMode.Write))
+                    .ScriptObjectsDetailed(ServerName, _database!);
+
+                _testDatabase.Execute("ALTER PROCEDURE dbo.GetOne AS SELECT 99");
+
+                var result = new SmoManager(NewConfig(_testDatabase, repoPath, MappingMode.Deploy))
+                    .CompareWithRepository(ServerName, _database!);
+
+                Assert.That(result!.Differences.Count, Is.EqualTo(1));
+                Assert.That(result.Differences[0].QualifiedName, Is.EqualTo("dbo.GetOne"));
+                Assert.That(result.Differences[0].State, Is.EqualTo(ObjectDiffState.Modified));
+            }
+            finally
+            {
+                _testDatabase.Execute("DROP PROCEDURE dbo.GetOne");
+                _testDatabase.Execute("DROP PROCEDURE dbo.GetTwo");
+            }
+        }
+
+        [Test]
+        public void CompareWithRepository_ReportsMissingInBranch_WhenTheFileWasDeleted()
+        {
+            _testDatabase!.Execute("CREATE PROCEDURE dbo.GetOne AS SELECT 1");
+            try
+            {
+                var repoPath = NewTempDir();
+                new SmoManager(NewConfig(_testDatabase, repoPath, MappingMode.Write))
+                    .ScriptObjectsDetailed(ServerName, _database!);
+                File.Delete(Path.Combine(repoPath, "dbo", "StoredProcedures", "GetOne.sql"));
+
+                var result = new SmoManager(NewConfig(_testDatabase, repoPath, MappingMode.Deploy))
+                    .CompareWithRepository(ServerName, _database!);
+
+                var one = result!.Differences.Single(d => d.QualifiedName == "dbo.GetOne");
+                Assert.That(one.State, Is.EqualTo(ObjectDiffState.MissingInBranch));
+            }
+            finally
+            {
+                _testDatabase.Execute("DROP PROCEDURE dbo.GetOne");
+            }
+        }
+
+        [Test]
+        public void CompareWithRepository_ReportsMissingInDatabase_WhenTheObjectWasDropped()
+        {
+            _testDatabase!.Execute("CREATE PROCEDURE dbo.GetOne AS SELECT 1");
+            try
+            {
+                var repoPath = NewTempDir();
+                new SmoManager(NewConfig(_testDatabase, repoPath, MappingMode.Write))
+                    .ScriptObjectsDetailed(ServerName, _database!);
+                _testDatabase.Execute("DROP PROCEDURE dbo.GetOne");
+
+                var result = new SmoManager(NewConfig(_testDatabase, repoPath, MappingMode.Deploy))
+                    .CompareWithRepository(ServerName, _database!);
+
+                var one = result!.Differences.Single(d => d.QualifiedName == "dbo.GetOne");
+                Assert.That(one.State, Is.EqualTo(ObjectDiffState.MissingInDatabase));
+            }
+            finally
+            {
+                // 정상 경로에서 이미 DROP했다 — 여기 오기 전 어디서든 예외가 나면 그 DROP이
+                // 아직 안 됐을 수 있으므로 존재할 때만 지운다. 무조건 DROP하면 정상 경로를
+                // 지난 뒤엔 이미 없는 객체를 지우려다 finally 자체가 던져, 원래 예외를 가린다.
+                _testDatabase.Execute("IF OBJECT_ID(N'dbo.GetOne', N'P') IS NOT NULL DROP PROCEDURE dbo.GetOne");
+            }
+        }
+
+        [Test]
+        public void GeneratedDeploymentScript_RunsAgainstADatabaseThatAlreadyHasTheObjects()
+        {
+            // 저장소 파일이 CREATE OR ALTER로 저장되어 있다는 1차의 결정이 실제로
+            // 실행 가능한 스크립트를 만드는지 확인하는 유일한 자리다.
+            _testDatabase!.Execute("CREATE PROCEDURE dbo.GetOne AS SELECT 1");
+            _testDatabase.Execute("CREATE VIEW dbo.OneView AS SELECT 1 AS N");
+            try
+            {
+                var repoPath = NewTempDir();
+                var config = NewConfig(_testDatabase, repoPath, MappingMode.Write);
+                new SmoManager(config).ScriptObjectsDetailed(ServerName, _database!);
+
+                _testDatabase.Execute("ALTER PROCEDURE dbo.GetOne AS SELECT 42");
+
+                var deployConfig = NewConfig(_testDatabase, repoPath, MappingMode.Deploy);
+                var result = new SmoManager(deployConfig).CompareWithRepository(ServerName, _database!);
+                var export = new ScriptExporter(deployConfig, new GitManager(deployConfig))
+                    .ExportFromComparison(ServerName, _database!, result!.Differences, DateTimeOffset.Now);
+
+                Assert.That(export.HasContent, Is.True);
+
+                // 객체가 이미 있는 DB에 그대로 실행한다. "이미 있습니다"가 나오면 실패다.
+                Assert.DoesNotThrow(() => _testDatabase.ExecuteScript(export.Script));
+
+                // 실행 뒤에는 저장소와 일치해야 한다. 3단계 루프가 실제로 닫히는지 본다.
+                var after = new SmoManager(deployConfig).CompareWithRepository(ServerName, _database!);
+                Assert.That(after!.Differences.Select(d => d.QualifiedName), Does.Not.Contain("dbo.GetOne"));
+            }
+            finally
+            {
+                _testDatabase.Execute("DROP PROCEDURE dbo.GetOne");
+                _testDatabase.Execute("DROP VIEW dbo.OneView");
+            }
+        }
+
+        [Test]
+        public void ScriptObjectToText_ReturnsTheCurrentDefinition_WithoutTouchingTheRepository()
+        {
+            _testDatabase!.Execute("CREATE PROCEDURE dbo.GetOne AS SELECT 1");
+            try
+            {
+                var repoPath = NewTempDir();
+                var config = NewConfig(_testDatabase, repoPath, MappingMode.Deploy);
+
+                var text = new SmoManager(config).ScriptObjectToText(ServerName, _database!, "dbo.GetOne");
+
+                Assert.That(text, Does.Contain("GetOne"));
+                Assert.That(Directory.GetFileSystemEntries(repoPath), Is.Empty);
+            }
+            finally
+            {
+                _testDatabase.Execute("DROP PROCEDURE dbo.GetOne");
+            }
+        }
+
+        [Test]
+        public void CompareWithRepository_Throws_WhenCancelledMidway()
+        {
+            _testDatabase!.Execute("CREATE PROCEDURE dbo.GetOne AS SELECT 1");
+            _testDatabase.Execute("CREATE PROCEDURE dbo.GetTwo AS SELECT 2");
+            try
+            {
+                var repoPath = NewTempDir();
+                var config = NewConfig(_testDatabase, repoPath, MappingMode.Deploy);
+
+                using var cts = new CancellationTokenSource();
+                var progress = new SimpleProgress<ExtractionProgress>(_ => cts.Cancel());
+
+                Assert.Throws<OperationCanceledException>(
+                    () => new SmoManager(config).CompareWithRepository(ServerName, _database!, progress, cts.Token));
+            }
+            finally
+            {
+                _testDatabase.Execute("DROP PROCEDURE dbo.GetOne");
+                _testDatabase.Execute("DROP PROCEDURE dbo.GetTwo");
+            }
+        }
+
+        /// <summary>
+        /// 임시 저장소 폴더 하나. 매핑 파일은 여기 담지 않는다 — 안에 넣으면 "저장소를
+        /// 건드리지 않는다"를 확인하는 테스트가 mappings.json을 발견해 거짓으로 실패한다.
+        /// </summary>
+        private static string NewTempDir()
+        {
+            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dbvc_it_repo_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(path);
+            return path;
+        }
+
+        /// <summary>
+        /// 매 호출마다 새 임시 mappings.json을 만든다. 같은 파일을 공유하면 write 매핑을
+        /// deploy로 다시 등록할 때 앞의 등록을 조용히 덮어써 버려, 두 매핑을 나눠 쓰는
+        /// 테스트의 의도가 사라진다. Branch는 비운다 — 저장소가 아직 커밋되지 않았을 수 있어
+        /// 고정하지 않는다.
+        /// </summary>
+        private static ConfigManager NewConfig(SqlServerTestDatabase db, string repoPath, MappingMode mode)
+        {
+            var configPath = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "dbvc_it_cfg_" + Guid.NewGuid().ToString("N"), "mappings.json");
+            var config = new ConfigManager(configPath);
+            config.AddMapping(new MappingConfig
+            {
+                ServerName = ServerName,
+                DatabaseName = db.Name,
+                GitPath = repoPath,
+                Mode = mode
+            });
+            return config;
+        }
+
         /// <summary>매핑까지 갖춘 임시 저장소 폴더. 사용자의 실제 mappings.json을 건드리지 않는다.</summary>
         private sealed class TempRepo : IDisposable
         {
@@ -271,6 +508,15 @@ namespace DBVC.Core.Tests
             private readonly Action<ExtractionProgress> _onReport;
             public ImmediateProgress(Action<ExtractionProgress> onReport) { _onReport = onReport; }
             public void Report(ExtractionProgress value) => _onReport(value);
+        }
+
+        /// <summary>보고 콜백을 받는 범용 <see cref="IProgress{T}"/>. 첫 보고에서 취소하는 것처럼
+        /// 진행 상황 자체를 신경 쓰지 않는 테스트를 위한 것이다.</summary>
+        private sealed class SimpleProgress<T> : IProgress<T>
+        {
+            private readonly Action<T> _onReport;
+            public SimpleProgress(Action<T> onReport) { _onReport = onReport; }
+            public void Report(T value) => _onReport(value);
         }
     }
 }

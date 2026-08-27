@@ -50,7 +50,7 @@ namespace DBVC.Core
                 if (string.IsNullOrWhiteSpace(sql))
                 {
                     // 되돌릴 이전 리비전이 없거나 추출된 파일이 없는 경우다. 오류가 아니라 제외 대상이다.
-                    result.ExcludedObjects.Add(target.QualifiedName);
+                    result.ExcludedObjects.Add(new ScriptExclusion(target.QualifiedName, ScriptExclusionReason.NoContent));
                     continue;
                 }
 
@@ -65,6 +65,84 @@ namespace DBVC.Core
             result.IncludedCount = sections.Count;
             result.Script = sections.Count > 0
                 ? ScriptGenerator.BuildScript(sections, kind, generatedAt, result.ExcludedObjects)
+                : string.Empty;
+
+            return result;
+        }
+
+        /// <summary>
+        /// 차이 검사 결과에서 배포 스크립트를 만든다.
+        ///
+        /// 재료는 <b>브랜치의 파일</b>이지 대상 DB에서 다시 뜬 것이 아니다. "develop에 병합된
+        /// 것만 테스트에 나간다"를 검사가 아니라 배치로 지킨다 — 배포 클론은 develop에
+        /// 고정되어 있고 병합 안 된 변경은 애초에 파일로 존재하지 않는다.
+        /// </summary>
+        /// <param name="failedObjects">
+        /// 차이 자체를 판정하지 못한 객체. 스크립트에는 들어가지 않지만 <b>머리말에는 반드시
+        /// 남긴다</b> — 이 파일만 열어 보는 사람에게는 문서가 비교 전체를 덮는 것처럼 보이고,
+        /// 화면의 알림은 파일과 함께 남지 않는다.
+        /// </param>
+        public ScriptExportResult ExportFromComparison(
+            string serverName,
+            string databaseName,
+            IEnumerable<SchemaDifference>? differences,
+            DateTimeOffset generatedAt,
+            IEnumerable<string>? failedObjects = null)
+        {
+            var result = new ScriptExportResult();
+
+            var mapping = _configManager.TryGetMapping(serverName, databaseName);
+            if (mapping == null)
+            {
+                Debug.WriteLine($"'{serverName}.{databaseName}'에 매핑된 Git 저장소가 없어 스크립트를 생성할 수 없습니다.");
+                return result;
+            }
+
+            var sections = new List<ScriptSection>();
+
+            foreach (var difference in differences ?? Enumerable.Empty<SchemaDifference>())
+            {
+                if (difference == null || string.IsNullOrWhiteSpace(difference.RelativePath)) continue;
+
+                var disposition = DeploymentClassifier.Classify(difference.State, difference.ObjectType);
+
+                if (disposition == ScriptDisposition.ExcludeManualChange)
+                {
+                    result.ExcludedObjects.Add(new ScriptExclusion(difference.QualifiedName, ScriptExclusionReason.ManualChangeRequired));
+                    continue;
+                }
+
+                if (disposition == ScriptDisposition.ExcludeNotInBranch)
+                {
+                    result.ExcludedObjects.Add(new ScriptExclusion(difference.QualifiedName, ScriptExclusionReason.NotInBranch));
+                    continue;
+                }
+
+                var sql = ReadWorkingTreeFile(mapping.GitPath, difference.RelativePath);
+                if (string.IsNullOrWhiteSpace(sql))
+                {
+                    // 검사할 때는 있었는데 지금 없다. 조용히 빼면 배포가 덜 된 채로 성공한 척한다.
+                    result.ExcludedObjects.Add(new ScriptExclusion(difference.QualifiedName, ScriptExclusionReason.NoContent));
+                    continue;
+                }
+
+                sections.Add(new ScriptSection
+                {
+                    QualifiedName = difference.QualifiedName,
+                    RelativePath = difference.RelativePath,
+                    Sql = sql
+                });
+            }
+
+            foreach (var failed in failedObjects ?? Enumerable.Empty<string>())
+            {
+                if (string.IsNullOrWhiteSpace(failed)) continue;
+                result.ExcludedObjects.Add(new ScriptExclusion(failed, ScriptExclusionReason.NotCompared));
+            }
+
+            result.IncludedCount = sections.Count;
+            result.Script = sections.Count > 0
+                ? ScriptGenerator.BuildScript(sections, ScriptKind.Deployment, generatedAt, result.ExcludedObjects)
                 : string.Empty;
 
             return result;
@@ -92,7 +170,9 @@ namespace DBVC.Core
     {
         public string Script { get; set; } = string.Empty;
         public int IncludedCount { get; set; }
-        public List<string> ExcludedObjects { get; } = new List<string>();
+
+        /// <summary>제외된 객체와 사유. 사용자가 할 일이 사유마다 다르다.</summary>
+        public List<ScriptExclusion> ExcludedObjects { get; } = new List<ScriptExclusion>();
 
         /// <summary>파일로 저장할 내용이 있는지.</summary>
         public bool HasContent => IncludedCount > 0 && !string.IsNullOrWhiteSpace(Script);

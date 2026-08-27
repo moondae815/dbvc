@@ -45,6 +45,24 @@
         <TextBlock Margin="20,8,0,0" TextWrapping="Wrap" Opacity="0.8"
                    Text="원격 주소는 SSH 형식이어야 합니다(예: git@호스트:그룹/이름.git). HTTPS 주소는 인증할 수 없습니다. 폴더 이름은 아직 없는 것이어야 합니다."/>
 
+        <GroupBox Header="용도" Margin="0,10,0,0">
+            <StackPanel Margin="8">
+                <RadioButton x:Name="WriteMode" GroupName="Mode" IsChecked="True" Margin="0,0,0,4"
+                             Content="개발 — 변경을 추적하고 커밋합니다"/>
+                <RadioButton x:Name="DeployMode" GroupName="Mode" Margin="0,0,0,4"
+                             Content="배포 — 차이를 검사하고 배포 스크립트를 만듭니다 (커밋하지 않습니다)"/>
+                <RadioButton x:Name="AuditMode" GroupName="Mode" Margin="0,0,0,8"
+                             Content="감사 — 차이만 확인합니다 (커밋하지 않고 트리거도 설치하지 않습니다)"/>
+
+                <DockPanel>
+                    <TextBlock Text="고정 브랜치:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBox x:Name="BranchBox"/>
+                </DockPanel>
+                <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Foreground="Gray"
+                           Text="배포·감사는 브랜치를 반드시 고정해야 합니다(예: 배포는 develop, 감사는 master). 개발은 비워 두면 전환이 자유롭습니다."/>
+            </StackPanel>
+        </GroupBox>
+
         <TextBlock x:Name="ErrorLabel" Margin="0,10,0,0" Foreground="#B00020"
                    TextWrapping="Wrap" Visibility="Collapsed"/>
 

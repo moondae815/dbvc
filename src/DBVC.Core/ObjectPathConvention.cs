@@ -147,5 +147,29 @@ namespace DBVC.Core
         {
             return string.IsNullOrWhiteSpace(schema) ? DefaultSchema : schema!.Trim();
         }
+
+        /// <summary>
+        /// T-SQL의 <c>CREATE OR ALTER</c>가 이 타입을 받는가. 받는 것은 넷뿐이다 —
+        /// 프로시저·뷰·함수·트리거.
+        ///
+        /// 저장소 파일은 <c>ScriptForCreateOrAlter</c>로 저장되어 있으므로, 이 넷은
+        /// 대상에 있든 없든 그대로 실행된다. 나머지는 대상에 이미 있으면 실패하므로
+        /// 배포 스크립트에서 빼야 한다. <b>테이블만 빼면 안 된다</b> — Sequence·Synonym·
+        /// UserDefinedType도 같은 자리에 있다.
+        ///
+        /// 모르는 타입은 false다. 실행 실패보다 "손으로 하세요"가 낫다.
+        /// </summary>
+        private static readonly HashSet<string> CreateOrAlterTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "StoredProcedure",
+            "View",
+            "UserDefinedFunction",
+            "Trigger"
+        };
+
+        public static bool SupportsCreateOrAlter(string? objectType)
+        {
+            return !string.IsNullOrWhiteSpace(objectType) && CreateOrAlterTypes.Contains(objectType!.Trim());
+        }
     }
 }

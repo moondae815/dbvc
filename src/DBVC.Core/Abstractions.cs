@@ -14,6 +14,9 @@ namespace DBVC.Core
         MappingConfig? TryGetMapping(string serverName, string databaseName);
         string? GetMapping(string serverName, string databaseName);
         void AddMapping(string serverName, string databaseName, string gitPath);
+
+        /// <summary>Mode·Branch까지 함께 저장한다. 저장소 연결 대화상자가 이 오버로드로만 용도를 담는다.</summary>
+        void AddMapping(MappingConfig mapping);
         bool RemoveMapping(string serverName, string databaseName);
         IReadOnlyList<MappingConfig> GetAllMappings();
     }
@@ -81,11 +84,16 @@ namespace DBVC.Core
         /// 취소되면 <see cref="OperationCanceledException"/>이 전파되고 만든 폴더는 지워진다.
         /// 다만 취소가 즉시 걸리는 것은 받는 동안뿐이다 — libgit2의 checkout 콜백은 중단을 받지 않는다.
         /// </param>
+        /// <param name="branchName">
+        /// 지정하면 원격 HEAD 대신 이 브랜치를 체크아웃한다. 배포·감사 클론이 쓴다 — 원격 HEAD를
+        /// 받아 두면 받자마자 브랜치 불일치로 차단되어 사용자가 외부 클라이언트를 다시 꺼내야 한다.
+        /// </param>
         string CloneRepository(
             string remoteUrl,
             string targetPath,
             IProgress<CloneProgress>? progress,
-            CancellationToken cancellationToken);
+            CancellationToken cancellationToken,
+            string? branchName = null);
 
         /// <summary>
         /// 저장소를 그대로 써도 되는지 판정한 결과. 매핑이 없으면 null이다.
@@ -128,6 +136,25 @@ namespace DBVC.Core
             List<string>? objectNames = null,
             IProgress<ExtractionProgress>? progress = null,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// 대상 DB와 저장소 작업 트리의 차이를 판정한다. <b>저장소에 아무것도 쓰지 않는다</b> —
+        /// 그래서 실패하거나 취소해도 되돌릴 것이 없다.
+        ///
+        /// 매핑이 없거나 접속에 실패하면 <c>null</c>이다. mode가 허용하지 않으면
+        /// <see cref="OperationNotAllowedException"/>을 던진다.
+        /// </summary>
+        ComparisonResult? CompareWithRepository(
+            string serverName,
+            string databaseName,
+            IProgress<ExtractionProgress>? progress = null,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// 객체 하나의 현재 DDL을 텍스트로 읽는다. 저장소에 쓰지 않는다.
+        /// 대상에 없거나 스크립팅에 실패하면 <c>null</c>이다.
+        /// </summary>
+        string? ScriptObjectToText(string serverName, string databaseName, string qualifiedName);
     }
 
     /// <summary>

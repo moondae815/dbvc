@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using Microsoft.Data.SqlClient;
 using NUnit.Framework;
 using DBVC.Core;
@@ -129,6 +130,25 @@ namespace DBVC.Core.Tests
             {
                 using var cmd = conn.CreateCommand();
                 cmd.CommandText = sql;
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        /// <summary>
+        /// 생성된 배포/롤백 스크립트를 실행한다. <c>GO</c>는 T-SQL이 아니라 SSMS/sqlcmd의 배치
+        /// 구분자라 <see cref="SqlCommand"/>가 그대로 삼키면 구문 오류가 난다 — 줄 전체가
+        /// <c>GO</c>뿐인 자리에서 나눠 배치마다 실행한다.
+        /// </summary>
+        public void ExecuteScript(string script)
+        {
+            var batches = Regex.Split(script, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+
+            using var conn = Open();
+            foreach (var batch in batches)
+            {
+                if (string.IsNullOrWhiteSpace(batch)) continue;
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = batch;
                 cmd.ExecuteNonQuery();
             }
         }

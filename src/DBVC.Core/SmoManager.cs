@@ -54,6 +54,223 @@ namespace DBVC.Core
             IProgress<ExtractionProgress>? progress = null,
             CancellationToken cancellationToken = default)
         {
+            // TryGetMapping은 빈 입력에 ArgumentException을 던진다 - OpenScriptingSession은 그
+            // 경우를 null 반환으로 흡수해 왔으므로, mode를 묻기 전에 같은 가드를 먼저 거친다.
+            if (!string.IsNullOrWhiteSpace(serverName) && !string.IsNullOrWhiteSpace(databaseName))
+            {
+                var mapping = _configManager.TryGetMapping(serverName, databaseName);
+                if (mapping != null && !MappingPolicy.IsAllowed(mapping.Mode, DbvcOperation.Extract))
+                {
+                    // 배포·감사 클론은 저장소에 쓸 일이 없다. 차이 검사는 파일을 만들지 않는다.
+                    throw new OperationNotAllowedException(mapping.Mode, DbvcOperation.Extract);
+                }
+            }
+
+            using var session = OpenScriptingSession(serverName, databaseName, objectNames);
+            if (session == null) return null;
+
+            try
+            {
+                return ScriptAll(session.Targets, session.RepositoryPath, session.ScriptOne, progress, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // 사용자가 멈춘 것이다. null로 뭉개면 호출자가 "추출 실패"로 알린다.
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"Error during SMO scripting for '{serverName}.{databaseName}': {ex}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 대상 DB와 저장소 작업 트리의 차이를 판정한다. <b>저장소에 아무것도 쓰지 않는다</b> —
+        /// 그래서 실패하거나 취소해도 되돌릴 것이 없다.
+        /// </summary>
+        public ComparisonResult? CompareWithRepository(
+            string serverName,
+            string databaseName,
+            IProgress<ExtractionProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            var mapping = _configManager.TryGetMapping(serverName, databaseName);
+            if (mapping == null) return null;
+
+            // 개발 클론에서 부르면 차이 전체가 잡음이다. 화면이 이미 막지만, 코드 경로가
+            // 하나 늘 때 조용히 다시 열리지 않도록 여기서도 확인한다.
+            if (!MappingPolicy.IsAllowed(mapping.Mode, DbvcOperation.Compare))
+            {
+                throw new OperationNotAllowedException(mapping.Mode, DbvcOperation.Compare);
+            }
+
+            using var session = OpenScriptingSession(serverName, databaseName, objectNames: null);
+            if (session == null) return null;
+
+            // OperationCanceledException은 CompareTargets에서 그대로 전파된다.
+            // ScriptObjectsDetailed와 같은 관례이므로 여기서 잡지 않는다.
+            return CompareTargets(session.Targets, mapping.GitPath, session.ScriptOne, progress, cancellationToken);
+        }
+
+        /// <summary>
+        /// 열거된 대상과 스크립팅 델리게이트만으로 차이를 판정한다. SMO도 SqlConnection도
+        /// 여기 없다 — 그래서 "실패한 객체가 차이 목록에 들어가지 않는가" 같은 규칙을 DB 없이
+        /// 검사할 수 있다. <see cref="CompareWithRepository"/>가 이 함수에 세션의 조각만 넘긴다.
+        /// </summary>
+        internal static ComparisonResult CompareTargets(
+            IEnumerable<ScriptTargetInfo> targets,
+            string repositoryPath,
+            Action<ScriptTargetInfo, string> scriptOne,
+            IProgress<ExtractionProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            var differences = new List<SchemaDifference>();
+            var extracted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var scriptResult = RunScriptingLoop(
+                targets,
+                repositoryPath,
+                // extracted가 뜻하는 것은 "대상 DB에서 열거되었다"이지 "스크립팅에 성공했다"가
+                // 아니다. onScripted는 scriptOne이 성공해야만 불리므로 거기서 담으면, 암호화된
+                // 모듈이나 VIEW DEFINITION 권한이 없는 객체가 extracted에서 빠지고
+                // FindMissingInDatabase가 그것을 "브랜치에만 있음"으로 판정한다 - 목록에는
+                // "배포 필요 (신규)"로 뜨고 배포 스크립트에 CREATE가 들어가, 실행하면
+                // "이미 있습니다"로 그 배치가 통째로 끊긴다. 그래서 스크립팅 이전에 담는다.
+                (target, stagingPath) =>
+                {
+                    extracted.Add(target.RelativePath);
+                    scriptOne(target, stagingPath);
+                },
+                (target, stagingPath, outputPath) =>
+                {
+                    // HasSameBytes는 대상이 없을 때도 false를 돌려주므로 존재 여부를 먼저 가른다.
+                    // 두 경우는 사용자가 할 일이 완전히 다르다.
+                    if (!File.Exists(outputPath))
+                    {
+                        differences.Add(new SchemaDifference(
+                            target.QualifiedName, target.RelativePath, target.ObjectType, ObjectDiffState.MissingInBranch));
+                    }
+                    else if (!HasSameBytes(stagingPath, outputPath))
+                    {
+                        differences.Add(new SchemaDifference(
+                            target.QualifiedName, target.RelativePath, target.ObjectType, ObjectDiffState.Modified));
+                    }
+                },
+                progress,
+                cancellationToken);
+
+            var scan = SchemaComparison.ScanRepositoryScriptPaths(repositoryPath);
+
+            return BuildComparison(
+                differences,
+                extracted,
+                scan.Paths,
+                scriptResult.FailedObjects,
+                scriptResult.SucceededCount + scriptResult.FailedObjects.Count,
+                scan.IsComplete);
+        }
+
+        /// <summary>
+        /// 객체 하나를 스크립팅해 텍스트로 돌려준다. 저장소에 쓰지 않는다 — diff 본문 전용이다.
+        ///
+        /// 비교(<see cref="CompareWithRepository"/>)가 뜬 텍스트를 들고 있지 않는 이유는
+        /// 객체 수천 개분을 메모리에 쌓게 되기 때문이다. 사용자가 실제로 열어 보는 것은
+        /// 한 번에 하나뿐이므로 그때 다시 뜬다.
+        /// </summary>
+        /// <returns>대상에 없거나 스크립팅에 실패하면 <c>null</c>.</returns>
+        public string? ScriptObjectToText(string serverName, string databaseName, string qualifiedName)
+        {
+            if (string.IsNullOrWhiteSpace(qualifiedName)) return null;
+
+            using var session = OpenScriptingSession(serverName, databaseName, new List<string> { qualifiedName });
+            if (session == null) return null;
+
+            string? text = null;
+
+            // 저장소 경로는 쓰이지 않지만 규약 경로 계산에 필요하다. 임시 폴더를 넘겨도
+            // 되지만 매핑 경로를 그대로 넘기는 편이 outputPath가 실제와 같아 헷갈리지 않는다.
+            RunScriptingLoop(
+                session.Targets,
+                session.RepositoryPath,
+                session.ScriptOne,
+                (target, stagingPath, outputPath) => text = File.ReadAllText(stagingPath));
+
+            return text;
+        }
+
+        /// <summary>
+        /// 추출 루프가 모은 판정과 저장소 스캔이 찾은 "브랜치에만 있음"을 합친다.
+        /// DB에 닿지 않으므로 조합 자체는 DB 없이 테스트된다.
+        /// </summary>
+        internal static ComparisonResult BuildComparison(
+            System.Collections.Generic.IReadOnlyList<SchemaDifference> scriptedDifferences,
+            ISet<string> extractedPaths,
+            System.Collections.Generic.IReadOnlyList<string> repositoryPaths,
+            System.Collections.Generic.IReadOnlyList<string> failedObjects,
+            int comparedCount,
+            bool repositoryScanCompleted = true)
+        {
+            var result = new ComparisonResult
+            {
+                ComparedCount = comparedCount,
+                RepositoryScanCompleted = repositoryScanCompleted
+            };
+            result.Differences.AddRange(scriptedDifferences);
+            result.FailedObjects.AddRange(failedObjects);
+
+            // 판정하지 못한 객체는 어느 차이 상태로도 나가면 안 된다. 그 객체는 대상 DB에서
+            // 열거된 것이므로 "DB에 없다"가 거짓인데, 호출부가 extracted에 담는 것을 빠뜨리면
+            // FindMissingInDatabase가 그렇게 보고한다 - 목록과 실패 안내가 서로를 부정하고,
+            // 사용자가 실제로 행동하는 쪽은 목록이다. 여기서 한 번 더 거른다.
+            var failed = new HashSet<string>(failedObjects, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var missing in SchemaComparison.FindMissingInDatabase(repositoryPaths, extractedPaths))
+            {
+                if (failed.Contains(missing.QualifiedName)) continue;
+                result.Differences.Add(missing);
+            }
+
+            return result;
+        }
+
+        /// <summary>접속·열거를 한 번만 하고 세 진입점이 나눠 쓴다. 복사하면 SetDefaultInitFields
+        /// 튜닝이 한쪽에만 남아 다른 쪽이 객체당 수 초를 낸다.</summary>
+        private sealed class ScriptingSession : IDisposable
+        {
+            // ScriptOne이 실제로 스크립팅을 하는 시점은 이 세션을 돌려받은 뒤, 호출자가
+            // 자기 루프를 도는 동안이다. 그때까지 SqlConnection이 열려 있지 않으면
+            // "연결이 끊어졌다"로 스크립팅이 실패하므로, 여기서 붙들고 있다가 세션과
+            // 함께 닫는다 — 호출부는 using으로 세션을 감싸는 것으로 충분하다.
+            private readonly SqlConnection _connection;
+
+            public ScriptingSession(SqlConnection connection)
+            {
+                _connection = connection;
+            }
+
+            public IEnumerable<ScriptTargetInfo> Targets { get; set; } = Enumerable.Empty<ScriptTargetInfo>();
+
+            /// <summary>(target, stagingPath) — TextMode 해제와 Scripter 호출을 감싼다.</summary>
+            public Action<ScriptTargetInfo, string> ScriptOne { get; set; } = (t, p) => { };
+
+            /// <summary>매핑된 저장소 경로. 규약 경로 계산에만 쓰인다.</summary>
+            public string RepositoryPath { get; set; } = string.Empty;
+
+            public void Dispose() => _connection.Dispose();
+        }
+
+        /// <summary>
+        /// 접속하고 대상을 열거해 세 진입점(<see cref="ScriptObjectsDetailed"/>,
+        /// <see cref="CompareWithRepository"/>, <see cref="ScriptObjectToText"/>)이 나눠 쓸
+        /// 세션을 만든다. 실패하면 <c>null</c>이다 — 지금까지 <see cref="ScriptObjectsDetailed"/>가
+        /// null로 뭉개던 모든 자리와 같은 규칙이다.
+        ///
+        /// 반환한 세션은 호출자가 반드시 Dispose해야 한다(using) — SqlConnection을 세션이
+        /// 붙들고 있기 때문이다.
+        /// </summary>
+        private ScriptingSession? OpenScriptingSession(string serverName, string databaseName, List<string>? objectNames)
+        {
             if (string.IsNullOrWhiteSpace(serverName) || string.IsNullOrWhiteSpace(databaseName))
             {
                 return null;
@@ -76,11 +293,12 @@ namespace DBVC.Core
                 return null;
             }
 
+            SqlConnection? sqlConn = null;
             try
             {
                 var connStr = _connectionFactory.Build(serverName, databaseName);
 
-                using var sqlConn = new SqlConnection(connStr);
+                sqlConn = new SqlConnection(connStr);
                 var conn = new ServerConnection(sqlConn);
                 var server = new Server(conn);
                 ConfigureBulkEnumeration(server);
@@ -89,6 +307,7 @@ namespace DBVC.Core
                 if (db == null)
                 {
                     Trace.WriteLine($"Database '{databaseName}' not found on server '{serverName}'.");
+                    sqlConn.Dispose();
                     return null;
                 }
 
@@ -101,28 +320,32 @@ namespace DBVC.Core
                 var textObjects = new Dictionary<string, ITextObject>();
                 var targets = EnumerateTargets(db, textObjects).Where(t => ShouldInclude(t, filter));
 
-                return ScriptAll(targets, localGitPath!, (target, outputPath) =>
+                return new ScriptingSession(sqlConn)
                 {
-                    var urn = (Urn)target.Tag!;
-
-                    // 필터를 통과해 실제로 쓰는 객체만 끈다. 열거 중에 끄면 걸러질 객체까지
-                    // 전부 비용을 내고, 그러면 "바뀐 것만 추출한다"는 빠른 경로가 사라진다.
-                    if (textObjects.TryGetValue(urn.ToString(), out var textObject))
+                    Targets = targets,
+                    RepositoryPath = localGitPath!,
+                    // 두 번째 인자는 스테이징 경로다(선언 계약도 stagingPath다). outputPath로
+                    // 읽히면 SMO의 writer가 작업 트리를 직접 가리키게 되고, 그러면 실패한
+                    // 스크립팅이 저장소에 반쯤 쓰인 파일을 남긴다.
+                    ScriptOne = (target, stagingPath) =>
                     {
-                        DisableTextMode(textObject);
-                    }
+                        var urn = (Urn)target.Tag!;
 
-                    scripter.Options.FileName = outputPath;
-                    scripter.Script(new[] { urn });
-                }, progress, cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                // 사용자가 멈춘 것이다. null로 뭉개면 호출자가 "추출 실패"로 알린다.
-                throw;
+                        // 필터를 통과해 실제로 쓰는 객체만 끈다. 열거 중에 끄면 걸러질 객체까지
+                        // 전부 비용을 내고, 그러면 "바뀐 것만 추출한다"는 빠른 경로가 사라진다.
+                        if (textObjects.TryGetValue(urn.ToString(), out var textObject))
+                        {
+                            DisableTextMode(textObject);
+                        }
+
+                        scripter.Options.FileName = stagingPath;
+                        scripter.Script(new[] { urn });
+                    }
+                };
             }
             catch (Exception ex)
             {
+                sqlConn?.Dispose();
                 Trace.WriteLine($"Error during SMO scripting for '{serverName}.{databaseName}': {ex}");
                 return null;
             }
@@ -206,22 +429,49 @@ namespace DBVC.Core
         }
 
         /// <summary>
-        /// 대상 객체들을 하나씩 스크립팅한다.
-        /// 설계 3.1에 따라 개별 객체의 실패는 격리되어 전체 프로세스를 중단시키지 않는다.
+        /// 추출해서 저장소에 반영한다. <see cref="RunScriptingLoop"/>에 지금까지의 반영
+        /// 방식(내용이 같으면 건드리지 않는 복사)을 넘기는 래퍼다.
         ///
-        /// 스크립트는 작업 트리 밖의 임시 파일에 먼저 쓰고, 기존 파일과 바이트가 다를 때만
-        /// 옮긴다. 내용이 같은데도 덮어쓰면 파일의 mtime이 바뀌고, 그러면 libgit2의 status가
-        /// 인덱스에 캐시된 stat 정보를 믿지 못해 추적 파일 전부를 다시 읽어 해시한다 —
-        /// 객체 3000개 기준으로 status 한 번이 18ms에서 6.6초가 된다. DBVC는 새로고침마다
-        /// 전 객체를 추출하므로 이 비용이 매번 붙는다.
-        ///
-        /// 임시 파일을 작업 트리 안에 두지 않는 이유는 두 가지다 — git이 미추적 파일로 잡아
-        /// 변경 목록을 오염시키고, 스크립팅이 중간에 실패하면 반쯤 쓰인 파일이 남는다.
+        /// 서명을 그대로 두는 이유는 이 오버로드를 부르는 테스트가 여럿이고, 그것들이
+        /// 검증하는 것은 "반영"의 규칙이지 루프의 구조가 아니기 때문이다.
         /// </summary>
         internal static ScriptResult ScriptAll(
             IEnumerable<ScriptTargetInfo> targets,
             string localGitPath,
             Action<ScriptTargetInfo, string> scriptOne,
+            IProgress<ExtractionProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            return RunScriptingLoop(
+                targets,
+                localGitPath,
+                scriptOne,
+                (target, stagingPath, outputPath) => PublishIfChanged(stagingPath, outputPath),
+                progress,
+                cancellationToken);
+        }
+
+        /// <summary>
+        /// 객체마다 스테이징에 뜬 뒤 <paramref name="onScripted"/>에게 넘긴다.
+        /// 취소·진행률·객체별 실패 격리·스테이징 정리가 여기 한 벌만 있다.
+        ///
+        /// 추출과 차이 검사가 이 루프를 공유하는 것이 요점이다. 검사용으로 루프를 따로 쓰면
+        /// 취소가 한쪽에만 붙거나 실패 격리가 갈라지는 일이 실제로 일어난다.
+        ///
+        /// 스크립트는 작업 트리 밖의 임시 파일에 먼저 쓴다. 임시 파일을 작업 트리 안에 두지
+        /// 않는 이유는 두 가지다 — git이 미추적 파일로 잡아 변경 목록을 오염시키고, 스크립팅이
+        /// 중간에 실패하면 반쯤 쓰인 파일이 남는다.
+        /// </summary>
+        /// <param name="onScripted">
+        /// <c>(target, stagingPath, outputPath)</c>. <c>stagingPath</c>는 이 콜백이 돌아오면
+        /// 지워지므로 콜백 안에서만 읽을 수 있다. <c>outputPath</c>는 규약이 정한 저장소 경로이며
+        /// 파일이 실제로 있는지는 보장하지 않는다.
+        /// </param>
+        internal static ScriptResult RunScriptingLoop(
+            IEnumerable<ScriptTargetInfo> targets,
+            string repositoryPath,
+            Action<ScriptTargetInfo, string> scriptOne,
+            Action<ScriptTargetInfo, string, string> onScripted,
             IProgress<ExtractionProgress>? progress = null,
             CancellationToken cancellationToken = default)
         {
@@ -248,11 +498,11 @@ namespace DBVC.Core
                     try
                     {
                         var outputPath = Path.Combine(
-                            localGitPath,
+                            repositoryPath,
                             target.RelativePath.Replace('/', Path.DirectorySeparatorChar));
 
                         scriptOne(target, stagingPath);
-                        PublishIfChanged(stagingPath, outputPath);
+                        onScripted(target, stagingPath, outputPath);
                         result.SucceededCount++;
                     }
                     catch (Exception ex)
@@ -280,7 +530,12 @@ namespace DBVC.Core
         }
 
         /// <summary>
-        /// 갓 추출한 파일을 최종 경로에 반영한다. 바이트가 같으면 아무것도 하지 않는다.
+        /// 갓 추출한 파일을 최종 경로에 반영한다. 기존 파일과 바이트가 다를 때만 옮긴다.
+        ///
+        /// 내용이 같은데도 덮어쓰면 파일의 mtime이 바뀌고, 그러면 libgit2의 status가 인덱스에
+        /// 캐시된 stat 정보를 믿지 못해 추적 파일 전부를 다시 읽어 해시한다 — 객체 3000개
+        /// 기준으로 status 한 번이 18ms에서 6.6초가 된다. DBVC는 새로고침마다 전 객체를
+        /// 추출하므로 이 비용이 매번 붙는다.
         /// </summary>
         private static void PublishIfChanged(string stagingPath, string outputPath)
         {
@@ -293,7 +548,7 @@ namespace DBVC.Core
             File.Copy(stagingPath, outputPath, overwrite: true);
         }
 
-        private static bool HasSameBytes(string stagingPath, string outputPath)
+        internal static bool HasSameBytes(string stagingPath, string outputPath)
         {
             if (!File.Exists(outputPath)) return false;
 

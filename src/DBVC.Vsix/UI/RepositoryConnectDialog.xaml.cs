@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using DBVC.Core;
+using DBVC.Core.Models;
 using DBVC.Vsix.Services;
 
 namespace DBVC.Vsix.UI
@@ -58,6 +59,8 @@ namespace DBVC.Vsix.UI
 
         private void Ok_Click(object sender, RoutedEventArgs e)
         {
+            if (!TryReadUsage(out var mode, out var branch)) return;
+
             if (ExistingChoice.IsChecked == true)
             {
                 if (string.IsNullOrWhiteSpace(ExistingPathBox.Text))
@@ -66,7 +69,7 @@ namespace DBVC.Vsix.UI
                     return;
                 }
 
-                Result = RepositoryConnectRequest.ForExistingFolder(ExistingPathBox.Text.Trim());
+                Result = RepositoryConnectRequest.ForExistingFolder(ExistingPathBox.Text.Trim(), mode, branch);
                 DialogResult = true;
                 return;
             }
@@ -84,8 +87,30 @@ namespace DBVC.Vsix.UI
             }
 
             var target = Path.Combine(ParentFolderBox.Text.Trim(), FolderNameBox.Text.Trim());
-            Result = RepositoryConnectRequest.ForClone(RemoteUrlBox.Text.Trim(), target);
+            Result = RepositoryConnectRequest.ForClone(RemoteUrlBox.Text.Trim(), target, mode, branch);
             DialogResult = true;
+        }
+
+        /// <summary>
+        /// 용도·브랜치 입력을 읽고 검증한다. 두 갈래(기존 폴더/클론)가 같은 규칙을 쓴다 -
+        /// 나눠 두면 한쪽만 고쳐진 채로 남는다.
+        /// </summary>
+        private bool TryReadUsage(out MappingMode mode, out string? branch)
+        {
+            mode = DeployMode.IsChecked == true ? MappingMode.Deploy
+                 : AuditMode.IsChecked == true ? MappingMode.Audit
+                 : MappingMode.Write;
+
+            branch = string.IsNullOrWhiteSpace(BranchBox.Text) ? null : BranchBox.Text.Trim();
+
+            // 고정 없는 배포 클론은 아무 브랜치나 가리킨 채로 "운영과 다릅니다"를 보고한다.
+            if (mode != MappingMode.Write && branch == null)
+            {
+                ShowError("배포·감사 용도는 고정할 브랜치를 입력해야 합니다.");
+                return false;
+            }
+
+            return true;
         }
 
         private void ShowError(string message)

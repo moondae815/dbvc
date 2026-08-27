@@ -75,5 +75,45 @@ namespace DBVC.Core.Tests
             Assert.That(ObjectPathConvention.GetQualifiedName("dbo", "Users"), Is.EqualTo("dbo.Users"));
             Assert.That(ObjectPathConvention.GetQualifiedName(null, "Users"), Is.EqualTo("dbo.Users"));
         }
+
+        // ---------- CREATE OR ALTER 지원 타입 ----------
+
+        [TestCase("StoredProcedure")]
+        [TestCase("View")]
+        [TestCase("UserDefinedFunction")]
+        [TestCase("Trigger")]
+        public void SupportsCreateOrAlter_ReturnsTrue_ForTheFourTsqlTypes(string objectType)
+        {
+            Assert.That(ObjectPathConvention.SupportsCreateOrAlter(objectType), Is.True);
+        }
+
+        [TestCase("Table")]
+        [TestCase("Sequence")]
+        [TestCase("Synonym")]
+        [TestCase("UserDefinedType")]
+        [TestCase("UserDefinedDataType")]
+        [TestCase("UserDefinedTableType")]
+        public void SupportsCreateOrAlter_ReturnsFalse_ForEveryOtherType(string objectType)
+        {
+            // 테이블만 빼면 Sequence·Synonym 같은 것들이 조용히 스크립트에 들어가
+            // "이미 있습니다"로 실패한다. 축은 "테이블인가"가 아니다.
+            Assert.That(ObjectPathConvention.SupportsCreateOrAlter(objectType), Is.False);
+        }
+
+        [Test]
+        public void SupportsCreateOrAlter_IgnoresCaseAndWhitespace()
+        {
+            Assert.That(ObjectPathConvention.SupportsCreateOrAlter("  storedprocedure  "), Is.True);
+        }
+
+        [TestCase(null)]
+        [TestCase("")]
+        [TestCase("   ")]
+        [TestCase("Other")]
+        public void SupportsCreateOrAlter_ReturnsFalse_WhenTypeIsUnknown(string? objectType)
+        {
+            // 모르는 타입은 안전한 쪽으로 떨어뜨린다. 실행 실패보다 "손으로 하세요"가 낫다.
+            Assert.That(ObjectPathConvention.SupportsCreateOrAlter(objectType), Is.False);
+        }
     }
 }

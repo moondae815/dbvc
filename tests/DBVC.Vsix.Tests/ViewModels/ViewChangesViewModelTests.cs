@@ -107,6 +107,17 @@ namespace DBVC.Vsix.Tests.ViewModels
             return vm;
         }
 
+        /// <summary>
+        /// mode가 지정된 매핑을 가진 대상에 접속한 뷰모델. Deploy/Audit 게이팅과 패널 전환
+        /// 테스트가 이것을 쓴다.
+        /// </summary>
+        private ViewChangesViewModel NewViewModelForMappedTarget(MappingMode mode)
+        {
+            _config.Setup(c => c.TryGetMapping(Server, Database))
+                .Returns(new MappingConfig { ServerName = Server, DatabaseName = Database, GitPath = @"C:\repo", Mode = mode });
+            return NewConnectedViewModel();
+        }
+
         private static SsmsConnectionInfo Info(
             string server = Server,
             string database = Database,
@@ -869,12 +880,14 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _git.Setup(g => g.IsRepository(@"C:\chosen-repo")).Returns(true);
-            _connectDialog.RequestToReturn = RepositoryConnectRequest.ForExistingFolder(@"C:\chosen-repo");
+            _connectDialog.RequestToReturn = RepositoryConnectRequest.ForExistingFolder(@"C:\chosen-repo", MappingMode.Write, null);
             var vm = NewConnectedViewModel();
 
             vm.ConnectRepositoryCommand.Execute(null);
 
-            _config.Verify(c => c.AddMapping(Server, Database, @"C:\chosen-repo"), Times.Once);
+            _config.Verify(c => c.AddMapping(It.Is<MappingConfig>(m =>
+                m.ServerName == Server && m.DatabaseName == Database && m.GitPath == @"C:\chosen-repo"
+                && m.Mode == MappingMode.Write && m.Branch == null)), Times.Once);
         }
 
         [Test]
@@ -887,7 +900,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.ConnectRepositoryCommand.Execute(null);
 
             Assert.That(_connectDialog.CallCount, Is.EqualTo(1));
-            _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            _config.Verify(c => c.AddMapping(It.IsAny<MappingConfig>()), Times.Never);
             Assert.That(_notifier.Errors, Is.Empty, "취소는 오류가 아닙니다");
         }
 
@@ -896,12 +909,12 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _git.Setup(g => g.IsRepository(It.IsAny<string>())).Returns(false);
-            _connectDialog.RequestToReturn = RepositoryConnectRequest.ForExistingFolder(@"C:\not-a-repo");
+            _connectDialog.RequestToReturn = RepositoryConnectRequest.ForExistingFolder(@"C:\not-a-repo", MappingMode.Write, null);
             var vm = NewConnectedViewModel();
 
             vm.ConnectRepositoryCommand.Execute(null);
 
-            _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            _config.Verify(c => c.AddMapping(It.IsAny<MappingConfig>()), Times.Never);
             Assert.That(_notifier.Errors, Is.Not.Empty,
                 "유효하지 않은 경로를 저장하면 이후 모든 동작이 조용히 실패합니다");
         }
@@ -911,16 +924,18 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _connectDialog.RequestToReturn =
-                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema", MappingMode.Write, null);
             _git.Setup(g => g.CloneRepository(
                     "git@host:org/db-schema.git", @"C:\repos\db-schema",
-                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>(), null))
                 .Returns(@"C:\repos\db-schema");
             var vm = NewConnectedViewModel();
 
             vm.ConnectRepositoryCommand.Execute(null);
 
-            _config.Verify(c => c.AddMapping(Server, Database, @"C:\repos\db-schema"), Times.Once);
+            _config.Verify(c => c.AddMapping(It.Is<MappingConfig>(m =>
+                m.ServerName == Server && m.DatabaseName == Database && m.GitPath == @"C:\repos\db-schema"
+                && m.Mode == MappingMode.Write && m.Branch == null)), Times.Once);
         }
 
         [Test]
@@ -929,16 +944,16 @@ namespace DBVC.Vsix.Tests.ViewModels
             // 절반만 받아진 저장소가 매핑되면 이후 모든 동작이 조용히 이상해진다.
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _connectDialog.RequestToReturn =
-                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema", MappingMode.Write, null);
             _git.Setup(g => g.CloneRepository(
                     It.IsAny<string>(), It.IsAny<string>(),
-                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()))
                 .Throws(new GitRemoteException("원격과 통신하지 못했습니다."));
             var vm = NewConnectedViewModel();
 
             vm.ConnectRepositoryCommand.Execute(null);
 
-            _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            _config.Verify(c => c.AddMapping(It.IsAny<MappingConfig>()), Times.Never);
             Assert.That(_notifier.Errors, Is.Not.Empty);
         }
 
@@ -947,10 +962,10 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _connectDialog.RequestToReturn =
-                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema", MappingMode.Write, null);
             _git.Setup(g => g.CloneRepository(
                     It.IsAny<string>(), It.IsAny<string>(),
-                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()))
                 .Throws(new OperationCanceledException("원격 저장소 받기를 취소했습니다."));
             var vm = NewConnectedViewModel();
 
@@ -958,7 +973,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(_notifier.Errors, Is.Empty,
                 "사용자가 누른 취소를 오류 상자로 알리면 자기가 누른 것을 오류로 되읽습니다");
-            _config.Verify(c => c.AddMapping(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            _config.Verify(c => c.AddMapping(It.IsAny<MappingConfig>()), Times.Never);
         }
 
         [Test]
@@ -968,15 +983,15 @@ namespace DBVC.Vsix.Tests.ViewModels
             // 살려 두면 사용자가 도구가 굳었다고 읽는다.
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _connectDialog.RequestToReturn =
-                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema", MappingMode.Write, null);
 
             ViewChangesViewModel? vm = null;
             var cancellableDuringCheckout = true;
 
             _git.Setup(g => g.CloneRepository(
                     It.IsAny<string>(), It.IsAny<string>(),
-                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
-                .Returns((string url, string path, IProgress<CloneProgress>? progress, CancellationToken token) =>
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()))
+                .Returns((string url, string path, IProgress<CloneProgress>? progress, CancellationToken token, string? branchName) =>
                 {
                     progress?.Report(new CloneProgress(ClonePhase.Transferring, 10, 100));
                     progress?.Report(new CloneProgress(ClonePhase.CheckingOut, 1, 10));
@@ -998,15 +1013,15 @@ namespace DBVC.Vsix.Tests.ViewModels
             // 두 clone이 동시에 돌고 취소가 더 이상 첫 clone을 멈추지 못하게 된다.
             _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
             _connectDialog.RequestToReturn =
-                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema");
+                RepositoryConnectRequest.ForClone("git@host:org/db-schema.git", @"C:\repos\db-schema", MappingMode.Write, null);
 
             ViewChangesViewModel? vm = null;
             var canExecuteDuringClone = true;
 
             _git.Setup(g => g.CloneRepository(
                     It.IsAny<string>(), It.IsAny<string>(),
-                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>()))
-                .Returns((string url, string path, IProgress<CloneProgress>? progress, CancellationToken token) =>
+                    It.IsAny<IProgress<CloneProgress>>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()))
+                .Returns((string url, string path, IProgress<CloneProgress>? progress, CancellationToken token, string? branchName) =>
                 {
                     canExecuteDuringClone = vm!.ConnectRepositoryCommand.CanExecute(null);
                     return path;
@@ -1016,6 +1031,22 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.ConnectRepositoryCommand.Execute(null);
 
             Assert.That(canExecuteDuringClone, Is.False);
+        }
+
+        [Test]
+        public void ConnectRepository_StoresModeAndBranch_WhenUserPicksDeploy()
+        {
+            // 손편집으로 두면 오타 한 글자가 Audit으로 떨어지고, 사용자에게는
+            // "왜 아무것도 안 되지"로 보인다.
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _git.Setup(g => g.IsRepository(It.IsAny<string>())).Returns(true);
+            _connectDialog.RequestToReturn = RepositoryConnectRequest.ForExistingFolder(@"C:\repo", MappingMode.Deploy, "develop");
+
+            var vm = NewConnectedViewModel();
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            _config.Verify(c => c.AddMapping(It.Is<MappingConfig>(
+                m => m.Mode == MappingMode.Deploy && m.Branch == "develop")), Times.Once);
         }
 
         // ---------- 객체 이력 ----------
@@ -1804,7 +1835,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(File.Exists(outputPath), Is.True);
             var script = File.ReadAllText(outputPath);
-            Assert.That(script, Does.Contain("DBVC Deployment Script"));
+            Assert.That(script, Does.Contain("DBVC 배포 스크립트"));
             Assert.That(script, Does.Contain("CREATE TABLE Users (Id INT);"));
         }
 
@@ -1832,7 +1863,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.GenerateRollbackScriptCommand.Execute(null);
 
             var script = File.ReadAllText(outputPath);
-            Assert.That(script, Does.Contain("DBVC Rollback Script"));
+            Assert.That(script, Does.Contain("DBVC 롤백 스크립트"));
             Assert.That(script, Does.Contain("OldCol"));
         }
 
@@ -2439,75 +2470,6 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.IsBusy, Is.False);
         }
 
-        private sealed class RecordingSaveDialog : IFileSaveDialog
-        {
-            public string? PathToReturn { get; set; }
-            public int CallCount { get; private set; }
-            public string? LastDefaultFileName { get; private set; }
-
-            public string? PromptForSavePath(string title, string defaultFileName)
-            {
-                CallCount++;
-                LastDefaultFileName = defaultFileName;
-                return PathToReturn;
-            }
-        }
-
-        private sealed class RecordingNotifier : IUserNotifier
-        {
-            public List<string> Errors { get; } = new List<string>();
-            public List<string> Infos { get; } = new List<string>();
-
-            /// <summary>ShowInfo에 실제로 전달된 (title, message) 쌍.</summary>
-            public List<(string Title, string Message)> InfoCalls { get; } = new List<(string, string)>();
-
-            /// <summary>
-            /// ShowError에 실제로 전달된 (title, message) 쌍.
-            /// Errors는 message만 담아 기존 테스트를 그대로 두는데, 그것만으로는
-            /// title이 다른 두 catch 분기(예: 병합 충돌 vs. 예기치 못한 실패)를
-            /// 구분해서 검증할 수 없다.
-            /// </summary>
-            public List<(string Title, string Message)> ErrorCalls { get; } = new List<(string, string)>();
-
-            /// <summary>Confirm의 응답. 기본이 "계속"이라 기존 테스트의 동작이 바뀌지 않는다.</summary>
-            public bool ConfirmResult { get; set; } = true;
-            public int ConfirmCallCount { get; private set; }
-
-            /// <summary>Confirm에 실제로 전달된 (title, message) 쌍. 문구 자체를 검증할 때 쓴다.</summary>
-            public List<(string Title, string Message)> ConfirmCalls { get; } = new List<(string, string)>();
-
-            public void ShowError(string title, string message)
-            {
-                Errors.Add(message);
-                ErrorCalls.Add((title, message));
-            }
-
-            public void ShowInfo(string title, string message)
-            {
-                Infos.Add(message);
-                InfoCalls.Add((title, message));
-            }
-
-            public bool Confirm(string title, string message)
-            {
-                ConfirmCallCount++;
-                ConfirmCalls.Add((title, message));
-                return ConfirmResult;
-            }
-        }
-
-        private sealed class RecordingConnectDialog : IRepositoryConnectDialog
-        {
-            public RepositoryConnectRequest? RequestToReturn { get; set; }
-            public int CallCount { get; private set; }
-
-            public RepositoryConnectRequest? Prompt(string serverName, string databaseName)
-            {
-                CallCount++;
-                return RequestToReturn;
-            }
-        }
-
         [Test]
         public void CurrentBranch_ShowsRepositoryBranch_WhenConnected()
         {
@@ -2692,6 +2654,173 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(_notifier.ConfirmCallCount, Is.EqualTo(before),
                 "경고할 것이 없는데 확인을 물었습니다 - 매번 뜨면 사용자가 읽지 않게 된다");
+        }
+
+        // ---------- 용도별 패널·명령 게이팅 ----------
+
+        [Test]
+        public void SetupCommand_IsDisabled_WhenModeIsAudit()
+        {
+            // 화면이 오버레이를 띄우지 않더라도 명령이 살아 있으면 코드 경로가 하나 늘 때
+            // 다시 눌린다.
+            var vm = NewViewModelForMappedTarget(MappingMode.Audit);
+
+            Assert.That(vm.SetupCommand.CanExecute(null), Is.False);
+        }
+
+        [Test]
+        public void CommitCommand_IsDisabled_WhenModeIsDeploy()
+        {
+            var vm = NewViewModelForMappedTarget(MappingMode.Deploy);
+
+            Assert.That(vm.CommitCommand.CanExecute(null), Is.False);
+        }
+
+        [Test]
+        public void ShowDeploymentPanel_IsTrue_WhenModeIsNotWrite()
+        {
+            var vm = NewViewModelForMappedTarget(MappingMode.Deploy);
+
+            Assert.That(vm.ShowDeploymentPanel, Is.True);
+            Assert.That(vm.ShowSetupOverlay, Is.False);
+            Assert.That(vm.ShowChangeList, Is.False);
+        }
+
+        [Test]
+        public void ParentCommands_AreDisabled_WhileTheDeploymentPanelIsWorking()
+        {
+            // 두 화면이 같은 저장소와 같은 접속을 쓴다. 배포 쪽이 전체 비교를 도는 동안
+            // 여기서 Pull이 눌리면 작업 트리를 동시에 건드린다.
+            var vm = NewViewModelForMappedTarget(MappingMode.Write);
+            var wasEnabled = vm.PullCommand.CanExecute(null);
+
+            vm.Deployment.Busy.IsBusy = true;
+
+            Assert.That(wasEnabled, Is.True, "전제가 깨졌다 - 눌리지 않던 버튼으로는 잠김을 확인할 수 없다");
+            Assert.That(vm.PullCommand.CanExecute(null), Is.False);
+            Assert.That(vm.IsBusy, Is.True, "BusyState가 공유되지 않으면 부모가 자식의 작업을 모른다");
+        }
+
+        [Test]
+        public void Deployment_ClearsPreviousResult_WhenSwitchingToATargetWhoseProbeFails()
+        {
+            // Connect()는 완전히 다른 대상으로 바꿀 수 있다. 그 첫 판정이 접속 실패로 끝나도
+            // Deployment가 이전 대상의 비교 결과를 그대로 들고 있으면, 새 대상 이름 아래
+            // 옛 차이 목록이 뜬다 - 운영과 테스트의 차이를 서로 뒤바꿔 읽게 되는 사고다.
+            var vm = NewViewModelForMappedTarget(MappingMode.Deploy);
+
+            var result = new ComparisonResult { ComparedCount = 5 };
+            result.Differences.Add(new SchemaDifference(
+                "dbo.P", "dbo/StoredProcedures/P.sql", "StoredProcedure", ObjectDiffState.Modified));
+            _smo.Setup(s => s.CompareWithRepository(
+                    Server, Database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns(result);
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.AlreadyUpToDate);
+
+            vm.Deployment.CompareCommand.Execute(null);
+
+            Assert.That(vm.Deployment.Differences, Is.Not.Empty,
+                "전제가 깨졌다 - 비교 결과가 없으면 지워졌는지 확인할 수 없다");
+
+            const string otherServer = "OtherServer";
+            const string otherDatabase = "OtherDb";
+            _stateTracker.Setup(s => s.TestConnection(otherServer, otherDatabase)).Returns("연결할 수 없습니다.");
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info(server: otherServer, database: otherDatabase));
+
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.Deployment.Differences, Is.Empty,
+                "이전 대상의 차이 목록이 새 대상 이름 아래 그대로 남아 있다");
+            Assert.That(vm.Deployment.SummaryText, Is.Null);
+            Assert.That(vm.Deployment.HasResult, Is.False);
+        }
+
+        [Test]
+        public void Deployment_ClearsPreviousResult_WhenTheNewConnectionIsUnsupported()
+        {
+            // Entra ID 연결은 인증 정보를 얻을 길이 없어 Connect가 조기 반환한다. 그 갈래는
+            // ApplyContextProbe에 닿지 않으므로, 대상 전환이 그쪽에만 걸려 있으면 머리글은
+            // TEST인데 목록과 [차이 검사]의 대상은 PROD로 남는다.
+            var vm = NewViewModelWithDeploymentResult();
+
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(
+                Info(server: "OtherServer", database: "OtherDb", unsupportedReason: "지원하지 않는 인증입니다."));
+
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.Deployment.Differences, Is.Empty,
+                "이전 대상의 차이 목록이 새 대상 이름 아래 그대로 남아 있다");
+            Assert.That(vm.Deployment.SummaryText, Is.Null);
+            Assert.That(vm.Deployment.HasResult, Is.False);
+            Assert.That(vm.ShowDeploymentPanel, Is.False,
+                "용도를 판정하지 못한 대상에 이전 대상의 배포 패널이 계속 떠 있다");
+
+            AssertCompareTargetsTheCurrentTarget(vm, "OtherServer", "OtherDb");
+        }
+
+        [Test]
+        public void Deployment_ClearsPreviousResult_WhenTheContextProbeThrows()
+        {
+            // ProbeContext는 TestConnection뿐 아니라 GetInstalledVersion·GetRepositoryState도
+            // 부른다. 그중 하나가 던지면 실패 콜백만 돌고 ApplyContextProbe는 아예 돌지 않는다.
+            var vm = NewViewModelWithDeploymentResult();
+
+            const string otherServer = "OtherServer";
+            const string otherDatabase = "OtherDb";
+            _stateTracker.Setup(s => s.TestConnection(otherServer, otherDatabase)).Returns((string?)null);
+            _stateTracker.Setup(s => s.GetInstalledVersion(otherServer, otherDatabase))
+                .Throws(new InvalidOperationException("서버가 응답하지 않습니다."));
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info(server: otherServer, database: otherDatabase));
+
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.Deployment.Differences, Is.Empty,
+                "판정이 예외로 끝났는데 이전 대상의 차이 목록이 남아 있다");
+            Assert.That(vm.Deployment.SummaryText, Is.Null);
+            Assert.That(vm.Deployment.HasResult, Is.False);
+
+            AssertCompareTargetsTheCurrentTarget(vm, otherServer, otherDatabase);
+        }
+
+        /// <summary>Deploy 매핑 대상에 접속해 차이 목록을 한 번 채워 둔다.</summary>
+        private ViewChangesViewModel NewViewModelWithDeploymentResult()
+        {
+            var vm = NewViewModelForMappedTarget(MappingMode.Deploy);
+
+            var result = new ComparisonResult { ComparedCount = 5 };
+            result.Differences.Add(new SchemaDifference(
+                "dbo.P", "dbo/StoredProcedures/P.sql", "StoredProcedure", ObjectDiffState.Modified));
+            _smo.Setup(s => s.CompareWithRepository(
+                    Server, Database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns(result);
+            _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.AlreadyUpToDate);
+
+            vm.Deployment.CompareCommand.Execute(null);
+
+            Assert.That(vm.Deployment.Differences, Is.Not.Empty,
+                "전제가 깨졌다 - 비교 결과가 없으면 지워졌는지 확인할 수 없다");
+            return vm;
+        }
+
+        /// <summary>
+        /// 화면이 말하는 대상과 [차이 검사]가 실제로 비교하는 대상이 같은지 본다.
+        /// 목록만 지우고 대상을 그대로 두면 "화면은 TEST, 비교는 PROD"가 된다.
+        /// </summary>
+        private void AssertCompareTargetsTheCurrentTarget(ViewChangesViewModel vm, string server, string database)
+        {
+            _git.Setup(g => g.PullChanges(server, database)).Returns(PullResult.AlreadyUpToDate);
+            _smo.Setup(s => s.CompareWithRepository(
+                    server, database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns(new ComparisonResult { ComparedCount = 0 });
+
+            vm.Deployment.CompareCommand.Execute(null);
+
+            _smo.Verify(s => s.CompareWithRepository(
+                server, database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()),
+                Times.Once, "화면이 말하는 대상이 아니라 이전 대상을 비교했다");
+            _smo.Verify(s => s.CompareWithRepository(
+                Server, Database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()),
+                Times.Once, "대상을 바꾼 뒤에도 이전 대상을 다시 비교했다");
         }
     }
 }

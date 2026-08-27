@@ -50,7 +50,8 @@ namespace DBVC.Core
             string remoteUrl,
             string targetPath,
             IProgress<CloneProgress>? progress,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            string? branchName = null)
         {
             if (string.IsNullOrWhiteSpace(remoteUrl))
             {
@@ -83,6 +84,13 @@ namespace DBVC.Core
                 OnCheckoutProgress = (path, completed, total) =>
                     progress?.Report(new CloneProgress(ClonePhase.CheckingOut, completed, total))
             };
+
+            // 배포·감사 클론은 특정 브랜치에 고정된다. 원격 HEAD를 받아 두면 받자마자
+            // 브랜치 불일치로 차단되어 사용자가 외부 클라이언트를 다시 꺼내야 한다.
+            if (!string.IsNullOrWhiteSpace(branchName))
+            {
+                options.BranchName = branchName;
+            }
 
             // 자격 증명과 전송 진행률은 CloneOptions가 아니라 그 안의 FetchOptions에 있다.
             // new CloneOptions()가 FetchOptions를 이미 채워 주므로 그대로 쓴다(실측 확인).
@@ -158,7 +166,13 @@ namespace DBVC.Core
             var detached = repo.Info.IsHeadDetached;
             var branch = detached ? null : repo.Head.FriendlyName;
 
-            var reason = RepositoryStateEvaluator.Evaluate(branch, detached, operation, mapping.Branch);
+            // write에서는 더러운 트리가 정상이므로 묻지 않는다. RetrieveStatus는 작업 트리
+            // 전체를 훑어 객체 수에 비례하는 비용이 있고, 이 함수는 대상을 열 때마다 돈다.
+            var dirty = mapping.Mode != MappingMode.Write
+                && repo.RetrieveStatus(UntrackedInclusiveOptions).IsDirty;
+
+            var reason = RepositoryStateEvaluator.Evaluate(
+                branch, detached, operation, mapping.Branch, mapping.Mode, dirty);
 
             return new RepositoryState
             {
@@ -286,6 +300,14 @@ namespace DBVC.Core
         {
             var repoPath = ResolveRepoPath(serverName, databaseName);
             if (repoPath == null) return GitCommitResult.NotMapped;
+
+            // 테스트 DB에서 나온 추출물은 새 변경이 아니라 배포 결과다. 커밋하면 develop에
+            // 자기 자신을 되먹이고, 배포가 덜 된 상태였다면 그것을 정답으로 굳혀 버린다.
+            var mapping = _configManager?.TryGetMapping(serverName, databaseName);
+            if (mapping != null && !MappingPolicy.IsAllowed(mapping.Mode, DbvcOperation.Commit))
+            {
+                throw new OperationNotAllowedException(mapping.Mode, DbvcOperation.Commit);
+            }
 
             using var repo = new Repository(repoPath);
 
@@ -472,6 +494,14 @@ namespace DBVC.Core
             var repoPath = ResolveRepoPath(serverName, databaseName);
             if (repoPath == null) return PushResult.NoMapping;
 
+            // 커밋을 막아도 그 전에 만들어진 로컬 커밋이 남아 있을 수 있다 - Push까지 막지
+            // 않으면 커밋 차단이 우회로를 하나 남기는 셈이다.
+            var mapping = _configManager?.TryGetMapping(serverName, databaseName);
+            if (mapping != null && !MappingPolicy.IsAllowed(mapping.Mode, DbvcOperation.Push))
+            {
+                throw new OperationNotAllowedException(mapping.Mode, DbvcOperation.Push);
+            }
+
             using var repo = new Repository(repoPath);
 
             var guidance = ValidateRemoteAndBuildGuidance(repo, repoPath, "Push");
@@ -563,7 +593,7 @@ namespace DBVC.Core
         {
             if (!repo.Network.Remotes.Any())
             {
-                throw new InvalidOperationException($"'{repoPath}' 저장소에 원격(remote)이 설정되어 있지 않아 {operationName}할 수 없습니다.");
+                throw new GitRemoteNotConfiguredException($"'{repoPath}' 저장소에 원격(remote)이 설정되어 있지 않아 {operationName}할 수 없습니다.");
             }
 
             // 원격만 있고 추적 브랜치가 없으면 libgit2가 영문 원문으로 거부한다. DBVC 온보딩이 실제로
@@ -572,7 +602,7 @@ namespace DBVC.Core
             if (!repo.Head.IsTracking)
             {
                 var branchName = repo.Head.FriendlyName;
-                throw new InvalidOperationException(
+                throw new GitRemoteNotConfiguredException(
                     $"'{repoPath}' 저장소의 현재 브랜치 '{branchName}'에 추적 중인 원격 브랜치가 없어 {operationName}할 수 없습니다. " +
                     $"Git 클라이언트에서 'git push -u origin {branchName}'을 한 번 실행해 추적을 설정한 뒤 다시 시도하세요.");
             }

@@ -1,3 +1,5 @@
+using DBVC.Core.Models;
+
 namespace DBVC.Vsix.Services
 {
     /// <summary>사용자가 고른 연결 방식.</summary>
@@ -15,19 +17,23 @@ namespace DBVC.Vsix.Services
     /// </summary>
     public sealed class RepositoryConnectRequest
     {
-        private RepositoryConnectRequest(RepositoryConnectKind kind, string? existingPath, string? remoteUrl, string? targetPath)
+        private RepositoryConnectRequest(
+            RepositoryConnectKind kind, string? existingPath, string? remoteUrl, string? targetPath,
+            MappingMode mode, string? branch)
         {
             Kind = kind;
             ExistingPath = existingPath;
             RemoteUrl = remoteUrl;
             TargetPath = targetPath;
+            Mode = mode;
+            Branch = branch;
         }
 
-        public static RepositoryConnectRequest ForExistingFolder(string path) =>
-            new RepositoryConnectRequest(RepositoryConnectKind.ExistingFolder, path, null, null);
+        public static RepositoryConnectRequest ForExistingFolder(string path, MappingMode mode, string? branch) =>
+            new RepositoryConnectRequest(RepositoryConnectKind.ExistingFolder, path, null, null, mode, branch);
 
-        public static RepositoryConnectRequest ForClone(string remoteUrl, string targetPath) =>
-            new RepositoryConnectRequest(RepositoryConnectKind.Clone, null, remoteUrl, targetPath);
+        public static RepositoryConnectRequest ForClone(string remoteUrl, string targetPath, MappingMode mode, string? branch) =>
+            new RepositoryConnectRequest(RepositoryConnectKind.Clone, null, remoteUrl, targetPath, mode, branch);
 
         public RepositoryConnectKind Kind { get; }
 
@@ -39,6 +45,16 @@ namespace DBVC.Vsix.Services
 
         /// <summary><see cref="RepositoryConnectKind.Clone"/>일 때만 값이 있다. 아직 없는 폴더 경로다.</summary>
         public string? TargetPath { get; }
+
+        /// <summary>이 저장소의 용도. 허용 동작을 정한다.</summary>
+        public MappingMode Mode { get; }
+
+        /// <summary>
+        /// 고정할 브랜치. 비면 전환이 자유롭다(개발 클론).
+        /// 배포·감사에서는 대화상자가 비우지 못하게 막는다 - 고정 없는 배포 클론은
+        /// 차단 판정이 막으려던 사고를 그대로 허용한다.
+        /// </summary>
+        public string? Branch { get; }
     }
 
     /// <summary>
