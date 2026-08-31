@@ -219,8 +219,16 @@ namespace DBVC.Vsix.ViewModels
             Busy.IsCancellable = true;
             Busy.ProgressText = "원격 저장소에서 가져오는 중...";
 
+            int lastUpdate = 0;
             var progress = new ExtractionProgressRelay(p =>
             {
+                var currentTick = Environment.TickCount;
+                if (p.Completed < p.Total && unchecked(currentTick - lastUpdate) < 100)
+                {
+                    return;
+                }
+                lastUpdate = currentTick;
+
                 var text = p.Total > 0
                     ? $"비교하는 중... {p.Completed}/{p.Total} — {p.CurrentObject}"
                     : "비교하는 중...";

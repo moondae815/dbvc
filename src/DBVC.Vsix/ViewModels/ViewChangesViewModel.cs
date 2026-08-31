@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -1034,6 +1034,9 @@ namespace DBVC.Vsix.ViewModels
             ProgressText = "원격 저장소를 받는 중...";
             RaiseActionCanExecuteChanged();
 
+            int lastUpdate = 0;
+            ClonePhase lastPhase = ClonePhase.Transferring;
+
             // 보고는 백그라운드 스레드에서 온다. 바인딩 속성은 UI 스레드에서만 바꾼다.
             var progress = new CloneProgressRelay(p =>
             {
@@ -1044,6 +1047,17 @@ namespace DBVC.Vsix.ViewModels
                 // 펼치는 단계는 libgit2가 중단을 받지 않는다. 취소 버튼을 살려 두면
                 // 눌러도 아무 일이 없고 "취소하는 중..."만 남는다.
                 var stillCancellable = p.Phase == ClonePhase.Transferring;
+
+                // UI 스레드 폭주를 막기 위한 스로틀링.
+                // libgit2는 전송 진행률을 객체 하나마다 부를 수 있고, 이것이 전부 Post되면
+                // UI 스레드가 멈춰 Cancel 클릭이 뒤늦게 처리되거나 무시된다.
+                var currentTick = Environment.TickCount;
+                if (p.Phase == lastPhase && p.Completed < p.Total && unchecked(currentTick - lastUpdate) < 100)
+                {
+                    return;
+                }
+                lastPhase = p.Phase;
+                lastUpdate = currentTick;
 
                 _scheduler.Post(() =>
                 {
@@ -1286,9 +1300,17 @@ namespace DBVC.Vsix.ViewModels
                 if (targets.Count == 0) return;
             }
 
+            int lastUpdate = 0;
             // 보고는 백그라운드 스레드에서 온다. 바인딩 속성은 UI 스레드에서만 바꾼다.
             var progress = new ExtractionProgressRelay(p =>
             {
+                var currentTick = Environment.TickCount;
+                if (p.Completed < p.Total && unchecked(currentTick - lastUpdate) < 100)
+                {
+                    return;
+                }
+                lastUpdate = currentTick;
+
                 var text = $"{p.Completed}/{p.Total} 추출 중 — {p.CurrentObject}";
                 _scheduler.Post(() => ProgressText = text);
             });
