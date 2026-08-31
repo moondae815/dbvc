@@ -39,6 +39,7 @@ namespace DBVC.Vsix
             await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
             await ViewChangesCommand.InitializeAsync(this);
             await CompareWithRepositoryCommand.InitializeAsync(this);
+            await ShowHistoryCommand.InitializeAsync(this);
         }
     }
 }

@@ -63,5 +63,8 @@ namespace DBVC.Vsix.Services
     {
         /// <summary>현재 선택에서 연결을 읽는다. 읽을 수 없으면 <c>null</c>(예외를 던지지 않는다).</summary>
         SsmsConnectionInfo? TryGetCurrent();
+
+        /// <summary>현재 선택된 개체 노드의 URN을 읽는다. 읽을 수 없으면 <c>null</c>.</summary>
+        string? TryGetSelectedUrn();
     }
 }

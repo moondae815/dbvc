@@ -23,6 +23,12 @@ namespace DBVC.Vsix.Tests.Services
         }
 
         [Test]
+        public void TryGetSelectedUrn_ReturnsNull_WhenTheShellIsNotThere()
+        {
+            Assert.That(new ObjectExplorerConnectionSource().TryGetSelectedUrn(), Is.Null);
+        }
+
+        [Test]
         public void TryGetCurrent_CanBeCalledRepeatedly()
         {
             var source = new ObjectExplorerConnectionSource();

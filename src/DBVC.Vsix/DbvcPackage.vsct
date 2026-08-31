@@ -24,6 +24,11 @@
       <Group guid="guidDbvcPackageCmdSet" id="DbvcEditorContextGroup" priority="0x0600">
         <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN"/>
       </Group>
+
+      <!-- SSMS 개체 탐색기 노드 컨텍스트 메뉴 -->
+      <Group guid="guidDbvcPackageCmdSet" id="DbvcObjectExplorerContextGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_ITEMNODE"/>
+      </Group>
     </Groups>
 
     <Buttons>
@@ -48,6 +53,17 @@
           <ToolTipText>선택한 객체를 Git 저장소의 버전과 비교합니다.</ToolTipText>
         </Strings>
       </Button>
+
+      <Button guid="guidDbvcPackageCmdSet" id="ShowHistoryCommandId" priority="0x0100" type="Button">
+        <Parent guid="guidDbvcPackageCmdSet" id="DbvcObjectExplorerContextGroup"/>
+        <CommandFlag>DefaultInvisible</CommandFlag>
+        <CommandFlag>DynamicVisibility</CommandFlag>
+        <Strings>
+          <ButtonText>DBVC: 이력 보기</ButtonText>
+          <MenuText>DBVC: 이력 보기</MenuText>
+          <ToolTipText>선택한 객체의 변경 이력을 조회합니다.</ToolTipText>
+        </Strings>
+      </Button>
     </Buttons>
 
   </Commands>
@@ -58,6 +74,8 @@
     <VisibilityItem guid="guidDbvcPackageCmdSet" id="ViewChangesCommandId" context="UICONTEXT_SolutionExists"/>
     <VisibilityItem guid="guidDbvcPackageCmdSet" id="CompareWithRepositoryCommandId" context="UICONTEXT_NoSolution"/>
     <VisibilityItem guid="guidDbvcPackageCmdSet" id="CompareWithRepositoryCommandId" context="UICONTEXT_SolutionExists"/>
+    <VisibilityItem guid="guidDbvcPackageCmdSet" id="ShowHistoryCommandId" context="UICONTEXT_NoSolution"/>
+    <VisibilityItem guid="guidDbvcPackageCmdSet" id="ShowHistoryCommandId" context="UICONTEXT_SolutionExists"/>
   </VisibilityConstraints>
 
   <Symbols>
@@ -66,8 +84,10 @@
     <GuidSymbol name="guidDbvcPackageCmdSet" value="{5c9e7b22-1d3f-4a68-b0c4-9e7d5f2a3b14}">
       <IDSymbol name="DbvcMenuGroup" value="0x1020" />
       <IDSymbol name="DbvcEditorContextGroup" value="0x1021" />
+      <IDSymbol name="DbvcObjectExplorerContextGroup" value="0x1022" />
       <IDSymbol name="ViewChangesCommandId" value="0x0100" />
       <IDSymbol name="CompareWithRepositoryCommandId" value="0x0101" />
+      <IDSymbol name="ShowHistoryCommandId" value="0x0102" />
     </GuidSymbol>
   </Symbols>
 

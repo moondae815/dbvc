@@ -64,6 +64,54 @@ namespace DBVC.Vsix.Services
             }
         }
 
+        public string? TryGetSelectedUrn()
+        {
+            try
+            {
+                var serviceCacheType = FindType(VsIntegrationAssembly, ServiceCacheTypeName);
+                var explorerServiceType = FindType(InterfacesAssembly, ObjectExplorerServiceTypeName);
+                var nodeContextType = FindType(InterfacesAssembly, NodeContextTypeName);
+                if (serviceCacheType == null || explorerServiceType == null || nodeContextType == null)
+                {
+                    return null;
+                }
+
+                var explorer = TryGetObjectExplorerService(explorerServiceType, serviceCacheType);
+                if (explorer == null)
+                {
+                    return null;
+                }
+
+                var getSelectedNodes = explorerServiceType.GetMethod("GetSelectedNodes");
+                if (getSelectedNodes == null)
+                {
+                    return null;
+                }
+
+                var args = new object?[] { 0, null };
+                getSelectedNodes.Invoke(explorer, args);
+
+                int count = args[0] is int selected ? selected : 0;
+                if (count != 1 || !(args[1] is Array nodes) || nodes.Length < 1)
+                {
+                    return null;
+                }
+
+                var node = nodes.GetValue(0);
+                if (node == null || !nodeContextType.IsInstanceOfType(node))
+                {
+                    return null;
+                }
+
+                return nodeContextType.GetProperty("Context")?.GetValue(node) as string;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ObjectExplorerConnectionSource.TryGetSelectedUrn failed: {ex.Message}");
+                return null;
+            }
+        }
+
         /// <summary>
         /// 멈춘 지점을 남기고 <c>null</c>을 돌려준다.
         ///
