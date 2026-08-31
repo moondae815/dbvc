@@ -67,5 +67,104 @@ namespace DBVC.Vsix.Tests.Services
             // IsNullOrWhiteSpace 관문이 맡는다 — 여기서는 반환값이 그대로 공백임을 고정한다.
             Assert.That(SsmsUrn.TryGetDatabaseName("Server[@Name='S']/Database[@Name=' ']"), Is.EqualTo(" "));
         }
+
+        [Test]
+        public void TryParseObjectIdentity_ValidTableUrn_ReturnsTrueAndExtractsParts()
+        {
+            var urn = "Server[@Name='HOST']/Database[@Name='SalesDB']/Table[@Name='Person' and @Schema='dbo']";
+            bool result = SsmsUrn.TryParseObjectIdentity(urn, out var db, out var schema, out var type, out var name);
+
+            Assert.That(result, Is.True);
+            Assert.That(db, Is.EqualTo("SalesDB"));
+            Assert.That(schema, Is.EqualTo("dbo"));
+            Assert.That(type, Is.EqualTo("Table"));
+            Assert.That(name, Is.EqualTo("Person"));
+        }
+
+        [Test]
+        public void TryParseObjectIdentity_ValidTableUrnWithoutSpaces_ReturnsTrueAndExtractsParts()
+        {
+            var urn = "Server[@Name='HOST\\INST']/Database[@Name='SalesDB']/Table[@Name='Person'and@Schema='dbo']";
+            bool result = SsmsUrn.TryParseObjectIdentity(urn, out var db, out var schema, out var type, out var name);
+
+            Assert.That(result, Is.True);
+            Assert.That(db, Is.EqualTo("SalesDB"));
+            Assert.That(schema, Is.EqualTo("dbo"));
+            Assert.That(type, Is.EqualTo("Table"));
+            Assert.That(name, Is.EqualTo("Person"));
+        }
+
+        [Test]
+        public void TryParseObjectIdentity_SchemaBeforeName_ReturnsTrueAndExtractsParts()
+        {
+            var urn = "Server[@Name='HOST']/Database[@Name='SalesDB']/StoredProcedure[@Schema='dbo' and @Name='usp_GetCustomer']";
+            bool result = SsmsUrn.TryParseObjectIdentity(urn, out var db, out var schema, out var type, out var name);
+
+            Assert.That(result, Is.True);
+            Assert.That(db, Is.EqualTo("SalesDB"));
+            Assert.That(schema, Is.EqualTo("dbo"));
+            Assert.That(type, Is.EqualTo("StoredProcedure"));
+            Assert.That(name, Is.EqualTo("usp_GetCustomer"));
+        }
+
+        [Test]
+        public void TryParseObjectIdentity_ObjectWithoutSchema_ReturnsTrueWithNullSchema()
+        {
+            var urn = "Server[@Name='HOST']/Database[@Name='SalesDB']/DatabaseRole[@Name='db_owner']";
+            bool result = SsmsUrn.TryParseObjectIdentity(urn, out var db, out var schema, out var type, out var name);
+
+            Assert.That(result, Is.True);
+            Assert.That(db, Is.EqualTo("SalesDB"));
+            Assert.That(schema, Is.Null);
+            Assert.That(type, Is.EqualTo("DatabaseRole"));
+            Assert.That(name, Is.EqualTo("db_owner"));
+        }
+
+        [Test]
+        public void TryParseObjectIdentity_UnescapesDoubledQuotesInNameAndSchema()
+        {
+            var urn = "Server[@Name='HOST']/Database[@Name='SalesDB']/Table[@Name='Bob''s Table' and @Schema='my''schema']";
+            bool result = SsmsUrn.TryParseObjectIdentity(urn, out var db, out var schema, out var type, out var name);
+
+            Assert.That(result, Is.True);
+            Assert.That(db, Is.EqualTo("SalesDB"));
+            Assert.That(schema, Is.EqualTo("my'schema"));
+            Assert.That(type, Is.EqualTo("Table"));
+            Assert.That(name, Is.EqualTo("Bob's Table"));
+        }
+
+        [Test]
+        public void TryParseObjectIdentity_InvalidUrn_ReturnsFalse()
+        {
+            var urn = "Server[@Name='HOST']/Database[@Name='SalesDB']/Tables";
+            bool result = SsmsUrn.TryParseObjectIdentity(urn, out var db, out var schema, out var type, out var name);
+
+            Assert.That(result, Is.False);
+            Assert.That(db, Is.Null);
+            Assert.That(schema, Is.Null);
+            Assert.That(type, Is.Null);
+            Assert.That(name, Is.Null);
+        }
+
+        [Test]
+        public void TryParseObjectIdentity_DatabaseNode_ReturnsFalse()
+        {
+            var urn = "Server[@Name='HOST']/Database[@Name='SalesDB']";
+            bool result = SsmsUrn.TryParseObjectIdentity(urn, out var db, out var schema, out var type, out var name);
+
+            Assert.That(result, Is.False);
+            Assert.That(db, Is.Null);
+            Assert.That(schema, Is.Null);
+            Assert.That(type, Is.Null);
+            Assert.That(name, Is.Null);
+        }
+
+        [Test]
+        public void TryParseObjectIdentity_NullOrEmptyOrGarbage_ReturnsFalse()
+        {
+            Assert.That(SsmsUrn.TryParseObjectIdentity(null, out _, out _, out _, out _), Is.False);
+            Assert.That(SsmsUrn.TryParseObjectIdentity("", out _, out _, out _, out _), Is.False);
+            Assert.That(SsmsUrn.TryParseObjectIdentity("invalid urn string", out _, out _, out _, out _), Is.False);
+        }
     }
 }
