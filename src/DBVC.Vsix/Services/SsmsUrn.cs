@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using DBVC.Core;
 
 namespace DBVC.Vsix.Services
 {
@@ -61,7 +62,8 @@ namespace DBVC.Vsix.Services
 
         /// <summary>
         /// SMO URN에서 데이터베이스 이름, 스키마, 객체 타입, 객체 이름을 파싱한다.
-        /// URN이 데이터베이스 하위의 구체적인 객체(테이블, 뷰, 프로시저 등)를 가리킬 때만 <c>true</c>를 반환한다.
+        /// URN이 데이터베이스 하위의 구체적인 독립 객체(테이블, 뷰, 프로시저 등)를 가리킬 때만 <c>true</c>를 반환한다.
+        /// 열(Column), 인덱스(Index) 등 독립 객체가 아닌 경우 <c>false</c>를 반환한다.
         /// </summary>
         public static bool TryParseObjectIdentity(
             string? urn,
@@ -105,16 +107,56 @@ namespace DBVC.Vsix.Services
                 return false;
             }
 
+            // 독립 저장 객체(Tables, Views, StoredProcedures, Functions, Triggers, Types, TableTypes, Sequences, Synonyms)만 허용한다.
+            // Column, Index, Constraint 등 비독립 노드는 UnknownFolder("Other")로 매핑되므로 제외한다.
+            var folder = ObjectPathConvention.GetFolderName(type);
+            if (string.Equals(folder, ObjectPathConvention.UnknownFolder, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
             var name = TryGetAttributeValue(lastSegment, "Name");
             if (string.IsNullOrEmpty(name))
             {
                 return false;
             }
 
+            var objSchema = TryGetAttributeValue(lastSegment, "Schema");
+            if (objSchema == null)
+            {
+                // 테이블 트리거처럼 마지막 세그먼트에 @Schema가 없고 부모 세그먼트(예: Table, View)에 존재하는 경우,
+                // 이전 세그먼트들을 역순으로 탐색하여 @Schema를 추출한다.
+                var remaining = urn.Substring(0, lastSlash);
+                while (remaining.Length > 0)
+                {
+                    var prevSlash = remaining.LastIndexOf('/');
+                    var prevSegment = prevSlash >= 0 ? remaining.Substring(prevSlash + 1) : remaining;
+                    var prevBracket = prevSegment.IndexOf('[');
+                    if (prevBracket > 0)
+                    {
+                        var prevType = prevSegment.Substring(0, prevBracket);
+                        if (string.Equals(prevType, "Database", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(prevType, "Server", StringComparison.OrdinalIgnoreCase))
+                        {
+                            break;
+                        }
+
+                        objSchema = TryGetAttributeValue(prevSegment, "Schema");
+                        if (objSchema != null)
+                        {
+                            break;
+                        }
+                    }
+
+                    if (prevSlash < 0) break;
+                    remaining = remaining.Substring(0, prevSlash);
+                }
+            }
+
             databaseName = db;
             objectType = type;
             objectName = name;
-            schema = TryGetAttributeValue(lastSegment, "Schema");
+            schema = objSchema;
 
             return true;
         }

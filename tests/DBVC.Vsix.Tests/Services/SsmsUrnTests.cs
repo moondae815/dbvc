@@ -110,14 +110,57 @@ namespace DBVC.Vsix.Tests.Services
         [Test]
         public void TryParseObjectIdentity_ObjectWithoutSchema_ReturnsTrueWithNullSchema()
         {
-            var urn = "Server[@Name='HOST']/Database[@Name='SalesDB']/DatabaseRole[@Name='db_owner']";
+            var urn = "Server[@Name='HOST']/Database[@Name='SalesDB']/Trigger[@Name='ddl_DatabaseTrigger']";
             bool result = SsmsUrn.TryParseObjectIdentity(urn, out var db, out var schema, out var type, out var name);
 
             Assert.That(result, Is.True);
             Assert.That(db, Is.EqualTo("SalesDB"));
             Assert.That(schema, Is.Null);
-            Assert.That(type, Is.EqualTo("DatabaseRole"));
-            Assert.That(name, Is.EqualTo("db_owner"));
+            Assert.That(type, Is.EqualTo("Trigger"));
+            Assert.That(name, Is.EqualTo("ddl_DatabaseTrigger"));
+        }
+
+        [Test]
+        public void TryParseObjectIdentity_TableTrigger_ExtractsSchemaFromParentTable()
+        {
+            var urn = "Server[@Name='HOST']/Database[@Name='SalesDB']/Table[@Name='Person' and @Schema='sales']/Trigger[@Name='tr_Person']";
+            bool result = SsmsUrn.TryParseObjectIdentity(urn, out var db, out var schema, out var type, out var name);
+
+            Assert.That(result, Is.True);
+            Assert.That(db, Is.EqualTo("SalesDB"));
+            Assert.That(schema, Is.EqualTo("sales"));
+            Assert.That(type, Is.EqualTo("Trigger"));
+            Assert.That(name, Is.EqualTo("tr_Person"));
+        }
+
+        [Test]
+        public void TryParseObjectIdentity_ViewTrigger_ExtractsSchemaFromParentView()
+        {
+            var urn = "Server[@Name='HOST']/Database[@Name='SalesDB']/View[@Name='v_Person' and @Schema='sales']/Trigger[@Name='tr_v_Person']";
+            bool result = SsmsUrn.TryParseObjectIdentity(urn, out var db, out var schema, out var type, out var name);
+
+            Assert.That(result, Is.True);
+            Assert.That(db, Is.EqualTo("SalesDB"));
+            Assert.That(schema, Is.EqualTo("sales"));
+            Assert.That(type, Is.EqualTo("Trigger"));
+            Assert.That(name, Is.EqualTo("tr_v_Person"));
+        }
+
+        [TestCase("Server[@Name='HOST']/Database[@Name='SalesDB']/Table[@Name='Person' and @Schema='dbo']/Column[@Name='FirstName']")]
+        [TestCase("Server[@Name='HOST']/Database[@Name='SalesDB']/Table[@Name='Person' and @Schema='dbo']/Index[@Name='IX_Person']")]
+        [TestCase("Server[@Name='HOST']/Database[@Name='SalesDB']/Table[@Name='Person' and @Schema='dbo']/CheckConstraint[@Name='CK_Person']")]
+        [TestCase("Server[@Name='HOST']/Database[@Name='SalesDB']/Table[@Name='Person' and @Schema='dbo']/ForeignKey[@Name='FK_Person']")]
+        [TestCase("Server[@Name='HOST']/Database[@Name='SalesDB']/DatabaseRole[@Name='db_owner']")]
+        [TestCase("Server[@Name='HOST']/Database[@Name='SalesDB']/User[@Name='app_user']")]
+        public void TryParseObjectIdentity_NonIndependentOrUntrackedObjects_ReturnsFalse(string urn)
+        {
+            bool result = SsmsUrn.TryParseObjectIdentity(urn, out var db, out var schema, out var type, out var name);
+
+            Assert.That(result, Is.False);
+            Assert.That(db, Is.Null);
+            Assert.That(schema, Is.Null);
+            Assert.That(type, Is.Null);
+            Assert.That(name, Is.Null);
         }
 
         [Test]
