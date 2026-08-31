@@ -85,18 +85,33 @@ namespace DBVC.Vsix.Commands
                     
                     if (explorerService != null)
                     {
-                        var treeProperty = explorerServiceType.GetProperty("Tree", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.IgnoreCase);
-                        _treeView = treeProperty?.GetValue(explorerService) as TreeView;
+                        var actualType = explorerService.GetType();
+                        var treeProperty = actualType.GetProperty("Tree", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.IgnoreCase);
+                        
+                        if (treeProperty != null)
+                        {
+                            _treeView = treeProperty.GetValue(explorerService) as TreeView;
+                        }
+                        else
+                        {
+                            // Try to look for a field if property is not found
+                            var treeField = actualType.GetField("Tree", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.IgnoreCase);
+                            if (treeField != null)
+                            {
+                                _treeView = treeField.GetValue(explorerService) as TreeView;
+                            }
+                        }
                         
                         if (_treeView != null)
                         {
-                            SsmsDiagnostics.Trace("ShowHistoryCommand: 개체 탐색기 TreeView 훅에 성공했습니다.");
+                            SsmsDiagnostics.Trace($"ShowHistoryCommand: 개체 탐색기 TreeView 훅에 성공했습니다. (실제 타입: {actualType.Name})");
                             _treeView.ContextMenuStripChanged += TreeView_ContextMenuStripChanged;
                             HookContextMenuStrip(_treeView.ContextMenuStrip);
                         }
                         else
                         {
-                            SsmsDiagnostics.Trace("ShowHistoryCommand: IObjectExplorerService는 찾았으나 TreeView가 아직 없습니다.");
+                            var propNames = string.Join(", ", System.Linq.Enumerable.Select(actualType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance), p => p.Name));
+                            SsmsDiagnostics.Trace($"ShowHistoryCommand: TreeView를 얻을 수 없습니다. Properties: {propNames}");
                         }
                     }
                     else
