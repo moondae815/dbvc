@@ -90,22 +90,35 @@ namespace DBVC.Vsix.Commands
                         
                         if (_treeView != null)
                         {
-                            System.Diagnostics.Debug.WriteLine("DBVC: ShowHistoryCommand successfully hooked Object Explorer TreeView.");
+                            SsmsDiagnostics.Trace("ShowHistoryCommand: 개체 탐색기 TreeView 훅에 성공했습니다.");
                             _treeView.ContextMenuStripChanged += TreeView_ContextMenuStripChanged;
                             HookContextMenuStrip(_treeView.ContextMenuStrip);
                         }
+                        else
+                        {
+                            SsmsDiagnostics.Trace("ShowHistoryCommand: IObjectExplorerService는 찾았으나 TreeView가 아직 없습니다.");
+                        }
                     }
+                    else
+                    {
+                        SsmsDiagnostics.Trace("ShowHistoryCommand: IObjectExplorerService를 찾지 못했습니다 (ServiceCache 및 GlobalProvider).");
+                    }
+                }
+                else
+                {
+                    SsmsDiagnostics.Trace("ShowHistoryCommand: 필수 어셈블리 또는 타입을 로드하지 못했습니다.");
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"DBVC: TryHookTreeView failed: {ex.Message}");
+                SsmsDiagnostics.Trace($"ShowHistoryCommand: TryHookTreeView 중 예외 발생: {ex.Message}");
             }
         }
 
         public static async Task InitializeAsync(DbvcPackage package, ISsmsConnectionSource? source = null)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(package.DisposalToken);
+            SsmsDiagnostics.Trace("ShowHistoryCommand: InitializeAsync 시작");
             var connectionSource = source ?? new ObjectExplorerConnectionSource();
             var command = new ShowHistoryCommand(package, connectionSource);
             package.DisposalToken.Register(() => command.Dispose());
@@ -137,6 +150,8 @@ namespace DBVC.Vsix.Commands
 
             var urn = _source.TryGetSelectedUrn();
             bool isObjectNode = SsmsUrn.TryParseObjectIdentity(urn, out _, out _, out _, out _);
+            
+            SsmsDiagnostics.Trace($"ShowHistoryCommand: ContextMenu 열림. Node={nodeAtMouse?.Text}, isObjectNode={isObjectNode}, Urn={urn}");
 
             if (_menuItem == null)
             {
