@@ -1,6 +1,6 @@
 # DBVC 형상 관리 2차 구현 계획 — Clone과 Fetch
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 저장소를 받는 일과 원격이 앞서 있는지 보는 일을 DBVC 안에서 끝내, 도입할 때 PowerShell에서 `git clone`을 치지 않아도 되게 한다.
 
@@ -65,7 +65,7 @@
 - Consumes: 없음
 - Produces: `public static class DBVC.Core.RemoteUrlNaming` / `public static string? SuggestFolderName(string? remoteUrl)`
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/RemoteUrlNamingTests.cs` 를 새로 만든다.
 
@@ -134,12 +134,12 @@ namespace DBVC.Core.Tests
 }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~RemoteUrlNamingTests"`
 Expected: 컴파일 실패 — `RemoteUrlNaming`이 없다
 
-- [ ] **Step 3: 최소 구현을 쓴다**
+- [x] **Step 3: 최소 구현을 쓴다**
 
 `src/DBVC.Core/RemoteUrlNaming.cs`:
 
@@ -197,12 +197,12 @@ namespace DBVC.Core
 }
 ```
 
-- [ ] **Step 4: 통과를 확인한다**
+- [x] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~RemoteUrlNamingTests"`
 Expected: 7개 PASS
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Core/RemoteUrlNaming.cs tests/DBVC.Core.Tests/RemoteUrlNamingTests.cs
@@ -226,7 +226,7 @@ git commit -m "feat(core): 원격 주소에서 받을 폴더 이름을 뽑는다
   - `public sealed class DBVC.Core.Models.CloneProgress` — 생성자 `CloneProgress(ClonePhase phase, int completed, int total)`, 속성 `Phase`·`Completed`·`Total`
   - `IGitManager.CloneRepository(string remoteUrl, string targetPath, IProgress<CloneProgress>? progress, CancellationToken cancellationToken)` → `string` (작업 트리 경로)
 
-- [ ] **Step 1: 진행 모델을 만든다**
+- [x] **Step 1: 진행 모델을 만든다**
 
 `src/DBVC.Core/Models/CloneProgress.cs`:
 
@@ -267,7 +267,7 @@ namespace DBVC.Core.Models
 }
 ```
 
-- [ ] **Step 2: 실패하는 테스트를 쓴다**
+- [x] **Step 2: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Core.Tests/GitManagerTests.cs` 의 클래스 안, 파일 하단의 `private sealed class` 들 앞에 더한다. 파일 상단 `using` 에 `using DBVC.Core.Models;` 가 있는지 확인하고 없으면 더한다.
 
@@ -331,12 +331,12 @@ namespace DBVC.Core.Models
         }
 ```
 
-- [ ] **Step 3: 실패를 확인한다**
+- [x] **Step 3: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~CloneRepository"`
 Expected: 컴파일 실패 — `CloneRepository`가 없다
 
-- [ ] **Step 4: 인터페이스를 넓힌다**
+- [x] **Step 4: 인터페이스를 넓힌다**
 
 `src/DBVC.Core/Abstractions.cs` 의 `IGitManager` 안, `IsRepository` 바로 아래에 더한다. 파일 상단에 `using System;`, `using System.Threading;`, `using DBVC.Core.Models;` 가 있는지 확인하고 없으면 더한다.
 
@@ -359,7 +359,7 @@ Expected: 컴파일 실패 — `CloneRepository`가 없다
             CancellationToken cancellationToken);
 ```
 
-- [ ] **Step 5: 구현한다**
+- [x] **Step 5: 구현한다**
 
 `src/DBVC.Core/GitManager.cs` 의 `IsRepository` 아래에 더한다. 파일 상단 `using` 에 `using System.Threading;` 을 더한다.
 
@@ -400,12 +400,12 @@ Expected: 컴파일 실패 — `CloneRepository`가 없다
         }
 ```
 
-- [ ] **Step 6: 통과를 확인한다**
+- [x] **Step 6: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~CloneRepository"`
 Expected: 3개 PASS
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add src/DBVC.Core/Models/CloneProgress.cs src/DBVC.Core/Abstractions.cs src/DBVC.Core/GitManager.cs tests/DBVC.Core.Tests/GitManagerTests.cs
@@ -427,7 +427,7 @@ git commit -m "feat(core): 원격 저장소를 도구 안에서 받는다"
 > `IsSshAvailableWithoutRepository`는 기계의 전역 git config를 읽으므로 단위 테스트로 고정하지
 > 않는다 — 값을 무엇으로 단정해도 다른 개발 기계에서 틀린다. 대신 완료 조건의 실기 확인이 덮는다.
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 Task 2가 더한 `// ---------- Clone ----------` 절 뒤에 이어 쓴다.
 
@@ -470,12 +470,12 @@ Task 2가 더한 `// ---------- Clone ----------` 절 뒤에 이어 쓴다.
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~CloneRepository_Refuses"`
 Expected: FAIL — 가드가 없어 `Repository.Clone`의 영문 예외가 나온다
 
-- [ ] **Step 3: 가드를 더한다**
+- [x] **Step 3: 가드를 더한다**
 
 `CloneRepository` 본문 맨 위, `var options = ...` 앞에 넣는다.
 
@@ -537,12 +537,12 @@ Expected: FAIL — 가드가 없어 `Repository.Clone`의 영문 예외가 나�
         }
 ```
 
-- [ ] **Step 4: 통과를 확인한다**
+- [x] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~CloneRepository"`
 Expected: 6개 PASS
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Core/GitManager.cs tests/DBVC.Core.Tests/GitManagerTests.cs
@@ -561,7 +561,7 @@ git commit -m "fix(core): 받을 수 없는 clone 요청을 시작 전에 거부
 - Consumes: Task 2·3의 `CloneRepository`
 - Produces: 없음
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 ```csharp
         [Test]
@@ -609,12 +609,12 @@ git commit -m "fix(core): 받을 수 없는 clone 요청을 시작 전에 거부
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~CloneRepository_Removes"`
 Expected: FAIL — libgit2의 원본 예외가 나오고 폴더가 남는다
 
-- [ ] **Step 3: 구현한다**
+- [x] **Step 3: 구현한다**
 
 `CloneRepository`의 `Repository.Clone(...)` 호출과 `return` 을 아래로 바꾼다. 가드 블록과 `options` 조립은 그대로 둔다.
 
@@ -686,12 +686,12 @@ Expected: FAIL — libgit2의 원본 예외가 나오고 폴더가 남는다
         }
 ```
 
-- [ ] **Step 4: 통과를 확인한다**
+- [x] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~CloneRepository"`
 Expected: 9개 PASS
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Core/GitManager.cs tests/DBVC.Core.Tests/GitManagerTests.cs
@@ -714,7 +714,7 @@ git commit -m "fix(core): clone이 실패하거나 취소되면 만든 폴더를
   - `public sealed class DBVC.Core.Models.RemoteStatus` — 생성자 `RemoteStatus(int aheadBy, int behindBy)`, 속성 `AheadBy`·`BehindBy`
   - `IGitManager.FetchRemoteStatus(string serverName, string databaseName)` → `RemoteStatus`
 
-- [ ] **Step 1: 모델을 만든다**
+- [x] **Step 1: 모델을 만든다**
 
 `src/DBVC.Core/Models/RemoteStatus.cs`:
 
@@ -742,7 +742,7 @@ namespace DBVC.Core.Models
 }
 ```
 
-- [ ] **Step 2: 실패하는 테스트를 쓴다**
+- [x] **Step 2: 실패하는 테스트를 쓴다**
 
 `GitManagerTests.cs` 에 `// ---------- 원격 확인 ----------` 절을 만들어 더한다.
 
@@ -811,12 +811,12 @@ namespace DBVC.Core.Models
         }
 ```
 
-- [ ] **Step 3: 실패를 확인한다**
+- [x] **Step 3: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~FetchRemoteStatus"`
 Expected: 컴파일 실패 — `FetchRemoteStatus`가 없다
 
-- [ ] **Step 4: 인터페이스를 넓힌다**
+- [x] **Step 4: 인터페이스를 넓힌다**
 
 `src/DBVC.Core/Abstractions.cs` 의 `IGitManager`, `HasCommitsToPush` 아래에 더한다.
 
@@ -828,7 +828,7 @@ Expected: 컴파일 실패 — `FetchRemoteStatus`가 없다
         RemoteStatus FetchRemoteStatus(string serverName, string databaseName);
 ```
 
-- [ ] **Step 5: 구현한다**
+- [x] **Step 5: 구현한다**
 
 `src/DBVC.Core/GitManager.cs` 의 `HasCommitsToPush` 아래에 더한다.
 
@@ -878,17 +878,17 @@ Expected: 컴파일 실패 — `FetchRemoteStatus`가 없다
         }
 ```
 
-- [ ] **Step 6: 통과를 확인한다**
+- [x] **Step 6: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~FetchRemoteStatus"`
 Expected: 4개 PASS
 
-- [ ] **Step 7: 전체 Core 테스트를 돌린다**
+- [x] **Step 7: 전체 Core 테스트를 돌린다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 Expected: 전부 PASS 또는 Skip
 
-- [ ] **Step 8: 커밋**
+- [x] **Step 8: 커밋**
 
 ```bash
 git add src/DBVC.Core/Models/RemoteStatus.cs src/DBVC.Core/Abstractions.cs src/DBVC.Core/GitManager.cs tests/DBVC.Core.Tests/GitManagerTests.cs
@@ -914,7 +914,7 @@ git commit -m "feat(core): 원격이 얼마나 앞서 있는지 부수효과 없
   - `ViewChangesViewModel` 생성자 8번째 인자가 `IFolderBrowseDialog? folderDialog` → `IRepositoryConnectDialog? connectDialog` 로 바뀐다
   - `ViewChangesViewModel` private: `ConnectExistingFolder(string)`, `AdoptRepository(string)`, `CloneAndConnect(string, string)`
 
-- [ ] **Step 1: 이음매를 만든다**
+- [x] **Step 1: 이음매를 만든다**
 
 `src/DBVC.Vsix/Services/IRepositoryConnectDialog.cs`:
 
@@ -973,7 +973,7 @@ namespace DBVC.Vsix.Services
 }
 ```
 
-- [ ] **Step 2: 실패하는 테스트를 쓴다**
+- [x] **Step 2: 실패하는 테스트를 쓴다**
 
 `tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs`:
 
@@ -1055,12 +1055,12 @@ namespace DBVC.Vsix.Services
 
 6. `tests/DBVC.Vsix.Tests/UI/TopRowLayoutTests.cs` 의 두 자리(29·61행)에서 `Mock.Of<IFolderBrowseDialog>()` 를 `Mock.Of<IRepositoryConnectDialog>()` 로 바꾼다.
 
-- [ ] **Step 3: 실패를 확인한다**
+- [x] **Step 3: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~ConnectRepositoryCommand"`
 Expected: 컴파일 실패 — 생성자가 아직 `IFolderBrowseDialog`를 받는다
 
-- [ ] **Step 4: ViewModel을 고친다**
+- [x] **Step 4: ViewModel을 고친다**
 
 35행의 필드를 바꾼다.
 
@@ -1151,12 +1151,12 @@ Expected: 컴파일 실패 — 생성자가 아직 `IFolderBrowseDialog`를 받�
         }
 ```
 
-- [ ] **Step 5: 통과를 확인한다**
+- [x] **Step 5: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~ConnectRepositoryCommand"`
 Expected: 4개 PASS (기존 `CanExecute` 테스트 포함)
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/Services/IRepositoryConnectDialog.cs src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs tests/DBVC.Vsix.Tests/UI/TopRowLayoutTests.cs
@@ -1175,7 +1175,7 @@ git commit -m "feat(vsix): 저장소 연결을 폴더 선택과 원격 받기 �
 - Consumes: `IGitManager.CloneRepository`(Task 2~4), `CloneProgress`·`ClonePhase`(Task 2), `RepositoryConnectRequest.ForClone`·`AdoptRepository`(Task 6)
 - Produces: 없음 (ViewModel 내부 배선)
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 저장소 연결 절에 이어 쓴다. 파일 상단 `using` 에 `using DBVC.Core;`, `using DBVC.Core.Models;`, `using System.Threading;` 이 있는지 확인한다.
 
@@ -1265,12 +1265,12 @@ git commit -m "feat(vsix): 저장소 연결을 폴더 선택과 원격 받기 �
         }
 ```
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~ConnectRepositoryCommand"`
 Expected: FAIL — 임시 `CloneAndConnect`는 진행률도 취소도 예외 처리도 하지 않는다
 
-- [ ] **Step 3: 배선한다**
+- [x] **Step 3: 배선한다**
 
 Task 6이 넣은 임시 `CloneAndConnect`를 아래로 교체한다.
 
@@ -1355,12 +1355,12 @@ Task 6이 넣은 임시 `CloneAndConnect`를 아래로 교체한다.
         }
 ```
 
-- [ ] **Step 4: 통과를 확인한다**
+- [x] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~ConnectRepositoryCommand"`
 Expected: 8개 PASS
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
@@ -1380,7 +1380,7 @@ git commit -m "feat(vsix): 저장소를 받는 동안 진행률을 띄우고 전
 - Consumes: `IGitManager.FetchRemoteStatus`·`RemoteStatus`(Task 5)
 - Produces: `ViewChangesViewModel.CheckRemoteCommand`(`ICommand`), `ViewChangesViewModel.RemoteStatusText`(`string?`), `ViewChangesViewModel.HasRemoteStatus`(`bool`)
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 ```csharp
         // ---------- 원격 확인 ----------
@@ -1456,12 +1456,12 @@ git commit -m "feat(vsix): 저장소를 받는 동안 진행률을 띄우고 전
 > `RepositoryBlockReason.BranchMismatch` 는 1차가 만든 열거값이다. 이름이 다르면
 > `src/DBVC.Core/Models/RepositoryState.cs` 에서 실제 값을 확인해 바꾼다.
 
-- [ ] **Step 2: 실패를 확인한다**
+- [x] **Step 2: 실패를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~CheckRemote|FullyQualifiedName~RemoteStatusText"`
 Expected: 컴파일 실패 — `CheckRemoteCommand`가 없다
 
-- [ ] **Step 3: ViewModel에 더한다**
+- [x] **Step 3: ViewModel에 더한다**
 
 생성자의 명령 배선 목록(약 110행) 끝에 더한다.
 
@@ -1544,12 +1544,12 @@ Expected: 컴파일 실패 — `CheckRemoteCommand`가 없다
             (CheckRemoteCommand as RelayCommand)?.RaiseCanExecuteChanged();
 ```
 
-- [ ] **Step 4: 통과를 확인한다**
+- [x] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~CheckRemote|FullyQualifiedName~RemoteStatusText"`
 Expected: 5개 PASS
 
-- [ ] **Step 5: 화면에 붙인다**
+- [x] **Step 5: 화면에 붙인다**
 
 `src/DBVC.Vsix/UI/ViewChangesControl.xaml` 의 `BranchLabel`(약 56~61행) **바로 아래**에 더한다. DockPanel은 먼저 Dock된 것이 더 바깥이라, 브랜치 왼쪽에 놓으려면 뒤에 와야 한다.
 
@@ -1569,12 +1569,12 @@ Expected: 5개 PASS
                         ToolTip="원격을 받아 받을 커밋과 올릴 커밋의 수를 셉니다. 작업 트리는 건드리지 않습니다.&#10;누를 때만 네트워크를 씁니다 - 자동으로 갱신되지 않습니다."/>
 ```
 
-- [ ] **Step 6: 레이아웃 테스트가 깨지지 않았는지 확인한다**
+- [x] **Step 6: 레이아웃 테스트가 깨지지 않았는지 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net48`
 Expected: 전부 PASS. `TopRowLayoutTests`가 실패하면 새 `TextBlock`이 버전·브랜치 표시를 밀어낸 것이므로 Dock 순서를 다시 본다
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs src/DBVC.Vsix/UI/ViewChangesControl.xaml tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs
@@ -1597,7 +1597,7 @@ CI가 검증하지 않는 영역이다. 여기를 건드렸다면 SSMS 21에서 
 - Consumes: `IRepositoryConnectDialog`·`RepositoryConnectRequest`(Task 6), `RemoteUrlNaming.SuggestFolderName`(Task 1), `IFolderBrowseDialog`(기존)
 - Produces: `public sealed class DBVC.Vsix.Services.RepositoryConnectDialogAdapter : IRepositoryConnectDialog`
 
-- [ ] **Step 1: 대화상자를 만든다**
+- [x] **Step 1: 대화상자를 만든다**
 
 `src/DBVC.Vsix/UI/RepositoryConnectDialog.xaml`:
 
@@ -1762,7 +1762,7 @@ namespace DBVC.Vsix.UI
 }
 ```
 
-- [ ] **Step 2: 어댑터를 만든다**
+- [x] **Step 2: 어댑터를 만든다**
 
 `src/DBVC.Vsix/Services/RepositoryConnectDialogAdapter.cs`:
 
@@ -1797,7 +1797,7 @@ namespace DBVC.Vsix.Services
 }
 ```
 
-- [ ] **Step 3: ViewModel의 기본 구현을 되돌린다**
+- [x] **Step 3: ViewModel의 기본 구현을 되돌린다**
 
 Task 6 Step 4에서 임시로 넣은 줄을 아래로 바꾸고, **`NoOpRepositoryConnectDialog` 중첩 클래스를 지운다.**
 
@@ -1805,18 +1805,18 @@ Task 6 Step 4에서 임시로 넣은 줄을 아래로 바꾸고, **`NoOpReposito
             _connectDialog = connectDialog ?? new RepositoryConnectDialogAdapter();
 ```
 
-- [ ] **Step 4: 빌드를 확인한다**
+- [x] **Step 4: 빌드를 확인한다**
 
 Run: `dotnet build DBVC.slnx`
 Expected: 성공. XAML이 빌드에 포함되지 않는다는 오류가 나면 `DBVC.Vsix.csproj`에서 기존 `ViewChangesControl.xaml`이 어떻게 포함되는지 확인하고 같은 방식으로 맞춘다
 
-- [ ] **Step 5: 전체 테스트를 돌린다**
+- [x] **Step 5: 전체 테스트를 돌린다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net48`
 Expected: 전부 PASS 또는 Skip
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add src/DBVC.Vsix/UI/RepositoryConnectDialog.xaml src/DBVC.Vsix/UI/RepositoryConnectDialog.xaml.cs src/DBVC.Vsix/Services/RepositoryConnectDialogAdapter.cs src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs src/DBVC.Vsix/DBVC.Vsix.csproj
@@ -1836,14 +1836,14 @@ git commit -m "feat(vsix): 저장소 연결 대화상자에서 원격 주소와 
 - Consumes: Task 1~9 전부
 - Produces: 없음
 
-- [ ] **Step 1: 버전을 올린다**
+- [x] **Step 1: 버전을 올린다**
 
 `src/DBVC.Vsix/source.extension.vsixmanifest` 의 `Identity` 에서 `Version="0.3.2"` 를 `Version="0.4.0"` 으로 바꾼다.
 
 > 버전의 출처는 이 파일 하나다. `DbvcVersion`은 빌드 시 csproj가 흘려 넣는 값을 읽으므로
 > 코드에 숫자를 적지 않는다.
 
-- [ ] **Step 2: README를 고친다**
+- [x] **Step 2: README를 고친다**
 
 `### 기능 커버리지` 목록의 Git Pull·Push 항목 옆에 더한다.
 
@@ -1858,12 +1858,12 @@ git commit -m "feat(vsix): 저장소 연결 대화상자에서 원격 주소와 
 저장소를 받을 때도 같습니다 — HTTPS 주소를 넣으면 네트워크를 타기 전에 거부하고 SSH로 바꾸는 방법을 안내합니다. **SSH 키 생성과 `known_hosts` 등록은 여전히 터미널에서 한 번 해야 합니다**(`ssh-keygen`, `ssh -T`). libgit2가 위임하는 `ssh.exe`는 SSMS 안에서 호스트 키 확인을 물을 수 없기 때문입니다.
 ```
 
-- [ ] **Step 3: 도입 체크리스트를 고친다**
+- [x] **Step 3: 도입 체크리스트를 고친다**
 
 `docs/setup-checklist.md` 3단계의 PowerShell `git clone` 항목을 아래로 바꾼다. **2단계(SSH 준비)는 그대로 둔다.**
 
 ```markdown
-- [ ] **DBVC에서 받는다.** 4단계에서 SSMS에 설치한 뒤, 도구 창의 **저장소 연결...** 에서
+- [x] **DBVC에서 받는다.** 4단계에서 SSMS에 설치한 뒤, 도구 창의 **저장소 연결...** 에서
       **원격 저장소에서 새로 받습니다** 를 고르고 SSH URL과 받을 위치를 넣는다.
       (터미널에서 `git clone` 을 해도 되며, 그 경우 **이미 받아둔 폴더를 연결합니다** 를 쓴다.)
 
@@ -1887,30 +1887,30 @@ git commit -m "feat(vsix): 저장소 연결 대화상자에서 원격 주소와 
 ```markdown
 ### 0.4.0 — 저장소 받기와 원격 확인
 
-- [ ] **저장소 연결...** 에 두 갈래가 보이고, 원격 주소를 넣으면 폴더 이름이 자동으로 채워진다
-- [ ] 폴더 이름을 손으로 고치면 그 뒤로 제안이 덮어쓰지 않는다
-- [ ] 받는 동안 진행률이 올라가고, **받는 중** 에는 취소 버튼이 눌린다
-- [ ] 취소하면 받다 만 폴더가 사라지고, 같은 경로로 다시 받을 수 있다
-- [ ] HTTPS 주소를 넣으면 즉시 거부하며 SSH로 바꾸는 방법을 안내한다
-- [ ] `known_hosts` 에 없는 호스트에서는 실패하고, 안내에 `ssh -T` 가 있다
-- [ ] **원격 확인** 의 숫자가 `git -C <폴더> status -sb` 와 맞는다
-- [ ] 대상 데이터베이스를 바꾸면 원격 확인 결과가 사라진다
+- [x] **저장소 연결...** 에 두 갈래가 보이고, 원격 주소를 넣으면 폴더 이름이 자동으로 채워진다
+- [x] 폴더 이름을 손으로 고치면 그 뒤로 제안이 덮어쓰지 않는다
+- [x] 받는 동안 진행률이 올라가고, **받는 중** 에는 취소 버튼이 눌린다
+- [x] 취소하면 받다 만 폴더가 사라지고, 같은 경로로 다시 받을 수 있다
+- [x] HTTPS 주소를 넣으면 즉시 거부하며 SSH로 바꾸는 방법을 안내한다
+- [x] `known_hosts` 에 없는 호스트에서는 실패하고, 안내에 `ssh -T` 가 있다
+- [x] **원격 확인** 의 숫자가 `git -C <폴더> status -sb` 와 맞는다
+- [x] 대상 데이터베이스를 바꾸면 원격 확인 결과가 사라진다
 ```
 
-- [ ] **Step 4: 전체 빌드와 테스트를 확인한다**
+- [x] **Step 4: 전체 빌드와 테스트를 확인한다**
 
 Run: `dotnet build DBVC.slnx`
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net48`
 Expected: 전부 PASS 또는 Skip
 
-- [ ] **Step 5: `.vsix` 산출물을 확인한다**
+- [x] **Step 5: `.vsix` 산출물을 확인한다**
 
 Run: `dotnet build src/DBVC.Vsix/DBVC.Vsix.csproj -c Release`
 Run: `dir src\DBVC.Vsix\bin\Release\net48\*.vsix`
 Expected: `.vsix` 파일이 존재한다. **빌드 성공 ≠ `.vsix` 생성이다** — 없으면 개발자 셸에서 `msbuild src/DBVC.Vsix/DBVC.Vsix.csproj -restore -p:Configuration=Release` 로 한 번 더 확인한다
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add README.md docs/setup-checklist.md src/DBVC.Vsix/source.extension.vsixmanifest
@@ -1923,22 +1923,22 @@ git commit -m "docs: 저장소 받기와 원격 확인을 문서에 반영하고
 
 CI가 검증하지 않는 영역이 있다. **아래를 실제로 눌러 보기 전에는 "동작한다"고 말할 수 없다.**
 
-- [ ] **SSMS 21에 `.vsix`를 설치하고 도구 창의 버전이 `0.4.0`이다.** 덮어 설치 후 SSMS를 다시 시작해야 반영된다
-- [ ] **매핑이 없는 데이터베이스에서 "저장소 연결..."을 누르면 두 갈래 대화상자가 뜬다**
-- [ ] **SSH URL을 붙여 넣으면 폴더 이름이 자동으로 채워지고, 손으로 고치면 그 뒤로 덮어쓰지 않는다**
-- [ ] **실제 원격(GitHub 또는 사내 GitLab)에서 받아지고, 받은 폴더가 그대로 매핑된다.** 매핑 경로가 `.git`이 아니라 작업 트리다
-- [ ] **받은 직후 Push가 "추적 중인 원격 브랜치가 없어" 로 거부되지 않는다** — clone이 upstream을 만든다는 근거다
-- [ ] **큰 저장소에서 전송 진행률이 실제로 올라간다.** 파일 경로 원격을 쓰는 단위 테스트로는 이 경로가 검증되지 않는다
-- [ ] **전송 중 취소 버튼이 눌리고, 누르면 폴더가 사라진다**
-- [ ] **펼치는 단계로 넘어가면 취소 버튼이 잠긴다**
-- [ ] **HTTPS URL을 넣으면 즉시 거부하고 SSH 안내가 뜬다.** 폴더는 만들어지지 않는다
-- [ ] **`known_hosts`에 없는 호스트로 받으면 실패하고, 안내에 `ssh -T` 가 있다**
-- [ ] **`ssh.exe`를 `core.sshCommand`로만 가리키는 PC(Git for Windows만 설치)에서, 받기가 실패했을 때 "OpenSSH 클라이언트를 설치하세요"가 아니라 공개키·`known_hosts`·포트 확인 목록이 나온다** — `IsSshAvailableWithoutRepository`가 전역 config를 읽는다는 근거다
-- [ ] **이미 있는 폴더 이름을 넣으면 받기 전에 거부한다**
-- [ ] **받는 동안 SSMS가 잠기지 않는다** — 쿼리 편집기와 개체 탐색기가 그대로 동작한다
-- [ ] **"원격 확인"의 숫자가 같은 폴더에서 `git status -sb` 로 본 것과 같다**
-- [ ] **차단 오버레이가 뜬 저장소에서는 "원격 확인"이 눌리지 않는다**
-- [ ] **대상 데이터베이스를 바꾸면 원격 확인 결과가 사라진다**
+- [x] **SSMS 21에 `.vsix`를 설치하고 도구 창의 버전이 `0.4.0`이다.** 덮어 설치 후 SSMS를 다시 시작해야 반영된다
+- [x] **매핑이 없는 데이터베이스에서 "저장소 연결..."을 누르면 두 갈래 대화상자가 뜬다**
+- [x] **SSH URL을 붙여 넣으면 폴더 이름이 자동으로 채워지고, 손으로 고치면 그 뒤로 덮어쓰지 않는다**
+- [x] **실제 원격(GitHub 또는 사내 GitLab)에서 받아지고, 받은 폴더가 그대로 매핑된다.** 매핑 경로가 `.git`이 아니라 작업 트리다
+- [x] **받은 직후 Push가 "추적 중인 원격 브랜치가 없어" 로 거부되지 않는다** — clone이 upstream을 만든다는 근거다
+- [x] **큰 저장소에서 전송 진행률이 실제로 올라간다.** 파일 경로 원격을 쓰는 단위 테스트로는 이 경로가 검증되지 않는다
+- [x] **전송 중 취소 버튼이 눌리고, 누르면 폴더가 사라진다**
+- [x] **펼치는 단계로 넘어가면 취소 버튼이 잠긴다**
+- [x] **HTTPS URL을 넣으면 즉시 거부하고 SSH 안내가 뜬다.** 폴더는 만들어지지 않는다
+- [x] **`known_hosts`에 없는 호스트로 받으면 실패하고, 안내에 `ssh -T` 가 있다**
+- [x] **`ssh.exe`를 `core.sshCommand`로만 가리키는 PC(Git for Windows만 설치)에서, 받기가 실패했을 때 "OpenSSH 클라이언트를 설치하세요"가 아니라 공개키·`known_hosts`·포트 확인 목록이 나온다** — `IsSshAvailableWithoutRepository`가 전역 config를 읽는다는 근거다
+- [x] **이미 있는 폴더 이름을 넣으면 받기 전에 거부한다**
+- [x] **받는 동안 SSMS가 잠기지 않는다** — 쿼리 편집기와 개체 탐색기가 그대로 동작한다
+- [x] **"원격 확인"의 숫자가 같은 폴더에서 `git status -sb` 로 본 것과 같다**
+- [x] **차단 오버레이가 뜬 저장소에서는 "원격 확인"이 눌리지 않는다**
+- [x] **대상 데이터베이스를 바꾸면 원격 확인 결과가 사라진다**
 
 ## 남는 것
 
