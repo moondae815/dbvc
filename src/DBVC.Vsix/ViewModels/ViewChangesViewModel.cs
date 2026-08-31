@@ -112,6 +112,7 @@ namespace DBVC.Vsix.ViewModels
             GenerateDeploymentScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Deployment), CanGenerateScript);
             GenerateRollbackScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Rollback), CanGenerateScript);
             CheckRemoteCommand = new RelayCommand(CheckRemote, CanCheckRemote);
+            ExitSingleObjectModeCommand = new RelayCommand(ExitSingleObjectMode);
 
             // BusyState가 바뀌면 이 화면의 바인딩과 버튼 상태를 다시 계산한다.
             // 배포 화면이 일을 시작해도 여기 버튼이 함께 잠겨야 한다 — 같은 저장소와
@@ -231,6 +232,7 @@ namespace DBVC.Vsix.ViewModels
             // 대상이 바뀌면 "개체 탐색기 선택이 다릅니다"의 판정 근거가 사라진다.
             // 여전히 다르다면 다음 CheckSsmsSelection()에서 다시 뜬다.
             SsmsHintMessage = null;
+            IsSingleObjectMode = false;
 
             // ServerName/DatabaseName은 이 시점에 이미 새 대상이다(SetTarget이 먼저 세운다).
             // 로컬 상태만 지우는 호출이라 비용이 없으므로 조건 없이 부른다.
@@ -678,6 +680,46 @@ namespace DBVC.Vsix.ViewModels
 
         /// <summary>선택된 객체의 커밋 이력. (Feature 7)</summary>
         public ObjectHistoryViewModel History { get; }
+
+        private bool _isSingleObjectMode;
+
+        /// <summary>
+        /// 단일 객체 이력 모드 활성화 여부.
+        /// 개체 탐색기에서 특정 객체의 이력을 요청했을 때 참이 되며, 변경 목록 대신 해당 객체의 이력을 전체 영역에 본다.
+        /// </summary>
+        public bool IsSingleObjectMode
+        {
+            get => _isSingleObjectMode;
+            private set
+            {
+                if (_isSingleObjectMode == value) return;
+                _isSingleObjectMode = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public ICommand ExitSingleObjectModeCommand { get; }
+
+        private void ExitSingleObjectMode()
+        {
+            IsSingleObjectMode = false;
+        }
+
+        /// <summary>
+        /// 특정 객체의 이력을 단일 객체 모드로 조회한다.
+        /// </summary>
+        public void ShowHistoryFor(string databaseName, string relativePath)
+        {
+            if (!string.Equals(DatabaseName, databaseName, StringComparison.OrdinalIgnoreCase))
+            {
+                // 대상 DB가 다르면 현재 연결이 아니므로 경고 처리.
+                WarningMessage = $"선택한 객체는 현재 활성화된 DB({DatabaseName})에 속하지 않습니다.";
+                return;
+            }
+
+            IsSingleObjectMode = true;
+            History.Load(ServerName, DatabaseName, relativePath);
+        }
 
         public ICommand RefreshCommand { get; }
 

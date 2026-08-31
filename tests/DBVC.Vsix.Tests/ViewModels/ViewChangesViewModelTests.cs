@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Collections.Generic;
 using System.IO;
@@ -2821,6 +2821,61 @@ namespace DBVC.Vsix.Tests.ViewModels
             _smo.Verify(s => s.CompareWithRepository(
                 Server, Database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()),
                 Times.Once, "대상을 바꾼 뒤에도 이전 대상을 다시 비교했다");
+        }
+
+        [Test]
+        public void ShowHistoryFor_WhenMatchingDatabase_EnablesSingleObjectModeAndLoadsHistory()
+        {
+            var commits = new List<CommitInfo>
+            {
+                new CommitInfo { Sha = "abc1234567", Message = "Add table", Author = "dev", Date = DateTime.UtcNow }
+            };
+            _git.Setup(g => g.GetHistory(Server, Database, "dbo/Tables/Person.sql")).Returns(commits);
+
+            var vm = NewConnectedViewModel();
+            Assert.That(vm.IsSingleObjectMode, Is.False);
+
+            vm.ShowHistoryFor(Database, "dbo/Tables/Person.sql");
+
+            Assert.That(vm.IsSingleObjectMode, Is.True);
+            Assert.That(vm.History.Entries.Count, Is.EqualTo(1));
+            Assert.That(vm.WarningMessage, Is.Null);
+        }
+
+        [Test]
+        public void ShowHistoryFor_WhenDatabaseMismatch_SetsWarningMessageAndDoesNotEnableMode()
+        {
+            var vm = NewConnectedViewModel();
+
+            vm.ShowHistoryFor("OtherDatabase", "dbo/Tables/Person.sql");
+
+            Assert.That(vm.IsSingleObjectMode, Is.False);
+            Assert.That(vm.WarningMessage, Does.Contain($"선택한 객체는 현재 활성화된 DB({Database})에 속하지 않습니다."));
+        }
+
+        [Test]
+        public void ExitSingleObjectModeCommand_WhenExecuted_DisablesSingleObjectMode()
+        {
+            var vm = NewConnectedViewModel();
+            vm.ShowHistoryFor(Database, "dbo/Tables/Person.sql");
+            Assert.That(vm.IsSingleObjectMode, Is.True);
+
+            vm.ExitSingleObjectModeCommand.Execute(null);
+
+            Assert.That(vm.IsSingleObjectMode, Is.False);
+        }
+
+        [Test]
+        public void InvalidateActiveContext_WhenTargetChanges_ResetsSingleObjectMode()
+        {
+            var vm = NewConnectedViewModel();
+            vm.ShowHistoryFor(Database, "dbo/Tables/Person.sql");
+            Assert.That(vm.IsSingleObjectMode, Is.True);
+
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info(server: "OtherServer", database: "OtherDB"));
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.IsSingleObjectMode, Is.False);
         }
     }
 }
