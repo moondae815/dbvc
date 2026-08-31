@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -608,6 +608,8 @@ namespace DBVC.Core
             foreach (Table table in db.Tables)
             {
                 if (table.IsSystemObject) continue;
+                if (string.Equals(table.Name, "DBVC_ChangeLog", StringComparison.OrdinalIgnoreCase)) continue;
+
                 yield return NewTarget(table.Schema, table.Name, "Table", table.Urn);
 
                 // DML 트리거는 부모 테이블 밑에 있으며 부모의 스키마를 따른다.
