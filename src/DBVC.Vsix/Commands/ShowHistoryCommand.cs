@@ -8,6 +8,7 @@ using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Task = System.Threading.Tasks.Task;
+using System.Windows.Forms;
 
 namespace DBVC.Vsix.Commands
 {
@@ -15,19 +16,27 @@ namespace DBVC.Vsix.Commands
     /// SSMS 개체 탐색기 컨텍스트 메뉴의 "DBVC: 이력 보기" 명령.
     /// 선택한 개체(테이블, 뷰 등)의 URN을 파싱하여 View Changes 창에서 해당 객체의 이력을 단일 객체 모드로 연다.
     /// </summary>
-    internal sealed class ShowHistoryCommand
+    public sealed class ShowHistoryCommand : IDisposable
     {
+        // 단위 테스트 호환성 유지를 위한 상수
+        public static readonly Guid CommandSet = new Guid("5c9e7b22-1d3f-4a68-b0c4-9e7d5f2a3b14");
+        public const int CommandId = 0x0102;
+
         private readonly DbvcPackage _package;
         private readonly ISsmsConnectionSource _source;
-        private System.Windows.Forms.TreeView? _treeView;
+        private readonly TreeView _treeView;
+        
+        private ToolStripMenuItem? _menuItem;
+        private ToolStripSeparator? _menuSeparator;
 
-        public ShowHistoryCommand(DbvcPackage package, ISsmsConnectionSource source, System.Windows.Forms.TreeView treeView)
+        public ShowHistoryCommand(DbvcPackage package, ISsmsConnectionSource source, TreeView treeView)
         {
             _package = package ?? throw new ArgumentNullException(nameof(package));
             _source = source ?? throw new ArgumentNullException(nameof(source));
             _treeView = treeView ?? throw new ArgumentNullException(nameof(treeView));
 
             _treeView.ContextMenuStripChanged += TreeView_ContextMenuStripChanged;
+            HookContextMenuStrip(_treeView.ContextMenuStrip);
         }
 
         public static async Task InitializeAsync(DbvcPackage package, ISsmsConnectionSource? source = null)
@@ -38,9 +47,6 @@ namespace DBVC.Vsix.Commands
 
             try
             {
-                // IObjectExplorerService를 리플렉션으로 가져오지 않고, VSSDK GetService로 가져온 뒤 Tree 속성을 읽는다.
-                // 서비스 타입은 SqlWorkbench.Interfaces.IObjectExplorerService 이다.
-                // 직접 참조하지 않으므로 이름을 통해 찾는다.
                 var interfacesAssembly = System.Reflection.Assembly.Load("SqlWorkbench.Interfaces");
                 var explorerServiceType = interfacesAssembly?.GetType("Microsoft.SqlServer.Management.UI.VSIntegration.ObjectExplorer.IObjectExplorerService");
                 
@@ -50,10 +56,11 @@ namespace DBVC.Vsix.Commands
                     if (explorerService != null)
                     {
                         var treeProperty = explorerServiceType.GetProperty("Tree", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.IgnoreCase);
-                        var treeView = treeProperty?.GetValue(explorerService) as System.Windows.Forms.TreeView;
+                        var treeView = treeProperty?.GetValue(explorerService) as TreeView;
                         if (treeView != null)
                         {
-                            _ = new ShowHistoryCommand(package, connectionSource, treeView);
+                            var command = new ShowHistoryCommand(package, connectionSource, treeView);
+                            package.DisposalToken.Register(() => command.Dispose());
                         }
                     }
                 }
@@ -66,25 +73,54 @@ namespace DBVC.Vsix.Commands
 
         private void TreeView_ContextMenuStripChanged(object sender, EventArgs e)
         {
-            if (_treeView?.ContextMenuStrip == null) return;
+            HookContextMenuStrip(_treeView.ContextMenuStrip);
+        }
 
-            // 중복 방지
-            if (_treeView.ContextMenuStrip.Items.ContainsKey("DbvcShowHistoryMenuItem")) return;
+        private void HookContextMenuStrip(ContextMenuStrip? menu)
+        {
+            if (menu == null) return;
+            menu.Opening -= ContextMenuStrip_Opening;
+            menu.Opening += ContextMenuStrip_Opening;
+        }
 
-            var urn = _source.TryGetSelectedUrn();
-            if (!SsmsUrn.TryParseObjectIdentity(urn, out var databaseName, out var schema, out var objectType, out var objectName))
+        private void ContextMenuStrip_Opening(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            if (sender is not ContextMenuStrip menu) return;
+
+            // 마우스 위치를 기반으로 현재 우클릭한 노드 강제 선택 시도
+            var pt = _treeView.PointToClient(Cursor.Position);
+            var nodeAtMouse = _treeView.GetNodeAt(pt);
+            if (nodeAtMouse != null && _treeView.SelectedNode != nodeAtMouse)
             {
-                return;
+                _treeView.SelectedNode = nodeAtMouse;
             }
 
-            var menuItem = new System.Windows.Forms.ToolStripMenuItem("DBVC: 이력 보기")
-            {
-                Name = "DbvcShowHistoryMenuItem"
-            };
-            menuItem.Click += Execute;
+            var urn = _source.TryGetSelectedUrn();
+            bool isObjectNode = SsmsUrn.TryParseObjectIdentity(urn, out _, out _, out _, out _);
 
-            _treeView.ContextMenuStrip.Items.Add(new System.Windows.Forms.ToolStripSeparator() { Name = "DbvcShowHistoryMenuSeparator" });
-            _treeView.ContextMenuStrip.Items.Add(menuItem);
+            if (_menuItem == null)
+            {
+                _menuItem = new ToolStripMenuItem("DBVC: 이력 보기") { Name = "DbvcShowHistoryMenuItem" };
+                _menuItem.Click += Execute;
+                _menuSeparator = new ToolStripSeparator() { Name = "DbvcShowHistoryMenuSeparator" };
+            }
+
+            if (isObjectNode)
+            {
+                if (!menu.Items.Contains(_menuItem))
+                {
+                    menu.Items.Add(_menuSeparator);
+                    menu.Items.Add(_menuItem);
+                }
+            }
+            else
+            {
+                if (menu.Items.Contains(_menuItem))
+                {
+                    menu.Items.Remove(_menuSeparator);
+                    menu.Items.Remove(_menuItem);
+                }
+            }
         }
 
         public void Execute(object sender, EventArgs e)
@@ -113,6 +149,24 @@ namespace DBVC.Vsix.Commands
             if (window?.Frame is IVsWindowFrame frame)
             {
                 ErrorHandler.ThrowOnFailure(frame.Show());
+            }
+        }
+
+        public void Dispose()
+        {
+            _treeView.ContextMenuStripChanged -= TreeView_ContextMenuStripChanged;
+            if (_treeView.ContextMenuStrip != null)
+            {
+                _treeView.ContextMenuStrip.Opening -= ContextMenuStrip_Opening;
+            }
+            if (_menuItem != null)
+            {
+                _menuItem.Click -= Execute;
+                _menuItem.Dispose();
+            }
+            if (_menuSeparator != null)
+            {
+                _menuSeparator.Dispose();
             }
         }
     }

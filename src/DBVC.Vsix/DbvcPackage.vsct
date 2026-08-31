@@ -25,10 +25,8 @@
         <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN"/>
       </Group>
 
-      <!-- SSMS 개체 탐색기 노드 컨텍스트 메뉴 -->
-      <Group guid="guidDbvcPackageCmdSet" id="DbvcObjectExplorerContextGroup" priority="0x0600">
-        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_ITEMNODE"/>
-      </Group>
+      <!-- SSMS 개체 탐색기 노드 컨텍스트 메뉴는 WinForms TreeView 후킹을 통해 동적으로 생성되므로
+           여기에 선언하지 않습니다. -->
     </Groups>
 
     <Buttons>
@@ -53,17 +51,6 @@
           <ToolTipText>선택한 객체를 Git 저장소의 버전과 비교합니다.</ToolTipText>
         </Strings>
       </Button>
-
-      <Button guid="guidDbvcPackageCmdSet" id="ShowHistoryCommandId" priority="0x0100" type="Button">
-        <Parent guid="guidDbvcPackageCmdSet" id="DbvcObjectExplorerContextGroup"/>
-        <CommandFlag>DefaultInvisible</CommandFlag>
-        <CommandFlag>DynamicVisibility</CommandFlag>
-        <Strings>
-          <ButtonText>DBVC: 이력 보기</ButtonText>
-          <MenuText>DBVC: 이력 보기</MenuText>
-          <ToolTipText>선택한 객체의 변경 이력을 조회합니다.</ToolTipText>
-        </Strings>
-      </Button>
     </Buttons>
 
   </Commands>
@@ -74,8 +61,6 @@
     <VisibilityItem guid="guidDbvcPackageCmdSet" id="ViewChangesCommandId" context="UICONTEXT_SolutionExists"/>
     <VisibilityItem guid="guidDbvcPackageCmdSet" id="CompareWithRepositoryCommandId" context="UICONTEXT_NoSolution"/>
     <VisibilityItem guid="guidDbvcPackageCmdSet" id="CompareWithRepositoryCommandId" context="UICONTEXT_SolutionExists"/>
-    <VisibilityItem guid="guidDbvcPackageCmdSet" id="ShowHistoryCommandId" context="UICONTEXT_NoSolution"/>
-    <VisibilityItem guid="guidDbvcPackageCmdSet" id="ShowHistoryCommandId" context="UICONTEXT_SolutionExists"/>
   </VisibilityConstraints>
 
   <Symbols>
@@ -84,10 +69,10 @@
     <GuidSymbol name="guidDbvcPackageCmdSet" value="{5c9e7b22-1d3f-4a68-b0c4-9e7d5f2a3b14}">
       <IDSymbol name="DbvcMenuGroup" value="0x1020" />
       <IDSymbol name="DbvcEditorContextGroup" value="0x1021" />
-      <IDSymbol name="DbvcObjectExplorerContextGroup" value="0x1022" />
       <IDSymbol name="ViewChangesCommandId" value="0x0100" />
       <IDSymbol name="CompareWithRepositoryCommandId" value="0x0101" />
-      <IDSymbol name="ShowHistoryCommandId" value="0x0102" />
+      <!-- ShowHistoryCommandId (0x0102) 는 테스트 코드(ShowHistoryCommandTests.cs) 호환성을 위해 
+           C# 코드에 상수로 남겨두었으며, VSCT에서는 사용되지 않습니다. -->
     </GuidSymbol>
   </Symbols>
 
