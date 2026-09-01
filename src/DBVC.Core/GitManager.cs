@@ -719,6 +719,7 @@ namespace DBVC.Core
                     .Select(commit => new CommitInfo
                     {
                         Sha = commit.Sha,
+                        ParentSha = commit.Parents.FirstOrDefault()?.Sha,
                         Message = commit.Message,
                         Author = commit.Author.Name,
                         Date = commit.Author.When

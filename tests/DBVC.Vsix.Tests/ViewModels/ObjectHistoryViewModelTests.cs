@@ -52,6 +52,42 @@ namespace DBVC.Vsix.Tests.ViewModels
         // ---------- 변환 ----------
 
         [Test]
+        public void Load_PreservesTheFullShaAndMapsParentSha()
+        {
+            const string fullSha = "a3f9c2b1d4e5f60718293a4b5c6d7e8f90123456";
+            const string parentSha = "1111222233334444555566667777888899990000";
+            GivenHistory(new CommitInfo
+            {
+                Sha = fullSha,
+                ParentSha = parentSha,
+                Message = "인덱스 추가",
+                Author = "Tester",
+                Date = new DateTimeOffset(2026, 8, 1, 14, 30, 0, TimeSpan.Zero)
+            });
+            var vm = NewViewModel();
+
+            vm.Load(Server, Database, RelativePath);
+
+            var entry = vm.Entries.Single();
+            Assert.That(entry.Sha, Is.EqualTo(fullSha));
+            Assert.That(entry.ParentSha, Is.EqualTo(parentSha));
+            Assert.That(entry.HasParent, Is.True);
+            Assert.That(entry.ShortSha, Is.EqualTo("a3f9c2b"));
+        }
+
+        [Test]
+        public void HistoryEntryViewModel_HasParent_IsFalse_WhenParentShaIsNullOrEmpty()
+        {
+            var withNull = new HistoryEntryViewModel { ParentSha = null };
+            var withEmpty = new HistoryEntryViewModel { ParentSha = string.Empty };
+            var withParent = new HistoryEntryViewModel { ParentSha = "parent123" };
+
+            Assert.That(withNull.HasParent, Is.False);
+            Assert.That(withEmpty.HasParent, Is.False);
+            Assert.That(withParent.HasParent, Is.True);
+        }
+
+        [Test]
         public void Load_ShortensTheShaToSevenCharacters()
         {
             GivenHistory(Commit("a3f9c2b1d4e5f60718293a4b5c6d7e8f90123456", "인덱스 추가"));
@@ -279,6 +315,29 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(raised, Is.True, "PropertyChanged for SelectedDiffModel should be raised");
             Assert.That(vm.SelectedDiffModel, Is.Not.Null);
             Assert.That(vm.IsDiffVisible, Is.True);
+        }
+
+        [Test]
+        public void SelectedEntry_PassesFullShaToGitManager_WhenShaIsAvailable()
+        {
+            var vm = NewViewModel();
+            const string fullSha = "a3f9c2b1d4e5f60718293a4b5c6d7e8f90123456";
+            var entry = new HistoryEntryViewModel
+            {
+                Sha = fullSha,
+                ShortSha = "a3f9c2b"
+            };
+            vm.ServerName = Server;
+            vm.DatabaseName = Database;
+            vm.RelativePath = RelativePath;
+
+            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, RelativePath, fullSha)).Returns("old");
+            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, RelativePath, fullSha)).Returns("new");
+
+            vm.SelectedEntry = entry;
+
+            _git.Verify(g => g.GetFileContentAtCommitParent(Server, Database, RelativePath, fullSha), Times.Once);
+            _git.Verify(g => g.GetFileContentAtCommit(Server, Database, RelativePath, fullSha), Times.Once);
         }
 
         [Test]

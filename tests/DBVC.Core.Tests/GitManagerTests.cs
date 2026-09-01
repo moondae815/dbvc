@@ -559,6 +559,8 @@ namespace DBVC.Core.Tests
             Assert.That(history[0].Message.TrimEnd(), Is.EqualTo("second"));
             Assert.That(history[1].Message.TrimEnd(), Is.EqualTo("initial"));
             Assert.That(history[0].Sha, Is.Not.Empty);
+            Assert.That(history[0].ParentSha, Is.EqualTo(history[1].Sha), "두 번째 커밋의 ParentSha는 최초 커밋의 Sha와 일치해야 합니다");
+            Assert.That(history[1].ParentSha, Is.Null, "최초 커밋은 부모가 없으므로 ParentSha가 null이어야 합니다");
         }
 
         [Test]

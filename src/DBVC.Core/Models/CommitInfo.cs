@@ -8,6 +8,7 @@ namespace DBVC.Core.Models
     public class CommitInfo
     {
         public string Sha { get; set; } = string.Empty;
+        public string? ParentSha { get; set; }
         public string Message { get; set; } = string.Empty;
         public string Author { get; set; } = string.Empty;
         public DateTimeOffset Date { get; set; }

@@ -84,8 +84,9 @@ namespace DBVC.Vsix.ViewModels
                 return;
             }
 
-            var oldContent = _gitManager.GetFileContentAtCommitParent(ServerName, DatabaseName, RelativePath, _selectedEntry.ShortSha);
-            var newContent = _gitManager.GetFileContentAtCommit(ServerName, DatabaseName, RelativePath, _selectedEntry.ShortSha);
+            var commitSha = !string.IsNullOrEmpty(_selectedEntry.Sha) ? _selectedEntry.Sha : _selectedEntry.ShortSha;
+            var oldContent = _gitManager.GetFileContentAtCommitParent(ServerName, DatabaseName, RelativePath, commitSha);
+            var newContent = _gitManager.GetFileContentAtCommit(ServerName, DatabaseName, RelativePath, commitSha);
 
             SelectedDiffModel = _diffService.GetDiffModelFromString(oldContent ?? string.Empty, newContent ?? string.Empty);
         }
@@ -153,15 +154,21 @@ namespace DBVC.Vsix.ViewModels
     {
         private const int ShortShaLength = 7;
 
+        public string Sha { get; set; } = string.Empty;
+        public string? ParentSha { get; set; }
         public string ShortSha { get; set; } = string.Empty;
         public string Message { get; set; } = string.Empty;
         public string Author { get; set; } = string.Empty;
         public string Date { get; set; } = string.Empty;
 
+        public bool HasParent => !string.IsNullOrEmpty(ParentSha);
+
         public static HistoryEntryViewModel From(CommitInfo commit)
         {
             return new HistoryEntryViewModel
             {
+                Sha = commit.Sha ?? string.Empty,
+                ParentSha = commit.ParentSha,
                 ShortSha = Shorten(commit.Sha),
                 Message = FirstLine(commit.Message),
                 Author = commit.Author ?? string.Empty,

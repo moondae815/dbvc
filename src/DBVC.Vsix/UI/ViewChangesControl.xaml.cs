@@ -1,7 +1,9 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using DBVC.Vsix.Services;
 using DBVC.Vsix.ViewModels;
@@ -241,6 +243,11 @@ namespace DBVC.Vsix.UI
         {
             ThreadHelper.ThrowIfNotOnUIThread();
 
+            if (FindVisualAncestor<ListViewItem>(e.OriginalSource as DependencyObject) == null)
+            {
+                return;
+            }
+
             var selected = _viewModel.History.SelectedEntry;
             var diffModel = _viewModel.History.SelectedDiffModel;
             if (selected == null || diffModel == null) return;
@@ -251,8 +258,8 @@ namespace DBVC.Vsix.UI
             var oldText = string.Join(Environment.NewLine, oldLines.Select(l => l.Text ?? string.Empty));
             var newText = string.Join(Environment.NewLine, newLines.Select(l => l.Text ?? string.Empty));
 
-            var tempOld = Path.GetTempFileName();
-            var tempNew = Path.GetTempFileName();
+            var tempOld = Path.Combine(Path.GetTempPath(), $"DBVC_{Guid.NewGuid():N}_old.sql");
+            var tempNew = Path.Combine(Path.GetTempPath(), $"DBVC_{Guid.NewGuid():N}_new.sql");
 
             File.WriteAllText(tempOld, oldText);
             File.WriteAllText(tempNew, newText);
@@ -261,14 +268,43 @@ namespace DBVC.Vsix.UI
 
             if (diffService != null)
             {
+                var leftLabel = selected.HasParent
+                    ? $"{_viewModel.History.RelativePath} ({selected.ShortSha}^)"
+                    : $"{_viewModel.History.RelativePath} (최초 커밋 이전)";
+
                 diffService.OpenComparisonWindow2(
                     tempOld, tempNew,
-                    $"{_viewModel.History.RelativePath} ({selected.ShortSha}^)",
+                    leftLabel,
                     $"{_viewModel.History.RelativePath} ({selected.ShortSha})",
                     $"DBVC Commit: {selected.ShortSha}",
                     $"DBVC Commit: {selected.ShortSha}",
                     "DBVC", string.Empty, 0);
             }
+        }
+
+        private static T? FindVisualAncestor<T>(DependencyObject? current) where T : DependencyObject
+        {
+            while (current != null)
+            {
+                if (current is T match)
+                {
+                    return match;
+                }
+
+                if (current is Visual || current is System.Windows.Media.Media3D.Visual3D)
+                {
+                    current = VisualTreeHelper.GetParent(current);
+                }
+                else if (current is FrameworkContentElement fce)
+                {
+                    current = fce.Parent;
+                }
+                else
+                {
+                    current = LogicalTreeHelper.GetParent(current);
+                }
+            }
+            return null;
         }
 
         /// <summary>
