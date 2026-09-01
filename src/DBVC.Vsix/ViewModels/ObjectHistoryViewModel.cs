@@ -7,6 +7,8 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using DBVC.Core;
 using DBVC.Core.Models;
+using DBVC.Vsix.Services;
+using DiffPlex.DiffBuilder.Model;
 
 namespace DBVC.Vsix.ViewModels
 {
@@ -17,11 +19,22 @@ namespace DBVC.Vsix.ViewModels
     public class ObjectHistoryViewModel : INotifyPropertyChanged
     {
         private readonly IGitManager _gitManager;
+        private readonly DiffService _diffService;
 
         public ObjectHistoryViewModel(IGitManager gitManager)
+            : this(gitManager, new DiffService())
+        {
+        }
+
+        public ObjectHistoryViewModel(IGitManager gitManager, DiffService diffService)
         {
             _gitManager = gitManager ?? throw new ArgumentNullException(nameof(gitManager));
+            _diffService = diffService ?? throw new ArgumentNullException(nameof(diffService));
         }
+
+        public string? ServerName { get; set; }
+        public string? DatabaseName { get; set; }
+        public string? RelativePath { get; set; }
 
         public ObservableCollection<HistoryEntryViewModel> Entries { get; } = new ObservableCollection<HistoryEntryViewModel>();
 
@@ -36,6 +49,47 @@ namespace DBVC.Vsix.ViewModels
         /// </summary>
         public string ScopeLabel { get; private set; } = string.Empty;
 
+        private HistoryEntryViewModel? _selectedEntry;
+        public HistoryEntryViewModel? SelectedEntry
+        {
+            get => _selectedEntry;
+            set
+            {
+                if (ReferenceEquals(_selectedEntry, value)) return;
+                _selectedEntry = value;
+                OnPropertyChanged();
+                UpdateDiffModel();
+            }
+        }
+
+        private SideBySideDiffModel? _selectedDiffModel;
+        public SideBySideDiffModel? SelectedDiffModel
+        {
+            get => _selectedDiffModel;
+            private set
+            {
+                _selectedDiffModel = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsDiffVisible));
+            }
+        }
+
+        public bool IsDiffVisible => SelectedDiffModel != null;
+
+        private void UpdateDiffModel()
+        {
+            if (_selectedEntry == null || ServerName == null || DatabaseName == null || RelativePath == null)
+            {
+                SelectedDiffModel = null;
+                return;
+            }
+
+            var oldContent = _gitManager.GetFileContentAtCommitParent(ServerName, DatabaseName, RelativePath, _selectedEntry.ShortSha);
+            var newContent = _gitManager.GetFileContentAtCommit(ServerName, DatabaseName, RelativePath, _selectedEntry.ShortSha);
+
+            SelectedDiffModel = _diffService.GetDiffModelFromString(oldContent ?? string.Empty, newContent ?? string.Empty);
+        }
+
         /// <summary>
         /// 이력을 다시 읽는다. 서버나 데이터베이스가 비면 목록을 비운 상태로 끝낸다.
         ///
@@ -45,8 +99,13 @@ namespace DBVC.Vsix.ViewModels
         /// </summary>
         public void Load(string? serverName, string? databaseName, string? relativePath)
         {
+            ServerName = serverName;
+            DatabaseName = databaseName;
+            RelativePath = relativePath;
+
             Entries.Clear();
             ScopeLabel = string.Empty;
+            SelectedEntry = null;
 
             if (!string.IsNullOrWhiteSpace(serverName) && !string.IsNullOrWhiteSpace(databaseName))
             {

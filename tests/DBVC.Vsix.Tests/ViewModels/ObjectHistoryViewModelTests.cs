@@ -256,5 +256,129 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(vm.ScopeLabel, Is.Empty);
         }
+
+        // ---------- Diff 모델 생성 및 선택 상태 ----------
+
+        [Test]
+        public void SelectedEntry_SetsSelectedDiffModel()
+        {
+            var vm = NewViewModel();
+            var entry = new HistoryEntryViewModel { ShortSha = "abcdef1" };
+            vm.ServerName = Server;
+            vm.DatabaseName = Database;
+            vm.RelativePath = RelativePath;
+
+            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, RelativePath, "abcdef1")).Returns("old");
+            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, RelativePath, "abcdef1")).Returns("new");
+
+            bool raised = false;
+            vm.PropertyChanged += (s, e) => { if (e.PropertyName == nameof(ObjectHistoryViewModel.SelectedDiffModel)) raised = true; };
+
+            vm.SelectedEntry = entry;
+
+            Assert.That(raised, Is.True, "PropertyChanged for SelectedDiffModel should be raised");
+            Assert.That(vm.SelectedDiffModel, Is.Not.Null);
+            Assert.That(vm.IsDiffVisible, Is.True);
+        }
+
+        [Test]
+        public void SelectedEntry_WhenSetToNull_ClearsSelectedDiffModelAndIsDiffVisible()
+        {
+            var vm = NewViewModel();
+            var entry = new HistoryEntryViewModel { ShortSha = "abcdef1" };
+            vm.ServerName = Server;
+            vm.DatabaseName = Database;
+            vm.RelativePath = RelativePath;
+
+            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, RelativePath, "abcdef1")).Returns("old");
+            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, RelativePath, "abcdef1")).Returns("new");
+
+            vm.SelectedEntry = entry;
+            Assert.That(vm.SelectedDiffModel, Is.Not.Null);
+
+            vm.SelectedEntry = null;
+
+            Assert.That(vm.SelectedDiffModel, Is.Null);
+            Assert.That(vm.IsDiffVisible, Is.False);
+        }
+
+        [TestCase(null, Database, RelativePath)]
+        [TestCase(Server, null, RelativePath)]
+        [TestCase(Server, Database, null)]
+        public void SelectedEntry_WhenContextIsMissing_SetsSelectedDiffModelToNull(string? server, string? database, string? path)
+        {
+            var vm = NewViewModel();
+            var entry = new HistoryEntryViewModel { ShortSha = "abcdef1" };
+            vm.ServerName = server;
+            vm.DatabaseName = database;
+            vm.RelativePath = path;
+
+            vm.SelectedEntry = entry;
+
+            Assert.That(vm.SelectedDiffModel, Is.Null);
+            Assert.That(vm.IsDiffVisible, Is.False);
+            _git.Verify(g => g.GetFileContentAtCommit(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Test]
+        public void SelectedEntry_RaisesPropertyChanged_ForSelectedEntry_And_SelectedDiffModel_And_IsDiffVisible()
+        {
+            var vm = NewViewModel();
+            var entry = new HistoryEntryViewModel { ShortSha = "abcdef1" };
+            vm.ServerName = Server;
+            vm.DatabaseName = Database;
+            vm.RelativePath = RelativePath;
+
+            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, RelativePath, "abcdef1")).Returns("old");
+            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, RelativePath, "abcdef1")).Returns("new");
+
+            var propertyChanges = new List<string?>();
+            vm.PropertyChanged += (s, e) => propertyChanges.Add(e.PropertyName);
+
+            vm.SelectedEntry = entry;
+
+            Assert.That(propertyChanges, Does.Contain(nameof(ObjectHistoryViewModel.SelectedEntry)));
+            Assert.That(propertyChanges, Does.Contain(nameof(ObjectHistoryViewModel.SelectedDiffModel)));
+            Assert.That(propertyChanges, Does.Contain(nameof(ObjectHistoryViewModel.IsDiffVisible)));
+        }
+
+        [Test]
+        public void Load_SetsContextProperties_And_ResetsSelectedEntry()
+        {
+            GivenHistory(Commit("abcdef1234", "커밋1"));
+            var vm = NewViewModel();
+            vm.ServerName = "OldServer";
+            vm.DatabaseName = "OldDB";
+            vm.RelativePath = "OldPath.sql";
+            vm.SelectedEntry = new HistoryEntryViewModel { ShortSha = "oldsha1" };
+
+            vm.Load(Server, Database, RelativePath);
+
+            Assert.That(vm.ServerName, Is.EqualTo(Server));
+            Assert.That(vm.DatabaseName, Is.EqualTo(Database));
+            Assert.That(vm.RelativePath, Is.EqualTo(RelativePath));
+            Assert.That(vm.SelectedEntry, Is.Null);
+            Assert.That(vm.SelectedDiffModel, Is.Null);
+            Assert.That(vm.IsDiffVisible, Is.False);
+        }
+
+        [Test]
+        public void SelectedEntry_WhenCommitHasNoParent_HandlesNullParentContentGracefully()
+        {
+            var vm = NewViewModel();
+            var entry = new HistoryEntryViewModel { ShortSha = "initsha" };
+            vm.ServerName = Server;
+            vm.DatabaseName = Database;
+            vm.RelativePath = RelativePath;
+
+            // 최초 커밋의 경우 부모가 없으므로 GitManager는 "" 또는 null을 반환
+            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, RelativePath, "initsha")).Returns((string?)null);
+            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, RelativePath, "initsha")).Returns("create table Users (id int);");
+
+            vm.SelectedEntry = entry;
+
+            Assert.That(vm.SelectedDiffModel, Is.Not.Null);
+            Assert.That(vm.IsDiffVisible, Is.True);
+        }
     }
 }
