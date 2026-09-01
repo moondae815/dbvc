@@ -231,7 +231,14 @@
                                        Text="{Binding History.ScopeLabel}" />
 
                             <Grid Grid.Row="1">
-                                <ListView ItemsSource="{Binding History.Entries}">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="1*" />
+                                    <RowDefinition Height="5" />
+                                    <RowDefinition Height="1*" />
+                                </Grid.RowDefinitions>
+
+                                <!-- 상단: 이력 목록 -->
+                                <ListView x:Name="HistoryListView" Grid.Row="0" ItemsSource="{Binding History.Entries}" SelectedItem="{Binding History.SelectedEntry, Mode=TwoWay}" MouseDoubleClick="HistoryListView_MouseDoubleClick">
                                     <ListView.View>
                                         <GridView>
                                             <GridViewColumn Header="날짜" Width="130" DisplayMemberBinding="{Binding Date}"/>
@@ -242,9 +249,21 @@
                                     </ListView.View>
                                 </ListView>
 
-                                <TextBlock Text="이력이 없습니다." Foreground="#808080"
+                                <TextBlock Grid.Row="0" Text="이력이 없습니다." Foreground="#808080"
                                            HorizontalAlignment="Center" VerticalAlignment="Center"
                                            Visibility="{Binding History.IsEmpty, Converter={StaticResource BoolToVis}}"/>
+
+                                <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Background="Transparent" ShowsPreview="True" Cursor="SizeNS"/>
+
+                                <!-- 하단: 커밋 Diff 뷰 -->
+                                <Grid Grid.Row="2" Visibility="{Binding History.IsDiffVisible, Converter={StaticResource BoolToVis}}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <avalonEdit:TextEditor x:Name="HistoryOldEditor" Grid.Column="0" IsReadOnly="True" Margin="0,0,2,0" Background="{DynamicResource {x:Static vsshell:VsBrushes.WindowKey}}" Foreground="{DynamicResource {x:Static vsshell:VsBrushes.WindowTextKey}}" SyntaxHighlighting="TSQL"/>
+                                    <avalonEdit:TextEditor x:Name="HistoryNewEditor" Grid.Column="1" IsReadOnly="True" Margin="2,0,0,0" Background="{DynamicResource {x:Static vsshell:VsBrushes.WindowKey}}" Foreground="{DynamicResource {x:Static vsshell:VsBrushes.WindowTextKey}}" SyntaxHighlighting="TSQL"/>
+                                </Grid>
                             </Grid>
                         </Grid>
                     </TabItem>
@@ -265,7 +284,13 @@
                 </StackPanel>
 
                 <Grid Grid.Row="1">
-                    <ListView ItemsSource="{Binding History.Entries}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="1*" />
+                        <RowDefinition Height="5" />
+                        <RowDefinition Height="1*" />
+                    </Grid.RowDefinitions>
+
+                    <ListView x:Name="SingleObjectHistoryListView" Grid.Row="0" ItemsSource="{Binding History.Entries}" SelectedItem="{Binding History.SelectedEntry, Mode=TwoWay}" MouseDoubleClick="HistoryListView_MouseDoubleClick">
                         <ListView.View>
                             <GridView>
                                 <GridViewColumn Header="날짜" Width="130" DisplayMemberBinding="{Binding Date}"/>
@@ -276,9 +301,20 @@
                         </ListView.View>
                     </ListView>
 
-                    <TextBlock Text="이력이 없습니다." Foreground="#808080"
+                    <TextBlock Grid.Row="0" Text="이력이 없습니다." Foreground="#808080"
                                HorizontalAlignment="Center" VerticalAlignment="Center"
                                Visibility="{Binding History.IsEmpty, Converter={StaticResource BoolToVis}}"/>
+
+                    <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Background="Transparent" ShowsPreview="True" Cursor="SizeNS"/>
+
+                    <Grid Grid.Row="2" Visibility="{Binding History.IsDiffVisible, Converter={StaticResource BoolToVis}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1*"/>
+                            <ColumnDefinition Width="1*"/>
+                        </Grid.ColumnDefinitions>
+                        <avalonEdit:TextEditor x:Name="SingleHistoryOldEditor" Grid.Column="0" IsReadOnly="True" Margin="0,0,2,0" Background="{DynamicResource {x:Static vsshell:VsBrushes.WindowKey}}" Foreground="{DynamicResource {x:Static vsshell:VsBrushes.WindowTextKey}}" SyntaxHighlighting="TSQL"/>
+                        <avalonEdit:TextEditor x:Name="SingleHistoryNewEditor" Grid.Column="1" IsReadOnly="True" Margin="2,0,0,0" Background="{DynamicResource {x:Static vsshell:VsBrushes.WindowKey}}" Foreground="{DynamicResource {x:Static vsshell:VsBrushes.WindowTextKey}}" SyntaxHighlighting="TSQL"/>
+                    </Grid>
                 </Grid>
             </Grid>
         </Grid>

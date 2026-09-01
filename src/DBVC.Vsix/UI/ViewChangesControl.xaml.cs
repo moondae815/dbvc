@@ -1,10 +1,14 @@
 using System;
+using System.IO;
+using System.Linq;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using DBVC.Vsix.Services;
 using DBVC.Vsix.ViewModels;
 using DiffPlex.DiffBuilder.Model;
 using ICSharpCode.AvalonEdit;
+using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
 
 namespace DBVC.Vsix.UI
 {
@@ -16,6 +20,10 @@ namespace DBVC.Vsix.UI
         private readonly DiffLineBackgroundRenderer _newRenderer;
         private readonly DiffLineBackgroundRenderer _deployLeftRenderer;
         private readonly DiffLineBackgroundRenderer _deployRightRenderer;
+        private readonly DiffLineBackgroundRenderer _historyOldRenderer;
+        private readonly DiffLineBackgroundRenderer _historyNewRenderer;
+        private readonly DiffLineBackgroundRenderer _singleHistoryOldRenderer;
+        private readonly DiffLineBackgroundRenderer _singleHistoryNewRenderer;
         private bool _syncingScroll;
 
         public ViewChangesControl()
@@ -43,8 +51,22 @@ namespace DBVC.Vsix.UI
             DeployLeftEditor.TextArea.TextView.BackgroundRenderers.Add(_deployLeftRenderer);
             DeployRightEditor.TextArea.TextView.BackgroundRenderers.Add(_deployRightRenderer);
 
+            _historyOldRenderer = new DiffLineBackgroundRenderer(HistoryOldEditor.TextArea.TextView);
+            _historyNewRenderer = new DiffLineBackgroundRenderer(HistoryNewEditor.TextArea.TextView);
+            HistoryOldEditor.TextArea.TextView.BackgroundRenderers.Add(_historyOldRenderer);
+            HistoryNewEditor.TextArea.TextView.BackgroundRenderers.Add(_historyNewRenderer);
+
+            _singleHistoryOldRenderer = new DiffLineBackgroundRenderer(SingleHistoryOldEditor.TextArea.TextView);
+            _singleHistoryNewRenderer = new DiffLineBackgroundRenderer(SingleHistoryNewEditor.TextArea.TextView);
+            SingleHistoryOldEditor.TextArea.TextView.BackgroundRenderers.Add(_singleHistoryOldRenderer);
+            SingleHistoryNewEditor.TextArea.TextView.BackgroundRenderers.Add(_singleHistoryNewRenderer);
+
             OldTextEditor.TextArea.TextView.ScrollOffsetChanged += OnOldScrollOffsetChanged;
             NewTextEditor.TextArea.TextView.ScrollOffsetChanged += OnNewScrollOffsetChanged;
+            HistoryOldEditor.TextArea.TextView.ScrollOffsetChanged += OnHistoryOldScrollOffsetChanged;
+            HistoryNewEditor.TextArea.TextView.ScrollOffsetChanged += OnHistoryNewScrollOffsetChanged;
+            SingleHistoryOldEditor.TextArea.TextView.ScrollOffsetChanged += OnSingleHistoryOldScrollOffsetChanged;
+            SingleHistoryNewEditor.TextArea.TextView.ScrollOffsetChanged += OnSingleHistoryNewScrollOffsetChanged;
 
             _viewModel.SelectionChanged += OnSelectionChanged;
             _viewModel.Deployment.SelectionChanged += OnDeploymentSelectionChanged;
@@ -84,23 +106,44 @@ namespace DBVC.Vsix.UI
             _viewModel.SelectionChanged += OnSelectionChanged;
             _viewModel.Deployment.SelectionChanged -= OnDeploymentSelectionChanged;
             _viewModel.Deployment.SelectionChanged += OnDeploymentSelectionChanged;
+            _viewModel.History.PropertyChanged -= OnHistoryPropertyChanged;
+            _viewModel.History.PropertyChanged += OnHistoryPropertyChanged;
 
             OldTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnOldScrollOffsetChanged;
             OldTextEditor.TextArea.TextView.ScrollOffsetChanged += OnOldScrollOffsetChanged;
             NewTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnNewScrollOffsetChanged;
             NewTextEditor.TextArea.TextView.ScrollOffsetChanged += OnNewScrollOffsetChanged;
 
+            HistoryOldEditor.TextArea.TextView.ScrollOffsetChanged -= OnHistoryOldScrollOffsetChanged;
+            HistoryOldEditor.TextArea.TextView.ScrollOffsetChanged += OnHistoryOldScrollOffsetChanged;
+            HistoryNewEditor.TextArea.TextView.ScrollOffsetChanged -= OnHistoryNewScrollOffsetChanged;
+            HistoryNewEditor.TextArea.TextView.ScrollOffsetChanged += OnHistoryNewScrollOffsetChanged;
+
+            SingleHistoryOldEditor.TextArea.TextView.ScrollOffsetChanged -= OnSingleHistoryOldScrollOffsetChanged;
+            SingleHistoryOldEditor.TextArea.TextView.ScrollOffsetChanged += OnSingleHistoryOldScrollOffsetChanged;
+            SingleHistoryNewEditor.TextArea.TextView.ScrollOffsetChanged -= OnSingleHistoryNewScrollOffsetChanged;
+            SingleHistoryNewEditor.TextArea.TextView.ScrollOffsetChanged += OnSingleHistoryNewScrollOffsetChanged;
+
             // 떨어져 있는 동안 선택이 바뀌었을 수 있다 — SQL 편집기 컨텍스트 메뉴가 창 밖에서
             // 같은 ViewModel을 조작한다. 다시 붙는 김에 Diff 창을 현재 선택에 맞춘다.
             OnSelectionChanged(this, EventArgs.Empty);
+            UpdateHistoryDiffView();
         }
 
         private void OnUnloaded(object sender, System.Windows.RoutedEventArgs e)
         {
             _viewModel.SelectionChanged -= OnSelectionChanged;
             _viewModel.Deployment.SelectionChanged -= OnDeploymentSelectionChanged;
+            _viewModel.History.PropertyChanged -= OnHistoryPropertyChanged;
+
             OldTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnOldScrollOffsetChanged;
             NewTextEditor.TextArea.TextView.ScrollOffsetChanged -= OnNewScrollOffsetChanged;
+
+            HistoryOldEditor.TextArea.TextView.ScrollOffsetChanged -= OnHistoryOldScrollOffsetChanged;
+            HistoryNewEditor.TextArea.TextView.ScrollOffsetChanged -= OnHistoryNewScrollOffsetChanged;
+
+            SingleHistoryOldEditor.TextArea.TextView.ScrollOffsetChanged -= OnSingleHistoryOldScrollOffsetChanged;
+            SingleHistoryNewEditor.TextArea.TextView.ScrollOffsetChanged -= OnSingleHistoryNewScrollOffsetChanged;
         }
 
         /// <summary>
@@ -169,6 +212,65 @@ namespace DBVC.Vsix.UI
             });
         }
 
+        private void OnHistoryPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ObjectHistoryViewModel.SelectedDiffModel))
+            {
+                UpdateHistoryDiffView();
+            }
+        }
+
+        private void UpdateHistoryDiffView()
+        {
+            var model = _viewModel.History.SelectedDiffModel;
+            if (model != null)
+            {
+                ApplyDiffPanes(model, HistoryOldEditor, _historyOldRenderer, HistoryNewEditor, _historyNewRenderer);
+                ApplyDiffPanes(model, SingleHistoryOldEditor, _singleHistoryOldRenderer, SingleHistoryNewEditor, _singleHistoryNewRenderer);
+            }
+            else
+            {
+                SetPane(HistoryOldEditor, _historyOldRenderer, DiffTextBuilder.Build(null));
+                SetPane(HistoryNewEditor, _historyNewRenderer, DiffTextBuilder.Build(null));
+                SetPane(SingleHistoryOldEditor, _singleHistoryOldRenderer, DiffTextBuilder.Build(null));
+                SetPane(SingleHistoryNewEditor, _singleHistoryNewRenderer, DiffTextBuilder.Build(null));
+            }
+        }
+
+        private void HistoryListView_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+
+            var selected = _viewModel.History.SelectedEntry;
+            var diffModel = _viewModel.History.SelectedDiffModel;
+            if (selected == null || diffModel == null) return;
+
+            var oldLines = diffModel.OldText.Lines.Where(l => l.Type != ChangeType.Imaginary);
+            var newLines = diffModel.NewText.Lines.Where(l => l.Type != ChangeType.Imaginary);
+
+            var oldText = string.Join(Environment.NewLine, oldLines.Select(l => l.Text ?? string.Empty));
+            var newText = string.Join(Environment.NewLine, newLines.Select(l => l.Text ?? string.Empty));
+
+            var tempOld = Path.GetTempFileName();
+            var tempNew = Path.GetTempFileName();
+
+            File.WriteAllText(tempOld, oldText);
+            File.WriteAllText(tempNew, newText);
+
+            var diffService = Package.GetGlobalService(typeof(SVsDifferenceService)) as IVsDifferenceService;
+
+            if (diffService != null)
+            {
+                diffService.OpenComparisonWindow2(
+                    tempOld, tempNew,
+                    $"{_viewModel.History.RelativePath} ({selected.ShortSha}^)",
+                    $"{_viewModel.History.RelativePath} ({selected.ShortSha})",
+                    $"DBVC Commit: {selected.ShortSha}",
+                    $"DBVC Commit: {selected.ShortSha}",
+                    "DBVC", string.Empty, 0);
+            }
+        }
+
         /// <summary>
         /// Diff 모델의 좌우를 각 에디터에 채운다. 비교 화면과 배포 화면이 이 한 곳을 같이 써야
         /// 줄 배경 렌더러 부착이 한쪽에만 남는 사고(diff 색이 한쪽 패널에서만 빠지는 것)가
@@ -193,6 +295,14 @@ namespace DBVC.Vsix.UI
         private void OnOldScrollOffsetChanged(object? sender, EventArgs e) => SyncScroll(OldTextEditor, NewTextEditor);
 
         private void OnNewScrollOffsetChanged(object? sender, EventArgs e) => SyncScroll(NewTextEditor, OldTextEditor);
+
+        private void OnHistoryOldScrollOffsetChanged(object? sender, EventArgs e) => SyncScroll(HistoryOldEditor, HistoryNewEditor);
+
+        private void OnHistoryNewScrollOffsetChanged(object? sender, EventArgs e) => SyncScroll(HistoryNewEditor, HistoryOldEditor);
+
+        private void OnSingleHistoryOldScrollOffsetChanged(object? sender, EventArgs e) => SyncScroll(SingleHistoryOldEditor, SingleHistoryNewEditor);
+
+        private void OnSingleHistoryNewScrollOffsetChanged(object? sender, EventArgs e) => SyncScroll(SingleHistoryNewEditor, SingleHistoryOldEditor);
 
         /// <summary>좌우가 줄 단위로 정렬되어 있으므로 오프셋을 그대로 옮긴다.</summary>
         private void SyncScroll(TextEditor source, TextEditor target)
