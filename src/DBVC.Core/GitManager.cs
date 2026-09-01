@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -792,6 +792,57 @@ namespace DBVC.Core
             catch (Exception ex)
             {
                 Debug.WriteLine($"GitManager.GetFileContentBeforeLastCommit failed for '{relativeFilePath}': {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 특정 커밋 시점의 파일 내용을 반환한다. 커밋이나 파일이 없으면 null을 반환한다.
+        /// </summary>
+        public string? GetFileContentAtCommit(string serverName, string databaseName, string relativeFilePath, string commitSha)
+        {
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null || string.IsNullOrWhiteSpace(relativeFilePath) || string.IsNullOrWhiteSpace(commitSha)) return null;
+
+            try
+            {
+                using var repo = new Repository(repoPath);
+                var commit = repo.Lookup<Commit>(commitSha);
+                if (commit == null) return null;
+
+                return ReadBlobText(commit, NormalizePath(relativeFilePath));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"GitManager.GetFileContentAtCommit failed for '{relativeFilePath}' at '{commitSha}': {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 특정 커밋의 부모 커밋 시점 파일 내용을 반환한다.
+        /// 최초 커밋(부모가 없는 경우)이면 빈 문자열("")을 반환한다.
+        /// 커밋이 없거나 조회 실패 시 null을 반환한다.
+        /// </summary>
+        public string? GetFileContentAtCommitParent(string serverName, string databaseName, string relativeFilePath, string commitSha)
+        {
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null || string.IsNullOrWhiteSpace(relativeFilePath) || string.IsNullOrWhiteSpace(commitSha)) return null;
+
+            try
+            {
+                using var repo = new Repository(repoPath);
+                var commit = repo.Lookup<Commit>(commitSha);
+                if (commit == null) return null;
+
+                var parent = commit.Parents.FirstOrDefault();
+                if (parent == null) return string.Empty;
+
+                return ReadBlobText(parent, NormalizePath(relativeFilePath));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"GitManager.GetFileContentAtCommitParent failed for '{relativeFilePath}' at '{commitSha}': {ex.Message}");
                 return null;
             }
         }

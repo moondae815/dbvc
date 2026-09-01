@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using DBVC.Core.Models;
@@ -120,6 +120,8 @@ namespace DBVC.Core
         IReadOnlyList<CommitInfo> GetHistory(string serverName, string databaseName, string? relativeFilePath);
         string? GetFileContentAtHead(string serverName, string databaseName, string relativeFilePath);
         string? GetFileContentBeforeLastCommit(string serverName, string databaseName, string relativeFilePath);
+        string? GetFileContentAtCommit(string serverName, string databaseName, string relativeFilePath, string commitSha);
+        string? GetFileContentAtCommitParent(string serverName, string databaseName, string relativeFilePath, string commitSha);
     }
 
     public interface ISmoManager

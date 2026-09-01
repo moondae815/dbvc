@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -670,6 +670,59 @@ namespace DBVC.Core.Tests
             Assert.That(git.GetFileContentBeforeLastCommit("localhost", "testdb", "dbo/Tables/Users.sql"),
                 Is.EqualTo("CREATE TABLE Users (Id INT);"),
                 "삭제된 객체야말로 Rollback 대상이므로 이전 내용을 복원할 수 있어야 합니다");
+        }
+
+        // ---------- GetFileContentAtCommit & GetFileContentAtCommitParent ----------
+
+        [Test]
+        public void GetFileContentAtCommit_ReturnsContentOfCommit_And_GetFileContentAtCommitParent_ReturnsParentContent()
+        {
+            var repoPath = NewRepoWithCommit("dbo/Tables/Users.sql", "V1");
+            var sha1 = string.Empty;
+            using (var repo = new Repository(repoPath))
+            {
+                sha1 = repo.Head.Tip.Sha;
+            }
+            var sha2 = CommitOneFile(repoPath, "dbo/Tables/Users.sql", "V2", "update to V2");
+
+            var git = NewGitManager("localhost", "testdb", repoPath);
+
+            var v2Content = git.GetFileContentAtCommit("localhost", "testdb", "dbo/Tables/Users.sql", sha2);
+            var v1Content = git.GetFileContentAtCommitParent("localhost", "testdb", "dbo/Tables/Users.sql", sha2);
+            var initialContent = git.GetFileContentAtCommit("localhost", "testdb", "dbo/Tables/Users.sql", sha1);
+            var initialParentContent = git.GetFileContentAtCommitParent("localhost", "testdb", "dbo/Tables/Users.sql", sha1);
+
+            Assert.That(v2Content, Is.EqualTo("V2"));
+            Assert.That(v1Content, Is.EqualTo("V1"));
+            Assert.That(initialContent, Is.EqualTo("V1"));
+            Assert.That(initialParentContent, Is.EqualTo(string.Empty), "최초 커밋의 부모는 없으므로 빈 문자열이어야 합니다");
+        }
+
+        [Test]
+        public void GetFileContentAtCommit_ReturnsNull_WhenCommitOrFileDoesNotExist()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager("localhost", "testdb", repoPath);
+
+            using var repo = new Repository(repoPath);
+            var headSha = repo.Head.Tip.Sha;
+
+            Assert.That(git.GetFileContentAtCommit("localhost", "testdb", "dbo/Tables/NonExistent.sql", headSha), Is.Null);
+            Assert.That(git.GetFileContentAtCommit("localhost", "testdb", "dbo/Tables/Users.sql", "0000000000000000000000000000000000000000"), Is.Null);
+            Assert.That(git.GetFileContentAtCommit("localhost", "unmapped", "dbo/Tables/Users.sql", headSha), Is.Null);
+        }
+
+        [Test]
+        public void GetFileContentAtCommitParent_ReturnsNull_WhenCommitDoesNotExistOrUnmapped()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager("localhost", "testdb", repoPath);
+
+            using var repo = new Repository(repoPath);
+            var headSha = repo.Head.Tip.Sha;
+
+            Assert.That(git.GetFileContentAtCommitParent("localhost", "testdb", "dbo/Tables/Users.sql", "0000000000000000000000000000000000000000"), Is.Null);
+            Assert.That(git.GetFileContentAtCommitParent("localhost", "unmapped", "dbo/Tables/Users.sql", headSha), Is.Null);
         }
 
         // ---------- PullChanges ----------
