@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -20,16 +21,33 @@ namespace DBVC.Vsix.ViewModels
     {
         private readonly IGitManager _gitManager;
         private readonly DiffService _diffService;
+        private readonly IBackgroundScheduler _scheduler;
+
+        /// <summary>
+        /// 겹친 변경 파일 목록 요청 중 가장 나중 것만 화면에 반영하기 위한 표. Diff 요청용
+        /// <see cref="_diffToken"/>과 따로 둔다 — 하나를 같이 쓰면, 방금 고른 커밋의 파일 목록
+        /// 요청이 그 직후에 보낸 Diff 요청과 표를 다투다가 어느 한쪽 결과가 조용히 버려진다.
+        /// </summary>
+        private int _changedFilesToken;
+
+        /// <summary>겹친 Diff 요청 중 가장 나중 것만 반영하기 위한 표. 용도는 <see cref="_changedFilesToken"/> 참고.</summary>
+        private int _diffToken;
 
         public ObjectHistoryViewModel(IGitManager gitManager)
-            : this(gitManager, new DiffService())
+            : this(gitManager, new DiffService(), new InlineBackgroundScheduler())
         {
         }
 
         public ObjectHistoryViewModel(IGitManager gitManager, DiffService diffService)
+            : this(gitManager, diffService, new InlineBackgroundScheduler())
+        {
+        }
+
+        public ObjectHistoryViewModel(IGitManager gitManager, DiffService diffService, IBackgroundScheduler scheduler)
         {
             _gitManager = gitManager ?? throw new ArgumentNullException(nameof(gitManager));
             _diffService = diffService ?? throw new ArgumentNullException(nameof(diffService));
+            _scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
         }
 
         public string? ServerName { get; set; }
@@ -64,27 +82,73 @@ namespace DBVC.Vsix.ViewModels
                 OnPropertyChanged();
 
                 ChangedFiles.Clear();
-                SelectedChangedFile = null;
+                SetChangedFilesNotice(null);
+                _selectedChangedFile = null;
+                OnPropertyChanged(nameof(SelectedChangedFile));
 
-                if (_selectedEntry != null && string.IsNullOrWhiteSpace(RelativePath) && ServerName != null && DatabaseName != null)
-                {
-                    var commitSha = !string.IsNullOrEmpty(_selectedEntry.Sha) ? _selectedEntry.Sha : _selectedEntry.ShortSha;
-                    var changedFiles = _gitManager.GetChangedFilesAtCommit(ServerName, DatabaseName, commitSha);
-                    if (changedFiles != null)
-                    {
-                        foreach (var file in changedFiles)
-                        {
-                            if (file != null)
-                            {
-                                ChangedFiles.Add(HistoryChangedFileViewModel.From(file));
-                            }
-                        }
-                    }
-                }
-
+                LoadChangedFiles();
                 UpdateDiffModel();
             }
         }
+
+        /// <summary>
+        /// 전체 이력 모드에서만 변경 파일 목록을 읽는다. 필터 모드는 볼 파일이 이미 정해져 있다.
+        /// </summary>
+        private void LoadChangedFiles()
+        {
+            if (_selectedEntry == null || IsSingleObjectMode || ServerName == null || DatabaseName == null)
+            {
+                return;
+            }
+
+            var entry = _selectedEntry;
+            var token = ++_changedFilesToken;
+            var server = ServerName;
+            var database = DatabaseName;
+            var sha = ShaOf(entry);
+
+            _scheduler.Run(
+                () => _gitManager.GetCommitDetail(server, database, sha, null),
+                detail =>
+                {
+                    // 늦게 끝난 앞선 요청이다. 지금 화면이 보는 커밋과 다르므로 버린다.
+                    if (token != _changedFilesToken) return;
+
+                    ChangedFiles.Clear();
+                    foreach (var file in detail.ChangedFiles ?? new List<HistoryChangedFile>())
+                    {
+                        if (file != null) ChangedFiles.Add(HistoryChangedFileViewModel.From(file));
+                    }
+
+                    SetChangedFilesNotice(BuildNotice(entry, detail));
+                },
+                ex => Debug.WriteLine($"ObjectHistoryViewModel.LoadChangedFiles failed: {ex.Message}"));
+        }
+
+        private static string? BuildNotice(HistoryEntryViewModel entry, CommitDetail detail)
+        {
+            var parts = new List<string>();
+            if (entry.ParentCount > 1) parts.Add("병합 커밋입니다 — 첫 부모 기준으로 비교합니다.");
+            // 상한 상수가 아니라 실제로 담긴 개수를 쓴다. 둘이 어긋나면 안내가 거짓말이 된다.
+            if (detail.IsTruncated) parts.Add($"전체 {detail.TotalChangedFileCount}개 중 {detail.ChangedFiles?.Count ?? 0}개만 표시합니다.");
+            return parts.Count == 0 ? null : string.Join(" ", parts);
+        }
+
+        private void SetChangedFilesNotice(string? notice)
+        {
+            ChangedFilesNotice = notice;
+            OnPropertyChanged(nameof(ChangedFilesNotice));
+            OnPropertyChanged(nameof(HasChangedFilesNotice));
+        }
+
+        /// <summary>파일 목록 위에 띄울 안내. 없으면 <c>null</c>.</summary>
+        public string? ChangedFilesNotice { get; private set; }
+
+        public bool HasChangedFilesNotice => !string.IsNullOrEmpty(ChangedFilesNotice);
+
+        /// <summary>축약 SHA는 충돌할 수 있으므로 전체 SHA가 있으면 그것을 쓴다.</summary>
+        private static string ShaOf(HistoryEntryViewModel entry)
+            => !string.IsNullOrEmpty(entry.Sha) ? entry.Sha : entry.ShortSha;
 
         private HistoryChangedFileViewModel? _selectedChangedFile;
         public HistoryChangedFileViewModel? SelectedChangedFile
@@ -115,18 +179,27 @@ namespace DBVC.Vsix.ViewModels
 
         private void UpdateDiffModel()
         {
-            var targetPath = !string.IsNullOrWhiteSpace(RelativePath) ? RelativePath : _selectedChangedFile?.RelativePath;
+            var targetPath = IsSingleObjectMode ? RelativePath : _selectedChangedFile?.RelativePath;
             if (_selectedEntry == null || ServerName == null || DatabaseName == null || string.IsNullOrWhiteSpace(targetPath))
             {
                 SelectedDiffModel = null;
                 return;
             }
 
-            var commitSha = !string.IsNullOrEmpty(_selectedEntry.Sha) ? _selectedEntry.Sha : _selectedEntry.ShortSha;
-            var oldContent = _gitManager.GetFileContentAtCommitParent(ServerName, DatabaseName, targetPath!, commitSha);
-            var newContent = _gitManager.GetFileContentAtCommit(ServerName, DatabaseName, targetPath!, commitSha);
+            var token = ++_diffToken;
+            var server = ServerName;
+            var database = DatabaseName;
+            var sha = ShaOf(_selectedEntry);
+            var path = targetPath!;
 
-            SelectedDiffModel = _diffService.GetDiffModelFromString(oldContent ?? string.Empty, newContent ?? string.Empty);
+            _scheduler.Run(
+                () => _gitManager.GetCommitDetail(server, database, sha, path),
+                detail =>
+                {
+                    if (token != _diffToken) return;
+                    SelectedDiffModel = _diffService.GetDiffModelFromString(detail.OldText ?? string.Empty, detail.NewText ?? string.Empty);
+                },
+                ex => Debug.WriteLine($"ObjectHistoryViewModel.UpdateDiffModel failed: {ex.Message}"));
         }
 
         /// <summary>
@@ -144,6 +217,7 @@ namespace DBVC.Vsix.ViewModels
 
             Entries.Clear();
             ChangedFiles.Clear();
+            SetChangedFilesNotice(null);
             SelectedChangedFile = null;
             ScopeLabel = string.Empty;
             SelectedEntry = null;
@@ -201,6 +275,10 @@ namespace DBVC.Vsix.ViewModels
         public string Message { get; set; } = string.Empty;
         public string Author { get; set; } = string.Empty;
         public string Date { get; set; } = string.Empty;
+        public int ParentCount { get; set; }
+
+        /// <summary>목록에 그대로 찍는 병합 표시. 컨버터를 두지 않으려고 문자열로 낸다.</summary>
+        public string MergeMark => ParentCount > 1 ? "병합" : string.Empty;
 
         public bool HasParent => !string.IsNullOrEmpty(ParentSha);
 
@@ -210,6 +288,7 @@ namespace DBVC.Vsix.ViewModels
             {
                 Sha = commit.Sha ?? string.Empty,
                 ParentSha = commit.ParentSha,
+                ParentCount = commit.ParentCount,
                 ShortSha = Shorten(commit.Sha),
                 Message = FirstLine(commit.Message),
                 Author = commit.Author ?? string.Empty,

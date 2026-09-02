@@ -95,7 +95,7 @@ namespace DBVC.Vsix.ViewModels
             Deployment = new DeploymentViewModel(
                 _configManager, _gitManager, _smoManager, _scriptExporter,
                 _notifier, _saveDialog, _scheduler, Busy);
-            History = new ObjectHistoryViewModel(_gitManager);
+            History = new ObjectHistoryViewModel(_gitManager, new DiffService(), _scheduler);
 
             // 진행 중에는 모두 잠긴다. 같은 추출이 겹쳐 돌면 작업 트리를 동시에 건드리고
             // 나중에 끝난 쪽이 먼저 끝난 쪽의 목록을 덮어쓴다.

@@ -5,6 +5,7 @@ using Moq;
 using NUnit.Framework;
 using DBVC.Core;
 using DBVC.Core.Models;
+using DBVC.Vsix.Services;
 using DBVC.Vsix.ViewModels;
 
 namespace DBVC.Vsix.Tests.ViewModels
@@ -24,6 +25,10 @@ namespace DBVC.Vsix.Tests.ViewModels
             _git = new Mock<IGitManager>();
             _git.Setup(g => g.GetHistory(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
                 .Returns(new List<CommitInfo>());
+            // 실제 GitManager.GetCommitDetail은 실패해도 null이 아니라 빈 CommitDetail을 준다.
+            // 모의 객체 기본값(null)을 그대로 두면 특정 커밋/경로를 세팅하지 않은 테스트가 NRE로 깨진다.
+            _git.Setup(g => g.GetCommitDetail(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+                .Returns(new CommitDetail());
         }
 
         private ObjectHistoryViewModel NewViewModel() => new ObjectHistoryViewModel(_git.Object);
@@ -48,6 +53,12 @@ namespace DBVC.Vsix.Tests.ViewModels
             _git.Setup(g => g.GetHistory(Server, Database, It.Is<string?>(p => string.IsNullOrWhiteSpace(p))))
                 .Returns(commits.ToList());
         }
+
+        private static HistoryChangedFile ChangedFile(string relativePath, HistoryChangedFileState state = HistoryChangedFileState.Modified)
+            => new HistoryChangedFile { RelativePath = relativePath, State = state };
+
+        private static CommitDetail Detail(params HistoryChangedFile[] files)
+            => new CommitDetail { ChangedFiles = files.ToList(), TotalChangedFileCount = files.Length };
 
         // ---------- 변환 ----------
 
@@ -304,8 +315,8 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.DatabaseName = Database;
             vm.RelativePath = RelativePath;
 
-            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, RelativePath, "abcdef1")).Returns("old");
-            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, RelativePath, "abcdef1")).Returns("new");
+            _git.Setup(g => g.GetCommitDetail(Server, Database, "abcdef1", RelativePath))
+                .Returns(new CommitDetail { OldText = "old", NewText = "new" });
 
             bool raised = false;
             vm.PropertyChanged += (s, e) => { if (e.PropertyName == nameof(ObjectHistoryViewModel.SelectedDiffModel)) raised = true; };
@@ -331,13 +342,12 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.DatabaseName = Database;
             vm.RelativePath = RelativePath;
 
-            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, RelativePath, fullSha)).Returns("old");
-            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, RelativePath, fullSha)).Returns("new");
+            _git.Setup(g => g.GetCommitDetail(Server, Database, fullSha, RelativePath))
+                .Returns(new CommitDetail { OldText = "old", NewText = "new" });
 
             vm.SelectedEntry = entry;
 
-            _git.Verify(g => g.GetFileContentAtCommitParent(Server, Database, RelativePath, fullSha), Times.Once);
-            _git.Verify(g => g.GetFileContentAtCommit(Server, Database, RelativePath, fullSha), Times.Once);
+            _git.Verify(g => g.GetCommitDetail(Server, Database, fullSha, RelativePath), Times.Once);
         }
 
         [Test]
@@ -349,8 +359,8 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.DatabaseName = Database;
             vm.RelativePath = RelativePath;
 
-            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, RelativePath, "abcdef1")).Returns("old");
-            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, RelativePath, "abcdef1")).Returns("new");
+            _git.Setup(g => g.GetCommitDetail(Server, Database, "abcdef1", RelativePath))
+                .Returns(new CommitDetail { OldText = "old", NewText = "new" });
 
             vm.SelectedEntry = entry;
             Assert.That(vm.SelectedDiffModel, Is.Not.Null);
@@ -376,7 +386,9 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(vm.SelectedDiffModel, Is.Null);
             Assert.That(vm.IsDiffVisible, Is.False);
-            _git.Verify(g => g.GetFileContentAtCommit(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            // 세 경우 중 (Server, Database, null)은 전체 이력 모드라 변경 파일 목록 조회는 정당하다.
+            // 여기서 지켜야 할 것은 Diff 조회(경로가 있는 호출)가 일어나지 않는다는 것뿐이다.
+            _git.Verify(g => g.GetCommitDetail(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.Is<string>(p => p != null)), Times.Never);
         }
 
         [Test]
@@ -388,8 +400,8 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.DatabaseName = Database;
             vm.RelativePath = RelativePath;
 
-            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, RelativePath, "abcdef1")).Returns("old");
-            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, RelativePath, "abcdef1")).Returns("new");
+            _git.Setup(g => g.GetCommitDetail(Server, Database, "abcdef1", RelativePath))
+                .Returns(new CommitDetail { OldText = "old", NewText = "new" });
 
             var propertyChanges = new List<string?>();
             vm.PropertyChanged += (s, e) => propertyChanges.Add(e.PropertyName);
@@ -430,9 +442,9 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.DatabaseName = Database;
             vm.RelativePath = RelativePath;
 
-            // 최초 커밋의 경우 부모가 없으므로 GitManager는 "" 또는 null을 반환
-            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, RelativePath, "initsha")).Returns((string?)null);
-            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, RelativePath, "initsha")).Returns("create table Users (id int);");
+            // 최초 커밋의 경우 부모가 없으므로 GitManager는 OldText를 null로 채운다
+            _git.Setup(g => g.GetCommitDetail(Server, Database, "initsha", RelativePath))
+                .Returns(new CommitDetail { OldText = null, NewText = "create table Users (id int);" });
 
             vm.SelectedEntry = entry;
 
@@ -466,7 +478,8 @@ namespace DBVC.Vsix.Tests.ViewModels
                 new HistoryChangedFile { RelativePath = "dbo/Tables/Users.sql", State = HistoryChangedFileState.Added },
                 new HistoryChangedFile { RelativePath = "dbo/StoredProcedures/usp_GetUsers.sql", State = HistoryChangedFileState.Modified }
             };
-            _git.Setup(g => g.GetChangedFilesAtCommit(Server, Database, commitSha)).Returns(changed);
+            _git.Setup(g => g.GetCommitDetail(Server, Database, commitSha, null))
+                .Returns(new CommitDetail { ChangedFiles = changed, TotalChangedFileCount = changed.Count });
 
             vm.SelectedEntry = new HistoryEntryViewModel { Sha = commitSha, ShortSha = "c123456" };
 
@@ -495,13 +508,13 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.Load(Server, Database, RelativePath);
             Assert.That(vm.IsSingleObjectMode, Is.True);
 
-            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, RelativePath, "c123456")).Returns("old");
-            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, RelativePath, "c123456")).Returns("new");
+            _git.Setup(g => g.GetCommitDetail(Server, Database, "c123456", RelativePath))
+                .Returns(new CommitDetail { OldText = "old", NewText = "new" });
 
             vm.SelectedEntry = new HistoryEntryViewModel { Sha = "c123456", ShortSha = "c123456" };
 
             Assert.That(vm.ChangedFiles, Is.Empty);
-            _git.Verify(g => g.GetChangedFilesAtCommit(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            _git.Verify(g => g.GetCommitDetail(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), null), Times.Never);
             Assert.That(vm.SelectedDiffModel, Is.Not.Null);
             Assert.That(vm.IsDiffVisible, Is.True);
         }
@@ -517,9 +530,10 @@ namespace DBVC.Vsix.Tests.ViewModels
             {
                 new HistoryChangedFile { RelativePath = "dbo/Tables/Users.sql", State = HistoryChangedFileState.Modified }
             };
-            _git.Setup(g => g.GetChangedFilesAtCommit(Server, Database, commitSha)).Returns(changed);
-            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, "dbo/Tables/Users.sql", commitSha)).Returns("create table Users (id int);");
-            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, "dbo/Tables/Users.sql", commitSha)).Returns("create table Users (id int, name nvarchar(50));");
+            _git.Setup(g => g.GetCommitDetail(Server, Database, commitSha, null))
+                .Returns(new CommitDetail { ChangedFiles = changed, TotalChangedFileCount = changed.Count });
+            _git.Setup(g => g.GetCommitDetail(Server, Database, commitSha, "dbo/Tables/Users.sql"))
+                .Returns(new CommitDetail { OldText = "create table Users (id int);", NewText = "create table Users (id int, name nvarchar(50));" });
 
             vm.SelectedEntry = new HistoryEntryViewModel { Sha = commitSha, ShortSha = "c123456" };
             Assert.That(vm.SelectedDiffModel, Is.Null);
@@ -536,8 +550,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(diffModelChanged, Is.True);
             Assert.That(vm.SelectedDiffModel, Is.Not.Null);
             Assert.That(vm.IsDiffVisible, Is.True);
-            _git.Verify(g => g.GetFileContentAtCommitParent(Server, Database, "dbo/Tables/Users.sql", commitSha), Times.Once);
-            _git.Verify(g => g.GetFileContentAtCommit(Server, Database, "dbo/Tables/Users.sql", commitSha), Times.Once);
+            _git.Verify(g => g.GetCommitDetail(Server, Database, commitSha, "dbo/Tables/Users.sql"), Times.Once);
         }
 
         [Test]
@@ -551,9 +564,10 @@ namespace DBVC.Vsix.Tests.ViewModels
             {
                 new HistoryChangedFile { RelativePath = "dbo/Tables/Users.sql", State = HistoryChangedFileState.Modified }
             };
-            _git.Setup(g => g.GetChangedFilesAtCommit(Server, Database, commitSha)).Returns(changed);
-            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, "dbo/Tables/Users.sql", commitSha)).Returns("old");
-            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, "dbo/Tables/Users.sql", commitSha)).Returns("new");
+            _git.Setup(g => g.GetCommitDetail(Server, Database, commitSha, null))
+                .Returns(new CommitDetail { ChangedFiles = changed, TotalChangedFileCount = changed.Count });
+            _git.Setup(g => g.GetCommitDetail(Server, Database, commitSha, "dbo/Tables/Users.sql"))
+                .Returns(new CommitDetail { OldText = "old", NewText = "new" });
 
             vm.SelectedEntry = new HistoryEntryViewModel { Sha = commitSha, ShortSha = "c123456" };
             vm.SelectedChangedFile = vm.ChangedFiles[0];
@@ -573,16 +587,12 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             const string commit1 = "1111111111111111";
             const string commit2 = "2222222222222222";
-            _git.Setup(g => g.GetChangedFilesAtCommit(Server, Database, commit1)).Returns(new List<HistoryChangedFile>
-            {
-                new HistoryChangedFile { RelativePath = "dbo/Tables/Users.sql", State = HistoryChangedFileState.Modified }
-            });
-            _git.Setup(g => g.GetChangedFilesAtCommit(Server, Database, commit2)).Returns(new List<HistoryChangedFile>
-            {
-                new HistoryChangedFile { RelativePath = "dbo/Views/vw_Report.sql", State = HistoryChangedFileState.Added }
-            });
-            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, "dbo/Tables/Users.sql", commit1)).Returns("old");
-            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, "dbo/Tables/Users.sql", commit1)).Returns("new");
+            _git.Setup(g => g.GetCommitDetail(Server, Database, commit1, null))
+                .Returns(Detail(ChangedFile("dbo/Tables/Users.sql")));
+            _git.Setup(g => g.GetCommitDetail(Server, Database, commit2, null))
+                .Returns(Detail(ChangedFile("dbo/Views/vw_Report.sql", HistoryChangedFileState.Added)));
+            _git.Setup(g => g.GetCommitDetail(Server, Database, commit1, "dbo/Tables/Users.sql"))
+                .Returns(new CommitDetail { OldText = "old", NewText = "new" });
 
             vm.SelectedEntry = new HistoryEntryViewModel { Sha = commit1, ShortSha = "1111111" };
             vm.SelectedChangedFile = vm.ChangedFiles[0];
@@ -604,10 +614,8 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.Load(Server, Database, null);
 
             const string commitSha = "c1234567890abcdef";
-            _git.Setup(g => g.GetChangedFilesAtCommit(Server, Database, commitSha)).Returns(new List<HistoryChangedFile>
-            {
-                new HistoryChangedFile { RelativePath = "dbo/Tables/Users.sql", State = HistoryChangedFileState.Modified }
-            });
+            _git.Setup(g => g.GetCommitDetail(Server, Database, commitSha, null))
+                .Returns(Detail(ChangedFile("dbo/Tables/Users.sql")));
 
             vm.SelectedEntry = new HistoryEntryViewModel { Sha = commitSha, ShortSha = "c123456" };
             vm.SelectedChangedFile = vm.ChangedFiles[0];
@@ -618,6 +626,94 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.SelectedChangedFile, Is.Null);
             Assert.That(vm.SelectedDiffModel, Is.Null);
             Assert.That(vm.IsDiffVisible, Is.False);
+        }
+
+        // ---------- 백그라운드 스케줄러와 stale 가드 ----------
+
+        [Test]
+        public void SelectedEntry_IgnoresTheEarlierRequest_WhenItFinishesLast()
+        {
+            var scheduler = new DeferredBackgroundScheduler();
+            var vm = new ObjectHistoryViewModel(_git.Object, new DiffService(), scheduler);
+            vm.Load(Server, Database, null);
+
+            _git.Setup(g => g.GetCommitDetail(Server, Database, "aaa", null))
+                .Returns(Detail(ChangedFile("dbo/Tables/A.sql")));
+            _git.Setup(g => g.GetCommitDetail(Server, Database, "bbb", null))
+                .Returns(Detail(ChangedFile("dbo/Tables/B.sql")));
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = "aaa", ShortSha = "aaa" };
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = "bbb", ShortSha = "bbb" };
+
+            // 나중 요청(bbb)을 먼저, 앞선 요청(aaa)을 나중에 흘린다.
+            scheduler.FlushAt(1);
+            scheduler.FlushAt(0);
+
+            Assert.That(vm.ChangedFiles.Count, Is.EqualTo(1));
+            Assert.That(vm.ChangedFiles[0].RelativePath, Is.EqualTo("dbo/Tables/B.sql"));
+        }
+
+        [Test]
+        public void SelectedEntry_RunsTheGitReadThroughTheScheduler()
+        {
+            var scheduler = new DeferredBackgroundScheduler();
+            var vm = new ObjectHistoryViewModel(_git.Object, new DiffService(), scheduler);
+            vm.Load(Server, Database, null);
+
+            _git.Setup(g => g.GetCommitDetail(Server, Database, "aaa", null))
+                .Returns(Detail(ChangedFile("dbo/Tables/A.sql")));
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = "aaa", ShortSha = "aaa" };
+
+            Assert.That(vm.ChangedFiles, Is.Empty, "콜백을 흘리기 전에는 컬렉션이 비어 있어야 한다");
+            Assert.That(scheduler.PendingCount, Is.EqualTo(1));
+
+            scheduler.FlushAll();
+            Assert.That(vm.ChangedFiles.Count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void SelectedEntry_BuildsAMergeNotice_WhenTheCommitHasTwoParents()
+        {
+            var vm = NewViewModel();
+            vm.Load(Server, Database, null);
+
+            _git.Setup(g => g.GetCommitDetail(Server, Database, "aaa", null))
+                .Returns(Detail(ChangedFile("dbo/Tables/A.sql")));
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = "aaa", ShortSha = "aaa", ParentCount = 2 };
+
+            Assert.That(vm.HasChangedFilesNotice, Is.True);
+            Assert.That(vm.ChangedFilesNotice, Does.Contain("병합 커밋"));
+        }
+
+        [Test]
+        public void SelectedEntry_BuildsATruncationNotice_WhenTheFileListIsCut()
+        {
+            var vm = NewViewModel();
+            vm.Load(Server, Database, null);
+
+            _git.Setup(g => g.GetCommitDetail(Server, Database, "aaa", null))
+                .Returns(new CommitDetail
+                {
+                    ChangedFiles = new List<HistoryChangedFile> { ChangedFile("dbo/Tables/A.sql") },
+                    TotalChangedFileCount = 900,
+                    IsTruncated = true
+                });
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = "aaa", ShortSha = "aaa" };
+
+            Assert.That(vm.ChangedFilesNotice, Does.Contain("900"));
+        }
+
+        [Test]
+        public void HistoryEntryViewModel_MergeMark_IsSetOnlyWhenParentCountExceedsOne()
+        {
+            var merge = HistoryEntryViewModel.From(new CommitInfo { Sha = "a", ParentCount = 2 });
+            var plain = HistoryEntryViewModel.From(new CommitInfo { Sha = "b", ParentCount = 1 });
+
+            Assert.That(merge.MergeMark, Is.EqualTo("병합"));
+            Assert.That(plain.MergeMark, Is.Empty);
         }
     }
 }

@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using DBVC.Vsix.Services;
 
 namespace DBVC.Vsix.Tests.ViewModels
@@ -77,6 +79,51 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             CallCount++;
             return RequestToReturn;
+        }
+    }
+
+    /// <summary>
+    /// 작업은 즉시 돌리되 결과 반영은 큐에 담아 둔다. 테스트가 순서를 골라 흘려보내
+    /// "늦게 끝난 앞선 요청"을 흉내 낼 수 있다 - stale 가드는 그 상황에서만 드러난다.
+    /// </summary>
+    public sealed class DeferredBackgroundScheduler : IBackgroundScheduler
+    {
+        private readonly List<Action> _pending = new List<Action>();
+
+        public int PendingCount => _pending.Count;
+
+        public void Run<T>(Func<T> work, Action<T> onSucceeded, Action<Exception> onFailed)
+        {
+            T value;
+            try
+            {
+                value = work();
+            }
+            catch (Exception ex)
+            {
+                _pending.Add(() => onFailed(ex));
+                return;
+            }
+
+            _pending.Add(() => onSucceeded(value));
+        }
+
+        public void Post(Action action) => action();
+
+        /// <summary>담긴 순서대로 모두 흘린다.</summary>
+        public void FlushAll()
+        {
+            var snapshot = _pending.ToList();
+            _pending.Clear();
+            foreach (var callback in snapshot) callback();
+        }
+
+        /// <summary><paramref name="index"/>번째 콜백만 흘린다.</summary>
+        public void FlushAt(int index)
+        {
+            var callback = _pending[index];
+            _pending.RemoveAt(index);
+            callback();
         }
     }
 }
