@@ -439,5 +439,185 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.SelectedDiffModel, Is.Not.Null);
             Assert.That(vm.IsDiffVisible, Is.True);
         }
+
+        // ---------- 전체 이력 모드에서의 변경 파일 목록 및 Diff ----------
+
+        [Test]
+        public void IsSingleObjectMode_IsTrueWhenRelativePathIsSet_AndFalseWhenNull()
+        {
+            var vm = NewViewModel();
+            vm.Load(Server, Database, RelativePath);
+            Assert.That(vm.IsSingleObjectMode, Is.True);
+
+            vm.Load(Server, Database, null);
+            Assert.That(vm.IsSingleObjectMode, Is.False);
+        }
+
+        [Test]
+        public void SelectedEntry_WhenInGlobalHistoryMode_PopulatesChangedFiles()
+        {
+            var vm = NewViewModel();
+            vm.Load(Server, Database, null);
+            Assert.That(vm.IsSingleObjectMode, Is.False);
+
+            const string commitSha = "c1234567890abcdef";
+            var changed = new List<HistoryChangedFile>
+            {
+                new HistoryChangedFile { RelativePath = "dbo/Tables/Users.sql", State = HistoryChangedFileState.Added },
+                new HistoryChangedFile { RelativePath = "dbo/StoredProcedures/usp_GetUsers.sql", State = HistoryChangedFileState.Modified }
+            };
+            _git.Setup(g => g.GetChangedFilesAtCommit(Server, Database, commitSha)).Returns(changed);
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = commitSha, ShortSha = "c123456" };
+
+            Assert.That(vm.ChangedFiles.Count, Is.EqualTo(2));
+            Assert.That(vm.ChangedFiles[0].ObjectName, Is.EqualTo("dbo.Users"));
+            Assert.That(vm.ChangedFiles[0].ObjectType, Is.EqualTo("Table"));
+            Assert.That(vm.ChangedFiles[0].ObjectTypeText, Is.EqualTo("Table"));
+            Assert.That(vm.ChangedFiles[0].StateText, Is.EqualTo("추가"));
+            Assert.That(vm.ChangedFiles[0].RelativePath, Is.EqualTo("dbo/Tables/Users.sql"));
+
+            Assert.That(vm.ChangedFiles[1].ObjectName, Is.EqualTo("dbo.usp_GetUsers"));
+            Assert.That(vm.ChangedFiles[1].ObjectType, Is.EqualTo("StoredProcedure"));
+            Assert.That(vm.ChangedFiles[1].ObjectTypeText, Is.EqualTo("SP"));
+            Assert.That(vm.ChangedFiles[1].StateText, Is.EqualTo("수정"));
+            Assert.That(vm.ChangedFiles[1].RelativePath, Is.EqualTo("dbo/StoredProcedures/usp_GetUsers.sql"));
+
+            Assert.That(vm.SelectedChangedFile, Is.Null);
+            Assert.That(vm.SelectedDiffModel, Is.Null);
+            Assert.That(vm.IsDiffVisible, Is.False);
+        }
+
+        [Test]
+        public void SelectedEntry_WhenInSingleObjectMode_DoesNotPopulateChangedFiles()
+        {
+            var vm = NewViewModel();
+            vm.Load(Server, Database, RelativePath);
+            Assert.That(vm.IsSingleObjectMode, Is.True);
+
+            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, RelativePath, "c123456")).Returns("old");
+            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, RelativePath, "c123456")).Returns("new");
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = "c123456", ShortSha = "c123456" };
+
+            Assert.That(vm.ChangedFiles, Is.Empty);
+            _git.Verify(g => g.GetChangedFilesAtCommit(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            Assert.That(vm.SelectedDiffModel, Is.Not.Null);
+            Assert.That(vm.IsDiffVisible, Is.True);
+        }
+
+        [Test]
+        public void SelectedChangedFile_WhenSelectedInGlobalMode_UpdatesSelectedDiffModel()
+        {
+            var vm = NewViewModel();
+            vm.Load(Server, Database, null);
+
+            const string commitSha = "c1234567890abcdef";
+            var changed = new List<HistoryChangedFile>
+            {
+                new HistoryChangedFile { RelativePath = "dbo/Tables/Users.sql", State = HistoryChangedFileState.Modified }
+            };
+            _git.Setup(g => g.GetChangedFilesAtCommit(Server, Database, commitSha)).Returns(changed);
+            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, "dbo/Tables/Users.sql", commitSha)).Returns("create table Users (id int);");
+            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, "dbo/Tables/Users.sql", commitSha)).Returns("create table Users (id int, name nvarchar(50));");
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = commitSha, ShortSha = "c123456" };
+            Assert.That(vm.SelectedDiffModel, Is.Null);
+
+            bool diffModelChanged = false;
+            vm.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(ObjectHistoryViewModel.SelectedDiffModel))
+                    diffModelChanged = true;
+            };
+
+            vm.SelectedChangedFile = vm.ChangedFiles[0];
+
+            Assert.That(diffModelChanged, Is.True);
+            Assert.That(vm.SelectedDiffModel, Is.Not.Null);
+            Assert.That(vm.IsDiffVisible, Is.True);
+            _git.Verify(g => g.GetFileContentAtCommitParent(Server, Database, "dbo/Tables/Users.sql", commitSha), Times.Once);
+            _git.Verify(g => g.GetFileContentAtCommit(Server, Database, "dbo/Tables/Users.sql", commitSha), Times.Once);
+        }
+
+        [Test]
+        public void SelectedChangedFile_WhenSetToNull_ClearsSelectedDiffModel()
+        {
+            var vm = NewViewModel();
+            vm.Load(Server, Database, null);
+
+            const string commitSha = "c1234567890abcdef";
+            var changed = new List<HistoryChangedFile>
+            {
+                new HistoryChangedFile { RelativePath = "dbo/Tables/Users.sql", State = HistoryChangedFileState.Modified }
+            };
+            _git.Setup(g => g.GetChangedFilesAtCommit(Server, Database, commitSha)).Returns(changed);
+            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, "dbo/Tables/Users.sql", commitSha)).Returns("old");
+            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, "dbo/Tables/Users.sql", commitSha)).Returns("new");
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = commitSha, ShortSha = "c123456" };
+            vm.SelectedChangedFile = vm.ChangedFiles[0];
+            Assert.That(vm.SelectedDiffModel, Is.Not.Null);
+
+            vm.SelectedChangedFile = null;
+
+            Assert.That(vm.SelectedDiffModel, Is.Null);
+            Assert.That(vm.IsDiffVisible, Is.False);
+        }
+
+        [Test]
+        public void SelectedEntry_WhenChangedToAnotherCommitInGlobalMode_ResetsSelectedChangedFileAndSelectedDiffModel()
+        {
+            var vm = NewViewModel();
+            vm.Load(Server, Database, null);
+
+            const string commit1 = "1111111111111111";
+            const string commit2 = "2222222222222222";
+            _git.Setup(g => g.GetChangedFilesAtCommit(Server, Database, commit1)).Returns(new List<HistoryChangedFile>
+            {
+                new HistoryChangedFile { RelativePath = "dbo/Tables/Users.sql", State = HistoryChangedFileState.Modified }
+            });
+            _git.Setup(g => g.GetChangedFilesAtCommit(Server, Database, commit2)).Returns(new List<HistoryChangedFile>
+            {
+                new HistoryChangedFile { RelativePath = "dbo/Views/vw_Report.sql", State = HistoryChangedFileState.Added }
+            });
+            _git.Setup(g => g.GetFileContentAtCommitParent(Server, Database, "dbo/Tables/Users.sql", commit1)).Returns("old");
+            _git.Setup(g => g.GetFileContentAtCommit(Server, Database, "dbo/Tables/Users.sql", commit1)).Returns("new");
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = commit1, ShortSha = "1111111" };
+            vm.SelectedChangedFile = vm.ChangedFiles[0];
+            Assert.That(vm.SelectedDiffModel, Is.Not.Null);
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = commit2, ShortSha = "2222222" };
+
+            Assert.That(vm.SelectedChangedFile, Is.Null);
+            Assert.That(vm.SelectedDiffModel, Is.Null);
+            Assert.That(vm.IsDiffVisible, Is.False);
+            Assert.That(vm.ChangedFiles.Count, Is.EqualTo(1));
+            Assert.That(vm.ChangedFiles[0].ObjectName, Is.EqualTo("dbo.vw_Report"));
+        }
+
+        [Test]
+        public void SelectedEntry_WhenSetToNull_ClearsChangedFilesAndSelectedChangedFile()
+        {
+            var vm = NewViewModel();
+            vm.Load(Server, Database, null);
+
+            const string commitSha = "c1234567890abcdef";
+            _git.Setup(g => g.GetChangedFilesAtCommit(Server, Database, commitSha)).Returns(new List<HistoryChangedFile>
+            {
+                new HistoryChangedFile { RelativePath = "dbo/Tables/Users.sql", State = HistoryChangedFileState.Modified }
+            });
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = commitSha, ShortSha = "c123456" };
+            vm.SelectedChangedFile = vm.ChangedFiles[0];
+
+            vm.SelectedEntry = null;
+
+            Assert.That(vm.ChangedFiles, Is.Empty);
+            Assert.That(vm.SelectedChangedFile, Is.Null);
+            Assert.That(vm.SelectedDiffModel, Is.Null);
+            Assert.That(vm.IsDiffVisible, Is.False);
+        }
     }
 }

@@ -37,6 +37,10 @@ namespace DBVC.Vsix.ViewModels
         public string? RelativePath { get; set; }
 
         public ObservableCollection<HistoryEntryViewModel> Entries { get; } = new ObservableCollection<HistoryEntryViewModel>();
+        public ObservableCollection<HistoryChangedFileViewModel> ChangedFiles { get; } = new ObservableCollection<HistoryChangedFileViewModel>();
+
+        /// <summary>단일 객체 이력 보기 모드인지 여부. <see cref="RelativePath"/>가 지정되어 있으면 단일 객체 모드다.</summary>
+        public bool IsSingleObjectMode => !string.IsNullOrWhiteSpace(RelativePath);
 
         /// <summary>비어 있으면 화면이 목록 대신 안내 문구를 보여준다.</summary>
         public bool IsEmpty => Entries.Count == 0;
@@ -58,6 +62,39 @@ namespace DBVC.Vsix.ViewModels
                 if (ReferenceEquals(_selectedEntry, value)) return;
                 _selectedEntry = value;
                 OnPropertyChanged();
+
+                ChangedFiles.Clear();
+                SelectedChangedFile = null;
+
+                if (_selectedEntry != null && string.IsNullOrWhiteSpace(RelativePath) && ServerName != null && DatabaseName != null)
+                {
+                    var commitSha = !string.IsNullOrEmpty(_selectedEntry.Sha) ? _selectedEntry.Sha : _selectedEntry.ShortSha;
+                    var changedFiles = _gitManager.GetChangedFilesAtCommit(ServerName, DatabaseName, commitSha);
+                    if (changedFiles != null)
+                    {
+                        foreach (var file in changedFiles)
+                        {
+                            if (file != null)
+                            {
+                                ChangedFiles.Add(HistoryChangedFileViewModel.From(file));
+                            }
+                        }
+                    }
+                }
+
+                UpdateDiffModel();
+            }
+        }
+
+        private HistoryChangedFileViewModel? _selectedChangedFile;
+        public HistoryChangedFileViewModel? SelectedChangedFile
+        {
+            get => _selectedChangedFile;
+            set
+            {
+                if (ReferenceEquals(_selectedChangedFile, value)) return;
+                _selectedChangedFile = value;
+                OnPropertyChanged();
                 UpdateDiffModel();
             }
         }
@@ -78,15 +115,16 @@ namespace DBVC.Vsix.ViewModels
 
         private void UpdateDiffModel()
         {
-            if (_selectedEntry == null || ServerName == null || DatabaseName == null || RelativePath == null)
+            var targetPath = !string.IsNullOrWhiteSpace(RelativePath) ? RelativePath : _selectedChangedFile?.RelativePath;
+            if (_selectedEntry == null || ServerName == null || DatabaseName == null || string.IsNullOrWhiteSpace(targetPath))
             {
                 SelectedDiffModel = null;
                 return;
             }
 
             var commitSha = !string.IsNullOrEmpty(_selectedEntry.Sha) ? _selectedEntry.Sha : _selectedEntry.ShortSha;
-            var oldContent = _gitManager.GetFileContentAtCommitParent(ServerName, DatabaseName, RelativePath, commitSha);
-            var newContent = _gitManager.GetFileContentAtCommit(ServerName, DatabaseName, RelativePath, commitSha);
+            var oldContent = _gitManager.GetFileContentAtCommitParent(ServerName, DatabaseName, targetPath!, commitSha);
+            var newContent = _gitManager.GetFileContentAtCommit(ServerName, DatabaseName, targetPath!, commitSha);
 
             SelectedDiffModel = _diffService.GetDiffModelFromString(oldContent ?? string.Empty, newContent ?? string.Empty);
         }
@@ -105,6 +143,8 @@ namespace DBVC.Vsix.ViewModels
             RelativePath = relativePath;
 
             Entries.Clear();
+            ChangedFiles.Clear();
+            SelectedChangedFile = null;
             ScopeLabel = string.Empty;
             SelectedEntry = null;
 
@@ -124,6 +164,7 @@ namespace DBVC.Vsix.ViewModels
 
             OnPropertyChanged(nameof(IsEmpty));
             OnPropertyChanged(nameof(ScopeLabel));
+            OnPropertyChanged(nameof(IsSingleObjectMode));
         }
 
         /// <summary>
