@@ -122,6 +122,7 @@ namespace DBVC.Core
         string? GetFileContentBeforeLastCommit(string serverName, string databaseName, string relativeFilePath);
         string? GetFileContentAtCommit(string serverName, string databaseName, string relativeFilePath, string commitSha);
         string? GetFileContentAtCommitParent(string serverName, string databaseName, string relativeFilePath, string commitSha);
+        IReadOnlyList<HistoryChangedFile> GetChangedFilesAtCommit(string serverName, string databaseName, string commitSha);
     }
 
     public interface ISmoManager

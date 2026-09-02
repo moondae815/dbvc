@@ -727,6 +727,77 @@ namespace DBVC.Core.Tests
             Assert.That(git.GetFileContentAtCommitParent("localhost", "unmapped", "dbo/Tables/Users.sql", headSha), Is.Null);
         }
 
+        // ---------- GetChangedFilesAtCommit ----------
+
+        [Test]
+        public void GetChangedFilesAtCommit_ReturnsChangedFiles_ForInitialCommit_And_SubsequentCommits()
+        {
+            var repoPath = NewRepoWithCommit("dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT);");
+            var sha1 = string.Empty;
+            using (var repo = new Repository(repoPath))
+            {
+                sha1 = repo.Head.Tip.Sha;
+            }
+
+            // In second commit: modify Users.sql, add Orders.sql
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT, Name NVARCHAR(50));");
+            WriteRepoFile(repoPath, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);");
+            var sha2 = string.Empty;
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "*");
+                sha2 = repo.Commit("update users and add orders", TestSignature, TestSignature).Sha;
+            }
+
+            // In third commit: delete Orders.sql
+            var sha3 = string.Empty;
+            using (var repo = new Repository(repoPath))
+            {
+                var ordersPath = Path.Combine(repoPath, "dbo", "Tables", "Orders.sql");
+                File.Delete(ordersPath);
+                Commands.Stage(repo, "*");
+                sha3 = repo.Commit("delete orders", TestSignature, TestSignature).Sha;
+            }
+
+            var git = NewGitManager("localhost", "testdb", repoPath);
+
+            // Verify initial commit (parent is null)
+            var initialChanges = git.GetChangedFilesAtCommit("localhost", "testdb", sha1);
+            Assert.That(initialChanges.Count, Is.EqualTo(1));
+            Assert.That(initialChanges[0].RelativePath, Is.EqualTo("dbo/Tables/Users.sql"));
+            Assert.That(initialChanges[0].State, Is.EqualTo(HistoryChangedFileState.Added));
+
+            // Verify commit 2 (1 modified, 1 added)
+            var commit2Changes = git.GetChangedFilesAtCommit("localhost", "testdb", sha2);
+            Assert.That(commit2Changes.Count, Is.EqualTo(2));
+            var usersChange = commit2Changes.FirstOrDefault(c => c.RelativePath == "dbo/Tables/Users.sql");
+            var ordersChange = commit2Changes.FirstOrDefault(c => c.RelativePath == "dbo/Tables/Orders.sql");
+            Assert.That(usersChange, Is.Not.Null);
+            Assert.That(usersChange!.State, Is.EqualTo(HistoryChangedFileState.Modified));
+            Assert.That(ordersChange, Is.Not.Null);
+            Assert.That(ordersChange!.State, Is.EqualTo(HistoryChangedFileState.Added));
+
+            // Verify commit 3 (1 deleted)
+            var commit3Changes = git.GetChangedFilesAtCommit("localhost", "testdb", sha3);
+            Assert.That(commit3Changes.Count, Is.EqualTo(1));
+            Assert.That(commit3Changes[0].RelativePath, Is.EqualTo("dbo/Tables/Orders.sql"));
+            Assert.That(commit3Changes[0].State, Is.EqualTo(HistoryChangedFileState.Deleted));
+        }
+
+        [Test]
+        public void GetChangedFilesAtCommit_ReturnsEmpty_WhenCommitDoesNotExistOrUnmapped()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager("localhost", "testdb", repoPath);
+
+            using var repo = new Repository(repoPath);
+            var headSha = repo.Head.Tip.Sha;
+
+            Assert.That(git.GetChangedFilesAtCommit("localhost", "testdb", "0000000000000000000000000000000000000000"), Is.Empty);
+            Assert.That(git.GetChangedFilesAtCommit("localhost", "unmapped", headSha), Is.Empty);
+            Assert.That(git.GetChangedFilesAtCommit("localhost", "testdb", ""), Is.Empty);
+        }
+
         // ---------- PullChanges ----------
 
         [Test]

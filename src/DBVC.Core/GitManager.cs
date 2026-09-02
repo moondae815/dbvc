@@ -848,6 +848,39 @@ namespace DBVC.Core
             }
         }
 
+        /// <summary>
+        /// 특정 커밋에서 변경된 파일 목록과 각 파일의 상태(Added, Modified, Deleted)를 반환한다.
+        /// 부모 커밋과의 Tree Diff를 비교하여 변경 사항을 조회하며, 최초 커밋인 경우 부모 Tree는 null로 비교된다.
+        /// </summary>
+        public IReadOnlyList<HistoryChangedFile> GetChangedFilesAtCommit(string serverName, string databaseName, string commitSha)
+        {
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null || string.IsNullOrWhiteSpace(commitSha)) return new List<HistoryChangedFile>();
+
+            try
+            {
+                using var repo = new Repository(repoPath);
+                var commit = repo.Lookup<Commit>(commitSha);
+                if (commit == null) return new List<HistoryChangedFile>();
+
+                var parentTree = commit.Parents.FirstOrDefault()?.Tree;
+                var changes = repo.Diff.Compare<TreeChanges>(parentTree, commit.Tree);
+
+                return changes.Select(c => new HistoryChangedFile
+                {
+                    State = c.Status == ChangeKind.Added ? HistoryChangedFileState.Added :
+                            c.Status == ChangeKind.Deleted ? HistoryChangedFileState.Deleted :
+                            HistoryChangedFileState.Modified,
+                    RelativePath = c.Path
+                }).ToList();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"GitManager.GetChangedFilesAtCommit failed for '{commitSha}': {ex.Message}");
+                return new List<HistoryChangedFile>();
+            }
+        }
+
         private static string? ReadBlobText(Commit commit, string path)
         {
             var entry = commit?[path];
