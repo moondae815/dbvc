@@ -711,6 +711,11 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.SelectedDiffModel!.NewText.Lines.Select(l => l.Text), Does.Contain("new-b"),
                 "앞선 요청(aaa)이 늦게 끝나 나중 요청(bbb)의 결과를 덮어쓰면 안 된다");
             Assert.That(vm.SelectedDiffModel!.NewText.Lines.Select(l => l.Text), Does.Not.Contain("new-a"));
+
+            // GetSelectedFileTexts()도 SelectedDiffModel과 같은 표(stale 검사)를 지나야 한다 - 원본
+            // 대입이 stale 검사보다 앞에 있으면 늦게 끝난 aaa가 여기서만 조용히 이겨 이 값이 old-a/new-a로
+            // 되돌아간다.
+            Assert.That(vm.GetSelectedFileTexts(), Is.EqualTo(("old-b", "new-b")));
         }
 
         [Test]

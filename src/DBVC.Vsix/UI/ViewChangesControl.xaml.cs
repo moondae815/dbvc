@@ -1,6 +1,6 @@
 using System;
+using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -146,6 +146,8 @@ namespace DBVC.Vsix.UI
 
             // Unloaded는 다시 도킹할 때도 뜨므로 목록을 비우고 다시 쌓는다.
             // 비교 창이 아직 열려 있으면 삭제가 실패하는데, 그때는 다음 기회에 지운다.
+            // 원인을 IOException 등으로 좁히지 않는다 - 도구 창이 사라지는 도중에는 어떤 이유로든
+            // 예외가 밖으로 나가면 안 되므로, 여기서는 항상 삼키고 대신 로그만 남긴다.
             foreach (var path in _tempDiffFiles.ToArray())
             {
                 try
@@ -153,9 +155,9 @@ namespace DBVC.Vsix.UI
                     File.Delete(path);
                     _tempDiffFiles.Remove(path);
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // 비교 창이 아직 쓰고 있다. 다음 Unloaded에서 다시 시도한다.
+                    Debug.WriteLine($"ViewChangesControl.OnUnloaded temp file delete failed: {ex.Message}");
                 }
             }
         }
