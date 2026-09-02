@@ -727,6 +727,38 @@ namespace DBVC.Core.Tests
             Assert.That(git.GetFileContentAtCommitParent("localhost", "unmapped", "dbo/Tables/Users.sql", headSha), Is.Null);
         }
 
+        [Test]
+        public void GetHistory_SetsParentCountToTwo_ForAMergeCommit()
+        {
+            var repoPath = NewRepoWithCommit("dbo/Tables/Users.sql", "V1");
+
+            using (var repo = new Repository(repoPath))
+            {
+                var baseCommit = repo.Head.Tip;
+                var defaultBranch = repo.Head.FriendlyName;
+
+                // 갈래를 하나 만들어 서로 다른 파일을 커밋한 뒤 병합한다.
+                var side = repo.CreateBranch("side", baseCommit);
+                Commands.Checkout(repo, side);
+                WriteRepoFile(repoPath, "dbo/Tables/Side.sql", "CREATE TABLE Side (Id INT);");
+                Commands.Stage(repo, "*");
+                repo.Commit("side work", TestSignature, TestSignature);
+
+                Commands.Checkout(repo, defaultBranch);
+                WriteRepoFile(repoPath, "dbo/Tables/Main.sql", "CREATE TABLE Main (Id INT);");
+                Commands.Stage(repo, "*");
+                repo.Commit("main work", TestSignature, TestSignature);
+
+                repo.Merge(side, TestSignature, new MergeOptions { FastForwardStrategy = FastForwardStrategy.NoFastForward });
+            }
+
+            var git = NewGitManager(Server, Database, repoPath);
+            var history = git.GetHistory(Server, Database, null);
+
+            Assert.That(history[0].ParentCount, Is.EqualTo(2), "가장 최근 커밋이 병합 커밋이다");
+            Assert.That(history.Skip(1).All(c => c.ParentCount <= 1), Is.True);
+        }
+
         // ---------- GetCommitDetail ----------
 
         [Test]

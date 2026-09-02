@@ -720,6 +720,7 @@ namespace DBVC.Core
                     {
                         Sha = commit.Sha,
                         ParentSha = commit.Parents.FirstOrDefault()?.Sha,
+                        ParentCount = commit.Parents.Count(),
                         Message = commit.Message,
                         Author = commit.Author.Name,
                         Date = commit.Author.When
