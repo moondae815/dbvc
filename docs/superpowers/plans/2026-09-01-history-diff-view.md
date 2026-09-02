@@ -67,7 +67,7 @@ public string? GetFileContentAtCommit(string serverName, string databaseName, st
     var commit = repo.Lookup<LibGit2Sharp.Commit>(commitSha);
     if (commit == null) return null;
 
-    var path = ObjectPathConvention.GetRepositoryPath(serverName, databaseName, relativeFilePath);
+    var path = NormalizePath(relativeFilePath);
     return GetContentFromTree(commit.Tree, path);
 }
 
@@ -82,11 +82,14 @@ public string? GetFileContentAtCommitParent(string serverName, string databaseNa
     var parent = commit.Parents.FirstOrDefault();
     if (parent == null) return string.Empty; // 최초 커밋
 
-    var path = ObjectPathConvention.GetRepositoryPath(serverName, databaseName, relativeFilePath);
+    var path = NormalizePath(relativeFilePath);
     return GetContentFromTree(parent.Tree, path);
 }
 ```
 *그리고 `tests/DBVC.Core.Tests/GitManagerTests.cs`의 테스트 코드에서 `Assert.That(v2Content, Is.EqualTo("V2"));`로 수정.*
+
+> 저장소 루트가 곧 매핑 경로이므로 서버·DB를 경로에 덧붙이지 않는다.
+> `ObjectPathConvention.GetRepositoryPath`라는 메서드는 존재하지 않는다.
 
 - [ ] **Step 4: Run test to verify it passes**
 Run: `dotnet test tests/DBVC.Core.Tests/DBVC.Core.Tests.csproj --filter "GetFileContentAtCommit_ReturnsContentOfCommit_And_GetFileContentAtCommitParent_ReturnsParentContent"`

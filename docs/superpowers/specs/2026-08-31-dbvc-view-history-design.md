@@ -12,6 +12,12 @@
 - **메뉴 항목:** "DBVC: 이력 보기" (View History)
 - **객체 식별 로직:**
   - `DbvcPackage.vsct`에서 적절한 Context Menu Group을 찾아 버튼을 등록합니다. (SSMS의 경우 VSIP Logging을 통해 GUID/ID를 확인하거나, 알려진 개체 탐색기 노드 메뉴에 연결합니다.)
+
+    > **실제 구현은 VSCT가 아니다.** SSMS 21의 개체 탐색기 노드 컨텍스트 메뉴에는 확장이 붙을
+    > 공개 CommandPlacement 지점이 없어, `ShowHistoryCommand`가 `IObjectExplorerService`에서
+    > WinForms `TreeView`를 리플렉션으로 찾아 `ContextMenuStrip.Opening`을 후킹하고 메뉴 항목을
+    > 직접 넣는다. 개체 탐색기는 패키지 초기화보다 늦게 뜰 수 있어 2초 폴링 타이머로 재시도한다.
+    > `DbvcPackage.vsct`의 `ShowHistoryCommandId`(0x0102)는 테스트 상수로만 남아 있다.
   - `ObjectExplorerConnectionSource`를 통해 선택된 노드의 `INodeContext.Context` (URN 문자열)를 읽어옵니다.
   - `SsmsUrn` 클래스에 객체 타입(ObjectType), 스키마(Schema), 이름(Name)을 추출하는 메서드(예: `TryParseObjectIdentity(urn)`)를 추가합니다. (예: `Server/Database/Table[@Name='Person' and @Schema='dbo']` -> Table, dbo, Person)
   - `ObjectPathConvention.GetRelativePath`를 이용해 Git 저장소 내의 상대 경로(`RelativePath`)를 도출합니다.
