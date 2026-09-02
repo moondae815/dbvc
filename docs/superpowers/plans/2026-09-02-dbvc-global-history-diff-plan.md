@@ -6,7 +6,12 @@
 
 **Architecture:** IGitManager에 파일 변경점 조회 메서드를 추가하고 ObjectHistoryViewModel에서 이를 바인딩할 수 있도록 ChangedFiles 속성을 추가합니다. ViewChangesControl.xaml은 이 속성을 바인딩하여 3단 수직 분할 뷰로 렌더링합니다.
 
-**Tech Stack:** C# 8.0, WPF, LibGit2Sharp, NUnit, Moq
+**Tech Stack:** C# 10, WPF, LibGit2Sharp, xUnit, Moq
+
+> **실제 구성은 다르다.** 테스트 프레임워크는 xUnit이 아니라 NUnit이다(`tests/DBVC.Core.Tests`,
+> `tests/DBVC.Vsix.Tests` 모두 `NUnit`·`NUnit3TestAdapter`를 참조한다). C# 버전도 10으로 고정되어
+> 있지 않다 — `DBVC.Core`, `DBVC.Vsix`와 두 테스트 프로젝트 모두 `<LangVersion>latest</LangVersion>`만
+> 설정하므로, 실제 언어 버전은 설치된 SDK가 정한다.
 
 **Spec:** docs/superpowers/specs/2026-09-02-dbvc-global-history-diff-design.md
 
