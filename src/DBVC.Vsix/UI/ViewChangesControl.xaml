@@ -134,7 +134,6 @@
         </Border>
 
         <Grid x:Name="ChangeListGrid" Grid.Row="2" Visibility="{Binding ShowChangeList, Converter={StaticResource BoolToVis}}">
-            <!-- 일반 변경 목록 모드 (2-pane) -->
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -238,7 +237,7 @@
                             <Grid Grid.Row="1">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="1*" />
-                                    <RowDefinition Height="5" />
+                                    <RowDefinition x:Name="HistoryListSplitterRow" Height="5" />
                                     <RowDefinition x:Name="ChangedFilesRow" Height="1*" />
                                     <RowDefinition x:Name="ChangedFilesSplitterRow" Height="5" />
                                     <RowDefinition x:Name="HistoryDiffRow" Height="1*" />

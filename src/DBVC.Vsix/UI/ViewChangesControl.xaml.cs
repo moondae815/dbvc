@@ -282,12 +282,17 @@ namespace DBVC.Vsix.UI
                     _changedFilesExpandedHeight = ChangedFilesRow.Height;
                     ChangedFilesRow.Height = zero;
                     ChangedFilesSplitterRow.Height = zero;
+                    // HistoryListSplitter는 아래에서 Visibility만 접힌다. 그 행 자체의
+                    // Height="5"는 하드코딩이라 그대로 두면 접힌 분할선 자리만큼 5px짜리
+                    // 빈 띠가 목록과 변경 파일 목록 사이에 계속 남는다.
+                    HistoryListSplitterRow.Height = zero;
                     ChangedFilesPanel.Visibility = Visibility.Collapsed;
                 }
                 else
                 {
                     ChangedFilesRow.Height = _changedFilesExpandedHeight;
                     ChangedFilesSplitterRow.Height = splitterRowHeight;
+                    HistoryListSplitterRow.Height = splitterRowHeight;
                     ChangedFilesPanel.Visibility = Visibility.Visible;
                 }
 

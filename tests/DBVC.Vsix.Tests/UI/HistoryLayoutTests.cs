@@ -123,6 +123,8 @@ namespace DBVC.Vsix.Tests.UI
                 "단일 객체 모드에서는 변경 파일 목록 행이 접혀야 한다.");
             Assert.That(control.ChangedFilesSplitterRow.Height.Value, Is.EqualTo(0),
                 "단일 객체 모드에서는 그 분할선 행도 접혀야 한다.");
+            Assert.That(control.HistoryListSplitterRow.Height.Value, Is.EqualTo(0),
+                "이력 목록⇄변경 파일 목록 분할선 행도 접혀야 한다 - 그러지 않으면 접힌 자리에 5px 빈 띠가 남는다.");
             Assert.That(control.ChangedFilesPanel.Visibility, Is.EqualTo(Visibility.Collapsed),
                 "ChangedFilesPanel도 접혀서 숨어야 한다.");
             Assert.That(control.HistoryListSplitter.Visibility, Is.EqualTo(Visibility.Collapsed),
@@ -142,16 +144,25 @@ namespace DBVC.Vsix.Tests.UI
 
             var vm = ViewModelOf(control);
 
+            // 전체 이력 모드에서 사용자가 끌어 둔 비율을 흉내 낸다 - GridSplitter가 드래그로
+            // 쓰는 것과 같은 대입이다. 접혔다가 되돌아온 값이 하드코딩된 1*가 아니라 이 값과
+            // 같은지 검증해야, 복원 로직이 무조건 1*로 리셋하는 회귀(커밋 03dcdf8이 고친 버그)를
+            // 실제로 잡아낸다 - IsStar만 보면 1*로 리셋되어도 통과한다.
+            var draggedHeight = new GridLength(2, GridUnitType.Star);
+            control.ChangedFilesRow.Height = draggedHeight;
+
             vm.History.Load(vm.ServerName, vm.DatabaseName, "dbo/Table/Foo.sql");
             Assert.That(control.ChangedFilesRow.Height.Value, Is.EqualTo(0), "전제 조건: 먼저 접혀 있어야 한다.");
 
             // "전체 이력으로"가 하는 것과 같다 - 경로 없이 다시 읽으면 저장소 전체 모드로 돌아온다.
             vm.History.Load(vm.ServerName, vm.DatabaseName, null);
 
-            Assert.That(control.ChangedFilesRow.Height.IsStar, Is.True,
-                "저장소 전체 모드로 돌아오면 변경 파일 목록 행이 다시 펼쳐져야 한다.");
+            Assert.That(control.ChangedFilesRow.Height, Is.EqualTo(draggedHeight),
+                "저장소 전체 모드로 돌아오면 변경 파일 목록 행이 접기 직전 사용자가 끌어 둔 높이로 돌아와야 한다.");
             Assert.That(control.ChangedFilesSplitterRow.Height.Value, Is.EqualTo(5),
                 "그 분할선 행도 원래 두께로 돌아와야 한다.");
+            Assert.That(control.HistoryListSplitterRow.Height.Value, Is.EqualTo(5),
+                "이력 목록⇄변경 파일 목록 분할선 행도 원래 두께로 돌아와야 한다.");
             Assert.That(control.ChangedFilesPanel.Visibility, Is.EqualTo(Visibility.Visible),
                 "ChangedFilesPanel도 다시 보여야 한다.");
             Assert.That(control.HistoryListSplitter.Visibility, Is.EqualTo(Visibility.Visible),
