@@ -203,13 +203,15 @@ public sealed class CommitDetail
 `ServerName`(`ObjectExplorerConnectionSource.cs:219`)은 형식이 다를 수 있어, URN을 파싱해 직접
 비교하면 기능 자체가 막힌다.
 
-분기는 셋이다. 정상일 때만 도구 창을 띄운다.
+**도구 창은 어느 분기에서도 먼저 띄운다.** 안내가 도구 창의 `WarningMessage` 배너로 나가므로,
+실패 경로에서 창을 띄우지 않으면 사용자는 우클릭이 아무 일도 하지 않은 것으로 본다.
 
 | 상황 | 처리 |
 |---|---|
 | DBVC가 아직 연결되지 않음 | "DBVC가 아직 연결되지 않았습니다. DBVC 창에서 **연결**을 눌러 이 데이터베이스를 대상으로 지정한 뒤 다시 시도하세요." |
+| 노드의 연결 정보를 읽지 못함 | "개체 탐색기에서 선택한 노드의 연결 정보를 읽지 못했습니다. 노드를 다시 선택한 뒤 시도하세요." |
 | 서버 또는 DB 불일치 | "선택한 객체는 {노드서버}.{노드DB}에 있습니다. DBVC는 지금 {활성서버}.{활성DB}에 연결되어 있습니다." |
-| 일치 | 도구 창 표시 → 이력 탭 선택 → `ShowHistoryFor` |
+| 일치 | 이력 탭 선택 → 그 객체로 필터링 |
 
 비교는 `StringComparison.OrdinalIgnoreCase`다. SQL Server 인스턴스 이름과 DB 이름 모두 대소문자를
 구분하지 않는다.
@@ -249,10 +251,14 @@ public sealed class CommitDetail
 - 변경 목록에 없는 객체여도 필터가 유지된다 (`SelectedChange` setter가 덮어쓰지 않는다).
 - `ShowHistoryFor`가 이력 탭을 선택한다.
 - "전체 이력으로"가 필터를 푼다.
+- 미연결 / 노드 정보 없음 / 서버 불일치 / DB 불일치 네 갈래가 각각 맞는 안내를 낸다.
 
 **커맨드 (`ShowHistoryCommandTests`)**
 
-- `ISsmsConnectionSource` 모의로 미연결 / 불일치 / 일치 세 갈래를 검증한다.
+기존 상수 검증만 남긴다. `ShowHistoryCommand`의 생성자는 UI 스레드와 SSMS 개체 탐색기
+`TreeView`를 요구해 테스트에서 만들 수 없으므로, 판단 로직을 `ShowHistoryFor`에 두고 위
+`ViewChangesViewModelTests`에서 검증한다. 커맨드에 남는 것은 `TryGetCurrent()` 결과를 그대로
+넘기는 배선뿐이다 — `SsmsUrn`을 리플렉션 어댑터에서 떼어낸 것과 같은 이유다.
 
 ## 9. 문서
 
