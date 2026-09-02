@@ -114,6 +114,9 @@ namespace DBVC.Vsix.ViewModels
             CheckRemoteCommand = new RelayCommand(CheckRemote, CanCheckRemote);
             ShowWholeRepositoryHistoryCommand = new RelayCommand(() =>
             {
+                // setter를 타지 않는 이유는 ShowHistoryFor 아래의 같은 대입과 같다 - 이미 커밋된
+                // 객체의 필터에서 이 버튼을 누르면 _selectedChange가 이미 null이라 setter가
+                // ReferenceEquals로 조기 반환해 History.Load가 아예 불리지 않는다.
                 _selectedChange = null;
                 OnPropertyChanged(nameof(SelectedChange));
                 History.Load(ServerName, DatabaseName, null);
@@ -242,6 +245,16 @@ namespace DBVC.Vsix.ViewModels
             // ServerName/DatabaseName은 이 시점에 이미 새 대상이다(SetTarget이 먼저 세운다).
             // 로컬 상태만 지우는 호출이라 비용이 없으므로 조건 없이 부른다.
             Deployment.SetTarget(ServerName, DatabaseName, Mode);
+
+            // 이력 탭도 특정 (서버, DB)의 저장소를 가리키는 값이라 위 목록들과 같은 이유로
+            // 무효화 대상이다. 바로 위 SelectedChange = null의 setter에 기대면 안 된다 - 이미
+            // null이면(ShowHistoryFor가 커밋된 객체를 고른 뒤가 정확히 이 상태다)
+            // ReferenceEquals로 조기 반환해 History가 이전 대상의 저장소를 계속 가리킨다.
+            // Refresh가 SelectedChange 대신 이 호출을 직접 쓰는 이유와 같다. 접속 실패·매핑
+            // 없음·차단된 저장소처럼 Refresh까지 가지 않는 갈래에서도 이 호출이 유일하게
+            // 이력을 새 대상으로 되돌린다 - Git 조회는 매핑된 로컬 저장소만 있으면 되므로
+            // DB 접속 성공 여부와 무관하게 안전하다(매핑이 없으면 GetHistory가 빈 목록을 준다).
+            History.Load(ServerName, DatabaseName, null);
         }
 
         // ---------- 개체 탐색기 안내 ----------

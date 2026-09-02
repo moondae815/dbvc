@@ -1106,6 +1106,29 @@ namespace DBVC.Vsix.Tests.ViewModels
                 "목록을 비웠는데 선택이 남으면 Diff와 이력이 목록에 없는 객체를 가리킵니다");
         }
 
+        [Test]
+        public void InvalidateActiveContext_ResetsHistoryScope_OnAPathThatNeverReachesRefresh()
+        {
+            // 접속 실패는 ApplyContextProbe가 Refresh 이전에 조기 반환하는 갈래다 - 이력이
+            // InvalidateActiveContext 자체에서 새 대상으로 재설정되지 않으면 이전 대상의
+            // 저장소·필터가 그대로 남는다.
+            var vm = NewConnectedViewModel();
+            vm.ShowHistoryFor(Server, Database, "dbo/Tables/Users.sql");
+            Assert.That(vm.History.RelativePath, Is.EqualTo("dbo/Tables/Users.sql"), "사전 조건: 필터 모드로 들어가 있어야 한다");
+
+            const string otherServer = "OtherServer";
+            const string otherDatabase = "OtherDB";
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info(server: otherServer, database: otherDatabase));
+            _stateTracker.Setup(s => s.TestConnection(otherServer, otherDatabase)).Returns("연결할 수 없습니다.");
+
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.History.ServerName, Is.EqualTo(otherServer));
+            Assert.That(vm.History.DatabaseName, Is.EqualTo(otherDatabase));
+            Assert.That(vm.History.RelativePath, Is.Null,
+                "Refresh까지 가지 못한 경로에서도 이력 필터는 새 대상 기준으로 풀려야 한다");
+        }
+
         // ---------- Pull ----------
 
         [Test]
@@ -1657,7 +1680,11 @@ namespace DBVC.Vsix.Tests.ViewModels
                 Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql")
             });
             _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(GitCommitResult.Committed);
+            // 4번 불린다: Connect의 InvalidateActiveContext(대상 무효화 시 이력도 재설정), Connect가
+            // 잇따라 돌리는 첫 Refresh, 이 테스트가 명시적으로 누르는 RefreshCommand, 마지막으로
+            // Commit이 끝에서 부르는 Refresh.
             _git.SetupSequence(g => g.GetHistory(Server, Database, It.Is<string?>(p => string.IsNullOrWhiteSpace(p))))
+                .Returns(new List<CommitInfo>())
                 .Returns(new List<CommitInfo>())
                 .Returns(new List<CommitInfo>())
                 .Returns(new List<CommitInfo>
@@ -2835,6 +2862,19 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
+        public void ShowHistoryFor_WarnsAboutMissingNodeInfo_WhenTheNodeConnectionIsUnknown()
+        {
+            // ShowHistoryCommand는 TryGetCurrent()가 null이면 서버·DB 인자에 그대로 null을 넘긴다.
+            var vm = NewConnectedViewModel();
+
+            vm.ShowHistoryFor(null, null, "dbo/Tables/Users.sql");
+
+            Assert.That(vm.WarningMessage, Does.Contain("노드"));
+            Assert.That(vm.WarningMessage, Does.Contain("연결 정보"));
+            _git.Verify(g => g.GetHistory(It.IsAny<string>(), It.IsAny<string>(), "dbo/Tables/Users.sql"), Times.Never);
+        }
+
+        [Test]
         public void ShowHistoryFor_WarnsWithBothTargets_WhenTheServerDiffers()
         {
             var vm = NewConnectedViewModel();
@@ -2880,6 +2920,39 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(vm.SelectedChange, Is.Null);
             Assert.That(vm.History.RelativePath, Is.EqualTo("dbo/Tables/Gone.sql"));
+        }
+
+        [Test]
+        public void ShowHistoryFor_SelectsTheMatchingChangeRow_WhenTheObjectIsInTheChangeList()
+        {
+            // 두 행을 두어 predicate가 뒤바뀌어도(예: 첫 행을 항상 고르는 실수) 이 테스트가
+            // 잡아내게 한다 - 두 번째 행의 경로를 골라야 정확한 매칭임을 증명한다.
+            var vm = NewViewModelWithChanges(
+                Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql"),
+                Record("sales", "Orders", "Modified", "sales/Tables/Orders.sql"));
+
+            vm.ShowHistoryFor(Server, Database, "sales/Tables/Orders.sql");
+
+            Assert.That(vm.SelectedChange, Is.Not.Null);
+            Assert.That(vm.SelectedChange!.RelativePath, Is.EqualTo("sales/Tables/Orders.sql"));
+        }
+
+        [Test]
+        public void ShowWholeRepositoryHistoryCommand_ClearsTheFilter_EvenWhenSelectedChangeWasAlreadyNull()
+        {
+            // ShowHistoryFor가 변경 목록에 없는(이미 커밋된) 객체를 열면 SelectedChange는 이미
+            // null이다. "전체 이력으로"가 SelectedChange의 setter를 탔다면 ReferenceEquals(null,
+            // null)로 조기 반환해 History.Load가 아예 불리지 않고 필터가 풀리지 않는다.
+            var vm = NewConnectedViewModel();
+            vm.ShowHistoryFor(Server, Database, "dbo/Tables/Gone.sql");
+            Assert.That(vm.SelectedChange, Is.Null, "사전 조건: 변경 목록에 없는 객체라 선택이 비어 있다");
+            Assert.That(vm.History.RelativePath, Is.EqualTo("dbo/Tables/Gone.sql"), "사전 조건: 필터 모드");
+
+            vm.ShowWholeRepositoryHistoryCommand.Execute(null);
+
+            Assert.That(vm.History.RelativePath, Is.Null,
+                "SelectedChange가 이미 null이어도 버튼은 필터를 풀어야 한다");
+            Assert.That(vm.History.IsSingleObjectMode, Is.False);
         }
     }
 }
