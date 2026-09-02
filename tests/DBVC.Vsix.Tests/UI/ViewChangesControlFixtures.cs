@@ -1,4 +1,5 @@
 #if NETFRAMEWORK
+using System;
 using System.Collections.Generic;
 using Moq;
 using DBVC.Core;
@@ -34,11 +35,14 @@ namespace DBVC.Vsix.Tests.UI
         /// 명시적으로 Deploy·Audit을 넘긴다.</param>
         /// <param name="installedVersion">DDL 트리거 설치 버전. 0이면 미초기화다 -
         /// 운영·테스트 대상은 이것이 정상 상태이므로 기본값을 0으로 둔다.</param>
+        /// <param name="configureGitManager">이력 탭 테스트가 GetHistory·GetCommitDetail 등을
+        /// 추가로 설정할 자리. 기본 설정(GetRepositoryState 등) 뒤, ViewModel을 만들기 전에 불린다.</param>
         public static ViewChangesControl NewConnectedControl(
             RepositoryState repositoryState,
             RemoteStatus? remoteStatus = null,
             MappingMode mode = MappingMode.Write,
-            int installedVersion = 0)
+            int installedVersion = 0,
+            Action<Mock<IGitManager>>? configureGitManager = null)
         {
             var config = new Mock<IConfigManager>();
             config.Setup(c => c.TryGetMapping(It.IsAny<string>(), It.IsAny<string>()))
@@ -58,6 +62,8 @@ namespace DBVC.Vsix.Tests.UI
             {
                 git.Setup(g => g.FetchRemoteStatus(It.IsAny<string>(), It.IsAny<string>())).Returns(remoteStatus);
             }
+
+            configureGitManager?.Invoke(git);
 
             var ssms = new Mock<ISsmsConnectionSource>();
             ssms.Setup(s => s.TryGetCurrent())

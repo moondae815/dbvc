@@ -26,6 +26,15 @@ namespace DBVC.Vsix.UI
         private readonly DiffLineBackgroundRenderer _historyNewRenderer;
         private bool _syncingScroll;
 
+        // UpdateHistoryRowHeights가 접힘↔펼침이 실제로 바뀔 때만 Height를 쓰기 위한 상태.
+        // null은 "아직 한 번도 적용 안 함"이라 첫 호출은 항상 실행된다. 접기 직전 값을
+        // *ExpandedHeight에 남겨 둬야 GridSplitter로 사용자가 끌어 둔 비율이 펼칠 때
+        // 1*로 리셋되지 않고 되돌아온다.
+        private bool? _changedFilesCollapsed;
+        private bool? _historyDiffCollapsed;
+        private GridLength _changedFilesExpandedHeight = new GridLength(1, GridUnitType.Star);
+        private GridLength _historyDiffExpandedHeight = new GridLength(1, GridUnitType.Star);
+
         public ViewChangesControl()
             : this(DbvcServices.Default.SharedViewChangesViewModel, DbvcServices.Default.CreateDiffService())
         {
@@ -114,9 +123,10 @@ namespace DBVC.Vsix.UI
 
             // 떨어져 있는 동안 선택이 바뀌었을 수 있다 — SQL 편집기 컨텍스트 메뉴가 창 밖에서
             // 같은 ViewModel을 조작한다. 다시 붙는 김에 Diff 창을 현재 선택에 맞춘다.
+            // UpdateHistoryDiffView가 끝에서 UpdateHistoryRowHeights를 부르므로 여기서 또
+            // 부르지 않는다 - 두 자리에서 부르면 어느 쪽이 실제로 화면을 결정하는지 흐려진다.
             OnSelectionChanged(this, EventArgs.Empty);
             UpdateHistoryDiffView();
-            UpdateHistoryRowHeights();
         }
 
         private void OnUnloaded(object sender, System.Windows.RoutedEventArgs e)
@@ -232,22 +242,62 @@ namespace DBVC.Vsix.UI
         /// Visibility만으로는 RowDefinition이 자리를 지켜 빈 칸이 화면 1/3을 그대로 차지한다.
         /// RowDefinition은 시각 트리 밖이라 DataContext가 없어 Height에 바인딩을 걸 수 없다 —
         /// 그래서 여기서 준다.
+        ///
+        /// Height는 접힘↔펼침이 실제로 바뀔 때만 쓴다. GridSplitter도 같은 RowDefinition.Height로
+        /// 드래그를 반영하는데, 이 메서드는 UpdateHistoryDiffView를 거쳐 커밋을 하나 고를
+        /// 때마다도 불린다 - 상태가 그대로인데 무조건 1*로 다시 쓰면 사용자가 방금 끌어 둔
+        /// 분할선이 클릭 한 번마다 원래 비율로 튄다. 접기 직전 값을 기억해 뒀다가 펼칠 때
+        /// 그 값으로 되돌리는 것도 같은 이유다 - 그냥 1*로 리셋하면 드래그가 소용없어진다.
         /// </summary>
         private void UpdateHistoryRowHeights()
         {
-            var zero = new System.Windows.GridLength(0);
-            var star = new System.Windows.GridLength(1, System.Windows.GridUnitType.Star);
-            var splitter = new System.Windows.GridLength(5);
+            var zero = new GridLength(0);
+            var splitterRowHeight = new GridLength(5);
 
             var single = _viewModel.History.IsSingleObjectMode;
-            ChangedFilesRow.Height = single ? zero : star;
-            ChangedFilesSplitterRow.Height = single ? zero : splitter;
-            ChangedFilesPanel.Visibility = single ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
-            ChangedFilesSplitter.Visibility = ChangedFilesPanel.Visibility;
+            if (_changedFilesCollapsed != single)
+            {
+                if (single)
+                {
+                    _changedFilesExpandedHeight = ChangedFilesRow.Height;
+                    ChangedFilesRow.Height = zero;
+                    ChangedFilesSplitterRow.Height = zero;
+                    ChangedFilesPanel.Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    ChangedFilesRow.Height = _changedFilesExpandedHeight;
+                    ChangedFilesSplitterRow.Height = splitterRowHeight;
+                    ChangedFilesPanel.Visibility = Visibility.Visible;
+                }
+
+                _changedFilesCollapsed = single;
+            }
 
             var hasDiff = _viewModel.History.IsDiffVisible;
-            HistoryDiffRow.Height = hasDiff ? star : zero;
-            HistoryDiffPanel.Visibility = hasDiff ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+            var diffCollapsed = !hasDiff;
+            if (_historyDiffCollapsed != diffCollapsed)
+            {
+                if (diffCollapsed)
+                {
+                    _historyDiffExpandedHeight = HistoryDiffRow.Height;
+                    HistoryDiffRow.Height = zero;
+                    HistoryDiffPanel.Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    HistoryDiffRow.Height = _historyDiffExpandedHeight;
+                    HistoryDiffPanel.Visibility = Visibility.Visible;
+                }
+
+                _historyDiffCollapsed = diffCollapsed;
+            }
+
+            // 분할선은 접힌 행 쪽으로는 끌리면 안 된다 - 자기 위치가 아니라 양옆 행을 리사이즈하는
+            // PreviousAndNext 동작이라, 접힌 빈 칸이 있으면 그 안으로 끌어 들이는 손잡이가 된다.
+            // Visibility는 GridSplitter가 손대는 값이 아니므로 매번 다시 써도 사용자 입력을 잃지 않는다.
+            HistoryListSplitter.Visibility = single ? Visibility.Collapsed : Visibility.Visible;
+            ChangedFilesSplitter.Visibility = (single || diffCollapsed) ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private void HistoryListView_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)

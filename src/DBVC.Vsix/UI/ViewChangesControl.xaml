@@ -263,7 +263,9 @@
                                            HorizontalAlignment="Center" VerticalAlignment="Center"
                                            Visibility="{Binding History.IsEmpty, Converter={StaticResource BoolToVis}}"/>
 
-                                <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Background="Transparent" ShowsPreview="True" Cursor="SizeNS"/>
+                                <!-- 이력 목록⇄변경 파일 목록 분할선. 필터 모드에서는 아래 행이 접히므로
+                                     함께 숨긴다 - 그대로 두면 접힌 빈 칸으로 끌어 들어가는 분할선이 된다. -->
+                                <GridSplitter x:Name="HistoryListSplitter" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Background="Transparent" ShowsPreview="True" Cursor="SizeNS"/>
 
                                 <!-- 중간: 변경된 파일 목록. 필터 모드에서는 행째 접힌다. -->
                                 <DockPanel x:Name="ChangedFilesPanel" Grid.Row="2" LastChildFill="True">
