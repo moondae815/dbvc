@@ -35,6 +35,9 @@ namespace DBVC.Vsix.UI
         private GridLength _changedFilesExpandedHeight = new GridLength(1, GridUnitType.Star);
         private GridLength _historyDiffExpandedHeight = new GridLength(1, GridUnitType.Star);
 
+        /// <summary>외부 비교 창에 넘긴 임시 파일. 창이 붙들고 있어 즉시 지울 수 없다.</summary>
+        private readonly System.Collections.Generic.List<string> _tempDiffFiles = new System.Collections.Generic.List<string>();
+
         public ViewChangesControl()
             : this(DbvcServices.Default.SharedViewChangesViewModel, DbvcServices.Default.CreateDiffService())
         {
@@ -140,6 +143,21 @@ namespace DBVC.Vsix.UI
 
             HistoryOldEditor.TextArea.TextView.ScrollOffsetChanged -= OnHistoryOldScrollOffsetChanged;
             HistoryNewEditor.TextArea.TextView.ScrollOffsetChanged -= OnHistoryNewScrollOffsetChanged;
+
+            // Unloaded는 다시 도킹할 때도 뜨므로 목록을 비우고 다시 쌓는다.
+            // 비교 창이 아직 열려 있으면 삭제가 실패하는데, 그때는 다음 기회에 지운다.
+            foreach (var path in _tempDiffFiles.ToArray())
+            {
+                try
+                {
+                    File.Delete(path);
+                    _tempDiffFiles.Remove(path);
+                }
+                catch
+                {
+                    // 비교 창이 아직 쓰고 있다. 다음 Unloaded에서 다시 시도한다.
+                }
+            }
         }
 
         /// <summary>
@@ -310,20 +328,18 @@ namespace DBVC.Vsix.UI
             }
 
             var selected = _viewModel.History.SelectedEntry;
-            var diffModel = _viewModel.History.SelectedDiffModel;
-            if (selected == null || diffModel == null) return;
-
-            var oldLines = diffModel.OldText.Lines.Where(l => l.Type != ChangeType.Imaginary);
-            var newLines = diffModel.NewText.Lines.Where(l => l.Type != ChangeType.Imaginary);
-
-            var oldText = string.Join(Environment.NewLine, oldLines.Select(l => l.Text ?? string.Empty));
-            var newText = string.Join(Environment.NewLine, newLines.Select(l => l.Text ?? string.Empty));
+            var texts = _viewModel.History.GetSelectedFileTexts();
+            if (selected == null || texts == null) return;
 
             var tempOld = Path.Combine(Path.GetTempPath(), $"DBVC_{Guid.NewGuid():N}_old.sql");
             var tempNew = Path.Combine(Path.GetTempPath(), $"DBVC_{Guid.NewGuid():N}_new.sql");
 
-            File.WriteAllText(tempOld, oldText);
-            File.WriteAllText(tempNew, newText);
+            File.WriteAllText(tempOld, texts.Value.OldText);
+            File.WriteAllText(tempNew, texts.Value.NewText);
+
+            // 비교 창이 파일을 붙들고 있으므로 지금 지울 수 없다. 창이 닫힐 때 함께 치운다.
+            _tempDiffFiles.Add(tempOld);
+            _tempDiffFiles.Add(tempNew);
 
             var diffService = Package.GetGlobalService(typeof(SVsDifferenceService)) as IVsDifferenceService;
 

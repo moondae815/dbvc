@@ -329,6 +329,31 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
+        public void GetSelectedFileTexts_ReturnsNull_BeforeAnySuccessfulRead()
+        {
+            var vm = NewViewModel();
+
+            Assert.That(vm.GetSelectedFileTexts(), Is.Null);
+        }
+
+        [Test]
+        public void GetSelectedFileTexts_ReturnsRawTexts_AfterSuccessfulRead()
+        {
+            var vm = NewViewModel();
+            var entry = new HistoryEntryViewModel { ShortSha = "abcdef1" };
+            vm.ServerName = Server;
+            vm.DatabaseName = Database;
+            vm.RelativePath = RelativePath;
+
+            _git.Setup(g => g.GetCommitDetail(Server, Database, "abcdef1", RelativePath))
+                .Returns(new CommitDetail { OldText = "old\r\n", NewText = "new\r\n" });
+
+            vm.SelectedEntry = entry;
+
+            Assert.That(vm.GetSelectedFileTexts(), Is.EqualTo(("old\r\n", "new\r\n")));
+        }
+
+        [Test]
         public void SelectedEntry_PassesFullShaToGitManager_WhenShaIsAvailable()
         {
             var vm = NewViewModel();

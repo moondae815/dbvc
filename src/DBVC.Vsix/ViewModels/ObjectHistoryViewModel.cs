@@ -190,11 +190,23 @@ namespace DBVC.Vsix.ViewModels
 
         public bool IsDiffVisible => SelectedDiffModel != null;
 
+        private string? _selectedOldText;
+        private string? _selectedNewText;
+
+        /// <summary>
+        /// 외부 비교 창에 넘길 원본. Diff 모델에서 되짚어 만들면 줄 끝과 마지막 개행이 달라져
+        /// 내장 뷰와 외부 창이 서로 다른 결과를 보인다.
+        /// </summary>
+        public (string OldText, string NewText)? GetSelectedFileTexts()
+            => _selectedOldText == null || _selectedNewText == null ? null : (_selectedOldText, _selectedNewText);
+
         private void UpdateDiffModel()
         {
             var targetPath = IsSingleObjectMode ? RelativePath : _selectedChangedFile?.RelativePath;
             if (_selectedEntry == null || ServerName == null || DatabaseName == null || string.IsNullOrWhiteSpace(targetPath))
             {
+                _selectedOldText = null;
+                _selectedNewText = null;
                 SelectedDiffModel = null;
                 return;
             }
@@ -210,6 +222,8 @@ namespace DBVC.Vsix.ViewModels
                 detail =>
                 {
                     if (token != _diffToken) return;
+                    _selectedOldText = detail.OldText ?? string.Empty;
+                    _selectedNewText = detail.NewText ?? string.Empty;
                     SelectedDiffModel = _diffService.GetDiffModelFromString(detail.OldText ?? string.Empty, detail.NewText ?? string.Empty);
                 },
                 ex => Debug.WriteLine($"ObjectHistoryViewModel.UpdateDiffModel failed: {ex.Message}"));
