@@ -727,6 +727,142 @@ namespace DBVC.Core.Tests
             Assert.That(git.GetFileContentAtCommitParent("localhost", "unmapped", "dbo/Tables/Users.sql", headSha), Is.Null);
         }
 
+        // ---------- GetCommitDetail ----------
+
+        [Test]
+        public void GetCommitDetail_ReturnsOldAndNewText_WhenRelativeFilePathIsGiven()
+        {
+            var repoPath = NewRepoWithCommit("dbo/Tables/Users.sql", "V1");
+            string sha1, sha2;
+            using (var repo = new Repository(repoPath))
+            {
+                sha1 = repo.Head.Tip.Sha;
+            }
+
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "V2");
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "*");
+                sha2 = repo.Commit("update", TestSignature, TestSignature).Sha;
+            }
+
+            var git = NewGitManager(Server, Database, repoPath);
+
+            var second = git.GetCommitDetail(Server, Database, sha2, "dbo/Tables/Users.sql");
+            Assert.That(second.OldText, Is.EqualTo("V1"));
+            Assert.That(second.NewText, Is.EqualTo("V2"));
+            Assert.That(second.ChangedFiles, Is.Empty, "경로가 주어지면 목록은 채우지 않는다");
+
+            // 최초 커밋은 부모가 없으므로 이전 내용이 빈 문자열이다(null이 아니다).
+            var first = git.GetCommitDetail(Server, Database, sha1, "dbo/Tables/Users.sql");
+            Assert.That(first.OldText, Is.EqualTo(string.Empty));
+            Assert.That(first.NewText, Is.EqualTo("V1"));
+        }
+
+        [Test]
+        public void GetCommitDetail_ReturnsChangedFiles_WhenRelativeFilePathIsNull()
+        {
+            var repoPath = NewRepoWithCommit("dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT);");
+            string sha1, sha2;
+            using (var repo = new Repository(repoPath))
+            {
+                sha1 = repo.Head.Tip.Sha;
+            }
+
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT, Name NVARCHAR(50));");
+            WriteRepoFile(repoPath, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);");
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "*");
+                sha2 = repo.Commit("update and add", TestSignature, TestSignature).Sha;
+            }
+
+            var git = NewGitManager(Server, Database, repoPath);
+
+            var initial = git.GetCommitDetail(Server, Database, sha1, null);
+            Assert.That(initial.ChangedFiles.Count, Is.EqualTo(1));
+            Assert.That(initial.ChangedFiles[0].State, Is.EqualTo(HistoryChangedFileState.Added));
+            Assert.That(initial.TotalChangedFileCount, Is.EqualTo(1));
+            Assert.That(initial.IsTruncated, Is.False);
+            Assert.That(initial.OldText, Is.Null, "경로가 없으면 본문은 채우지 않는다");
+
+            var second = git.GetCommitDetail(Server, Database, sha2, null);
+            Assert.That(second.ChangedFiles.Count, Is.EqualTo(2));
+            var users = second.ChangedFiles.First(c => c.RelativePath == "dbo/Tables/Users.sql");
+            var orders = second.ChangedFiles.First(c => c.RelativePath == "dbo/Tables/Orders.sql");
+            Assert.That(users.State, Is.EqualTo(HistoryChangedFileState.Modified));
+            Assert.That(orders.State, Is.EqualTo(HistoryChangedFileState.Added));
+        }
+
+        [Test]
+        public void GetCommitDetail_ReportsRenameAsDeleteAndAdd_WhenContentIsUnchanged()
+        {
+            // DBVC에서 객체 이름 변경은 파일 삭제 + 생성이다. rename 검출이 켜져 있으면
+            // 새 경로 한 행으로 뭉쳐지고, 그 경로가 부모 트리에 없어 Diff가 전체 추가로 뜬다.
+            const string body = "CREATE PROCEDURE usp_Old AS SELECT 1;";
+            var repoPath = NewRepoWithCommit("dbo/StoredProcedures/usp_Old.sql", body);
+
+            string renameSha;
+            using (var repo = new Repository(repoPath))
+            {
+                File.Delete(Path.Combine(repoPath, "dbo", "StoredProcedures", "usp_Old.sql"));
+                WriteRepoFile(repoPath, "dbo/StoredProcedures/usp_New.sql", body);
+                Commands.Stage(repo, "*");
+                renameSha = repo.Commit("rename", TestSignature, TestSignature).Sha;
+            }
+
+            var git = NewGitManager(Server, Database, repoPath);
+            var detail = git.GetCommitDetail(Server, Database, renameSha, null);
+
+            Assert.That(detail.ChangedFiles.Count, Is.EqualTo(2));
+            var deleted = detail.ChangedFiles.First(c => c.RelativePath == "dbo/StoredProcedures/usp_Old.sql");
+            var added = detail.ChangedFiles.First(c => c.RelativePath == "dbo/StoredProcedures/usp_New.sql");
+            Assert.That(deleted.State, Is.EqualTo(HistoryChangedFileState.Deleted));
+            Assert.That(added.State, Is.EqualTo(HistoryChangedFileState.Added));
+        }
+
+        [Test]
+        public void GetCommitDetail_TruncatesTheFileList_WhenTheCommitExceedsTheLimit()
+        {
+            var repoPath = NewTempDir();
+            Repository.Init(repoPath);
+
+            var total = GitManager.MaxChangedFilesPerCommit + 3;
+            for (int i = 0; i < total; i++)
+            {
+                WriteRepoFile(repoPath, $"dbo/Tables/T{i}.sql", $"CREATE TABLE T{i} (Id INT);");
+            }
+
+            string sha;
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "*");
+                sha = repo.Commit("baseline", TestSignature, TestSignature).Sha;
+            }
+
+            var git = NewGitManager(Server, Database, repoPath);
+            var detail = git.GetCommitDetail(Server, Database, sha, null);
+
+            Assert.That(detail.ChangedFiles.Count, Is.EqualTo(GitManager.MaxChangedFilesPerCommit));
+            Assert.That(detail.TotalChangedFileCount, Is.EqualTo(total));
+            Assert.That(detail.IsTruncated, Is.True);
+        }
+
+        [Test]
+        public void GetCommitDetail_ReturnsEmpty_WhenCommitOrMappingIsMissing()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager(Server, Database, repoPath);
+
+            using var repo = new Repository(repoPath);
+            var headSha = repo.Head.Tip.Sha;
+
+            Assert.That(git.GetCommitDetail(Server, Database, "0000000000000000000000000000000000000000", null).ChangedFiles, Is.Empty);
+            Assert.That(git.GetCommitDetail(Server, "unmapped", headSha, null).ChangedFiles, Is.Empty);
+            Assert.That(git.GetCommitDetail(Server, Database, "", null).ChangedFiles, Is.Empty);
+            Assert.That(git.GetCommitDetail(Server, Database, headSha, "dbo/Tables/NoSuch.sql").NewText, Is.Null);
+        }
+
         // ---------- GetChangedFilesAtCommit ----------
 
         [Test]

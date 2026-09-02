@@ -123,6 +123,12 @@ namespace DBVC.Core
         string? GetFileContentAtCommit(string serverName, string databaseName, string relativeFilePath, string commitSha);
         string? GetFileContentAtCommitParent(string serverName, string databaseName, string relativeFilePath, string commitSha);
         IReadOnlyList<HistoryChangedFile> GetChangedFilesAtCommit(string serverName, string databaseName, string commitSha);
+
+        /// <summary>
+        /// 커밋 하나의 정보를 한 번의 저장소 열기로 읽는다.
+        /// <paramref name="relativeFilePath"/>가 비면 변경 파일 목록만, 주어지면 그 파일의 이전·이후 본문만 채운다.
+        /// </summary>
+        CommitDetail GetCommitDetail(string serverName, string databaseName, string commitSha, string? relativeFilePath);
     }
 
     public interface ISmoManager

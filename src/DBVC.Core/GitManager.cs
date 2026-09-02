@@ -881,6 +881,73 @@ namespace DBVC.Core
             }
         }
 
+        /// <summary>
+        /// 변경 파일 목록을 이 개수까지만 채운다. 기준선이 없어 처음 도는 전체 추출은
+        /// 수천 개 파일을 한 커밋에 담는데, 그것을 전부 ObservableCollection에 옮기면
+        /// 화면이 멈춘다. 잘렸다는 사실은 CommitDetail.IsTruncated로 알린다.
+        /// </summary>
+        public const int MaxChangedFilesPerCommit = 500;
+
+        /// <summary>
+        /// 커밋 하나의 정보를 한 번의 저장소 열기로 읽는다. (설계 5.1)
+        /// 목록과 본문을 나눠 부르면 커밋을 고를 때마다 Repository를 두세 번 열게 된다.
+        /// </summary>
+        public CommitDetail GetCommitDetail(string serverName, string databaseName, string commitSha, string? relativeFilePath)
+        {
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null || string.IsNullOrWhiteSpace(commitSha)) return new CommitDetail();
+
+            try
+            {
+                using var repo = new Repository(repoPath);
+                var commit = repo.Lookup<Commit>(commitSha);
+                if (commit == null) return new CommitDetail();
+
+                var parent = commit.Parents.FirstOrDefault();
+
+                if (!string.IsNullOrWhiteSpace(relativeFilePath))
+                {
+                    var path = NormalizePath(relativeFilePath!);
+                    return new CommitDetail
+                    {
+                        // 부모가 없으면 되돌아갈 상태가 없다. null(조회 실패)과 구분해 빈 문자열을 준다.
+                        OldText = parent == null ? string.Empty : ReadBlobText(parent, path),
+                        NewText = ReadBlobText(commit, path)
+                    };
+                }
+
+                // rename 검출을 끈다. DBVC에서 객체 이름 변경은 옛 .sql 삭제 + 새 .sql 생성이고
+                // 내용이 거의 같아 기본값(SimilarityOptions.Default)이면 새 경로 한 행으로 뭉쳐진다.
+                // 그 경로는 부모 트리에 없으므로 Diff가 파일 전체 추가로 뜬다 - 사실과 다르다.
+                var options = new CompareOptions { Similarity = SimilarityOptions.None };
+                using var changes = repo.Diff.Compare<TreeChanges>(parent?.Tree, commit.Tree, options);
+
+                var all = changes.ToList();
+                var files = all
+                    .Take(MaxChangedFilesPerCommit)
+                    .Select(c => new HistoryChangedFile
+                    {
+                        State = c.Status == ChangeKind.Added ? HistoryChangedFileState.Added :
+                                c.Status == ChangeKind.Deleted ? HistoryChangedFileState.Deleted :
+                                HistoryChangedFileState.Modified,
+                        RelativePath = c.Path
+                    })
+                    .ToList();
+
+                return new CommitDetail
+                {
+                    ChangedFiles = files,
+                    TotalChangedFileCount = all.Count,
+                    IsTruncated = all.Count > MaxChangedFilesPerCommit
+                };
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"GitManager.GetCommitDetail failed for '{commitSha}': {ex.Message}");
+                return new CommitDetail();
+            }
+        }
+
         private static string? ReadBlobText(Commit commit, string path)
         {
             var entry = commit?[path];
