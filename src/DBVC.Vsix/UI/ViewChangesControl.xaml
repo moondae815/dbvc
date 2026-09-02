@@ -135,7 +135,7 @@
 
         <Grid x:Name="ChangeListGrid" Grid.Row="2" Visibility="{Binding ShowChangeList, Converter={StaticResource BoolToVis}}">
             <!-- 일반 변경 목록 모드 (2-pane) -->
-            <Grid Visibility="{Binding IsSingleObjectMode, Converter={StaticResource InverseBoolToVis}}">
+            <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -204,7 +204,7 @@
                 <GridSplitter Grid.Row="2" Height="5" HorizontalAlignment="Stretch" />
 
                 <!-- Bottom Area: 선택된 객체에 대한 두 가지 뷰 -->
-                <TabControl Grid.Row="3">
+                <TabControl Grid.Row="3" SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}">
                     <TabItem Header="비교">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -227,25 +227,33 @@
                             </Grid.RowDefinitions>
 
                             <!-- 목록만으로는 저장소 전체인지 특정 객체의 이력인지 구분할 수 없다. -->
-                            <TextBlock Grid.Row="0" Margin="4,4,4,2" Foreground="#606060"
-                                       Text="{Binding History.ScopeLabel}" />
+                            <DockPanel Grid.Row="0" Margin="4,4,4,2" LastChildFill="True">
+                                <Button DockPanel.Dock="Right" Content="전체 이력으로" Width="100" Margin="8,0,0,0"
+                                        Command="{Binding ShowWholeRepositoryHistoryCommand}"
+                                        Visibility="{Binding History.IsSingleObjectMode, Converter={StaticResource BoolToVis}}"
+                                        ToolTip="특정 객체로 좁힌 이력을 저장소 전체 이력으로 되돌립니다."/>
+                                <TextBlock Text="{Binding History.ScopeLabel}" Foreground="#606060" VerticalAlignment="Center"/>
+                            </DockPanel>
 
                             <Grid Grid.Row="1">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="1*" />
                                     <RowDefinition Height="5" />
-                                    <RowDefinition Height="1*" />
-                                    <RowDefinition Height="5" />
-                                    <RowDefinition Height="1*" />
+                                    <RowDefinition x:Name="ChangedFilesRow" Height="1*" />
+                                    <RowDefinition x:Name="ChangedFilesSplitterRow" Height="5" />
+                                    <RowDefinition x:Name="HistoryDiffRow" Height="1*" />
                                 </Grid.RowDefinitions>
 
                                 <!-- 상단: 이력 목록 -->
-                                <ListView x:Name="HistoryListView" Grid.Row="0" ItemsSource="{Binding History.Entries}" SelectedItem="{Binding History.SelectedEntry, Mode=TwoWay}" MouseDoubleClick="HistoryListView_MouseDoubleClick">
+                                <ListView x:Name="HistoryListView" Grid.Row="0" ItemsSource="{Binding History.Entries}"
+                                          SelectedItem="{Binding History.SelectedEntry, Mode=TwoWay}"
+                                          MouseDoubleClick="HistoryListView_MouseDoubleClick">
                                     <ListView.View>
                                         <GridView>
                                             <GridViewColumn Header="날짜" Width="130" DisplayMemberBinding="{Binding Date}"/>
                                             <GridViewColumn Header="작성자" Width="110" DisplayMemberBinding="{Binding Author}"/>
-                                            <GridViewColumn Header="메시지" Width="320" DisplayMemberBinding="{Binding Message}"/>
+                                            <GridViewColumn Header="메시지" Width="290" DisplayMemberBinding="{Binding Message}"/>
+                                            <GridViewColumn Header="종류" Width="50" DisplayMemberBinding="{Binding MergeMark}"/>
                                             <GridViewColumn Header="SHA" Width="80" DisplayMemberBinding="{Binding ShortSha}"/>
                                         </GridView>
                                     </ListView.View>
@@ -257,24 +265,29 @@
 
                                 <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Background="Transparent" ShowsPreview="True" Cursor="SizeNS"/>
 
-                                <!-- 중간: 변경된 파일 목록 -->
-                                <ListView x:Name="ChangedFilesListView" Grid.Row="2"
-                                          ItemsSource="{Binding History.ChangedFiles}"
-                                          SelectedItem="{Binding History.SelectedChangedFile, Mode=TwoWay}"
-                                          MouseDoubleClick="HistoryListView_MouseDoubleClick">
-                                    <ListView.View>
-                                        <GridView>
-                                            <GridViewColumn Header="상태" Width="80" DisplayMemberBinding="{Binding StateText}"/>
-                                            <GridViewColumn Header="객체 유형" Width="110" DisplayMemberBinding="{Binding ObjectType}"/>
-                                            <GridViewColumn Header="객체명" Width="260" DisplayMemberBinding="{Binding ObjectName}"/>
-                                        </GridView>
-                                    </ListView.View>
-                                </ListView>
+                                <!-- 중간: 변경된 파일 목록. 필터 모드에서는 행째 접힌다. -->
+                                <DockPanel x:Name="ChangedFilesPanel" Grid.Row="2" LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Top" Margin="4,2" Foreground="#6B5A00" TextWrapping="Wrap"
+                                               Text="{Binding History.ChangedFilesNotice}"
+                                               Visibility="{Binding History.HasChangedFilesNotice, Converter={StaticResource BoolToVis}}"/>
+                                    <ListView x:Name="ChangedFilesListView"
+                                              ItemsSource="{Binding History.ChangedFiles}"
+                                              SelectedItem="{Binding History.SelectedChangedFile, Mode=TwoWay}"
+                                              MouseDoubleClick="HistoryListView_MouseDoubleClick">
+                                        <ListView.View>
+                                            <GridView>
+                                                <GridViewColumn Header="상태" Width="80" DisplayMemberBinding="{Binding StateText}"/>
+                                                <GridViewColumn Header="객체 유형" Width="110" DisplayMemberBinding="{Binding ObjectTypeText}"/>
+                                                <GridViewColumn Header="객체명" Width="260" DisplayMemberBinding="{Binding ObjectName}"/>
+                                            </GridView>
+                                        </ListView.View>
+                                    </ListView>
+                                </DockPanel>
 
-                                <GridSplitter Grid.Row="3" Height="5" HorizontalAlignment="Stretch" Background="Transparent" ShowsPreview="True" Cursor="SizeNS"/>
+                                <GridSplitter x:Name="ChangedFilesSplitter" Grid.Row="3" Height="5" HorizontalAlignment="Stretch" Background="Transparent" ShowsPreview="True" Cursor="SizeNS"/>
 
-                                <!-- 하단: 커밋 Diff 뷰 -->
-                                <Grid Grid.Row="4" Visibility="{Binding History.IsDiffVisible, Converter={StaticResource BoolToVis}}">
+                                <!-- 하단: 커밋 Diff 뷰. 볼 것이 없으면 행째 접힌다(코드비하인드). -->
+                                <Grid x:Name="HistoryDiffPanel" Grid.Row="4">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="1*"/>
                                         <ColumnDefinition Width="1*"/>
@@ -286,54 +299,6 @@
                         </Grid>
                     </TabItem>
                 </TabControl>
-            </Grid>
-
-            <!-- 단일 객체 이력 모드 (전체 영역에 이력 표시 및 복귀 버튼 제공) -->
-            <Grid Visibility="{Binding IsSingleObjectMode, Converter={StaticResource BoolToVis}}" Margin="5"
-                  TextElement.Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-
-                <StackPanel Grid.Row="0" Margin="0,0,0,10">
-                    <Button Command="{Binding ExitSingleObjectModeCommand}" Content="🔙 변경 사항 목록으로 돌아가기" Margin="0,0,0,10" HorizontalAlignment="Left" Padding="10,5" />
-                    <TextBlock Text="{Binding History.ScopeLabel, StringFormat='조회 중인 객체: {0}'}" FontWeight="Bold" Margin="0,0,0,5"/>
-                </StackPanel>
-
-                <Grid Grid.Row="1">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="1*" />
-                        <RowDefinition Height="5" />
-                        <RowDefinition Height="1*" />
-                    </Grid.RowDefinitions>
-
-                    <ListView x:Name="SingleObjectHistoryListView" Grid.Row="0" ItemsSource="{Binding History.Entries}" SelectedItem="{Binding History.SelectedEntry, Mode=TwoWay}" MouseDoubleClick="HistoryListView_MouseDoubleClick">
-                        <ListView.View>
-                            <GridView>
-                                <GridViewColumn Header="날짜" Width="130" DisplayMemberBinding="{Binding Date}"/>
-                                <GridViewColumn Header="작성자" Width="110" DisplayMemberBinding="{Binding Author}"/>
-                                <GridViewColumn Header="메시지" Width="320" DisplayMemberBinding="{Binding Message}"/>
-                                <GridViewColumn Header="SHA" Width="80" DisplayMemberBinding="{Binding ShortSha}"/>
-                            </GridView>
-                        </ListView.View>
-                    </ListView>
-
-                    <TextBlock Grid.Row="0" Text="이력이 없습니다." Foreground="#808080"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                               Visibility="{Binding History.IsEmpty, Converter={StaticResource BoolToVis}}"/>
-
-                    <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Background="Transparent" ShowsPreview="True" Cursor="SizeNS"/>
-
-                    <Grid Grid.Row="2" Visibility="{Binding History.IsDiffVisible, Converter={StaticResource BoolToVis}}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="1*"/>
-                            <ColumnDefinition Width="1*"/>
-                        </Grid.ColumnDefinitions>
-                        <avalonEdit:TextEditor x:Name="SingleHistoryOldEditor" Grid.Column="0" IsReadOnly="True" Margin="0,0,2,0" SyntaxHighlighting="TSQL"/>
-                        <avalonEdit:TextEditor x:Name="SingleHistoryNewEditor" Grid.Column="1" IsReadOnly="True" Margin="2,0,0,0" SyntaxHighlighting="TSQL"/>
-                    </Grid>
-                </Grid>
             </Grid>
         </Grid>
 

@@ -24,8 +24,6 @@ namespace DBVC.Vsix.UI
         private readonly DiffLineBackgroundRenderer _deployRightRenderer;
         private readonly DiffLineBackgroundRenderer _historyOldRenderer;
         private readonly DiffLineBackgroundRenderer _historyNewRenderer;
-        private readonly DiffLineBackgroundRenderer _singleHistoryOldRenderer;
-        private readonly DiffLineBackgroundRenderer _singleHistoryNewRenderer;
         private bool _syncingScroll;
 
         public ViewChangesControl()
@@ -58,17 +56,10 @@ namespace DBVC.Vsix.UI
             HistoryOldEditor.TextArea.TextView.BackgroundRenderers.Add(_historyOldRenderer);
             HistoryNewEditor.TextArea.TextView.BackgroundRenderers.Add(_historyNewRenderer);
 
-            _singleHistoryOldRenderer = new DiffLineBackgroundRenderer(SingleHistoryOldEditor.TextArea.TextView);
-            _singleHistoryNewRenderer = new DiffLineBackgroundRenderer(SingleHistoryNewEditor.TextArea.TextView);
-            SingleHistoryOldEditor.TextArea.TextView.BackgroundRenderers.Add(_singleHistoryOldRenderer);
-            SingleHistoryNewEditor.TextArea.TextView.BackgroundRenderers.Add(_singleHistoryNewRenderer);
-
             OldTextEditor.TextArea.TextView.ScrollOffsetChanged += OnOldScrollOffsetChanged;
             NewTextEditor.TextArea.TextView.ScrollOffsetChanged += OnNewScrollOffsetChanged;
             HistoryOldEditor.TextArea.TextView.ScrollOffsetChanged += OnHistoryOldScrollOffsetChanged;
             HistoryNewEditor.TextArea.TextView.ScrollOffsetChanged += OnHistoryNewScrollOffsetChanged;
-            SingleHistoryOldEditor.TextArea.TextView.ScrollOffsetChanged += OnSingleHistoryOldScrollOffsetChanged;
-            SingleHistoryNewEditor.TextArea.TextView.ScrollOffsetChanged += OnSingleHistoryNewScrollOffsetChanged;
 
             _viewModel.SelectionChanged += OnSelectionChanged;
             _viewModel.Deployment.SelectionChanged += OnDeploymentSelectionChanged;
@@ -121,15 +112,11 @@ namespace DBVC.Vsix.UI
             HistoryNewEditor.TextArea.TextView.ScrollOffsetChanged -= OnHistoryNewScrollOffsetChanged;
             HistoryNewEditor.TextArea.TextView.ScrollOffsetChanged += OnHistoryNewScrollOffsetChanged;
 
-            SingleHistoryOldEditor.TextArea.TextView.ScrollOffsetChanged -= OnSingleHistoryOldScrollOffsetChanged;
-            SingleHistoryOldEditor.TextArea.TextView.ScrollOffsetChanged += OnSingleHistoryOldScrollOffsetChanged;
-            SingleHistoryNewEditor.TextArea.TextView.ScrollOffsetChanged -= OnSingleHistoryNewScrollOffsetChanged;
-            SingleHistoryNewEditor.TextArea.TextView.ScrollOffsetChanged += OnSingleHistoryNewScrollOffsetChanged;
-
             // 떨어져 있는 동안 선택이 바뀌었을 수 있다 — SQL 편집기 컨텍스트 메뉴가 창 밖에서
             // 같은 ViewModel을 조작한다. 다시 붙는 김에 Diff 창을 현재 선택에 맞춘다.
             OnSelectionChanged(this, EventArgs.Empty);
             UpdateHistoryDiffView();
+            UpdateHistoryRowHeights();
         }
 
         private void OnUnloaded(object sender, System.Windows.RoutedEventArgs e)
@@ -143,9 +130,6 @@ namespace DBVC.Vsix.UI
 
             HistoryOldEditor.TextArea.TextView.ScrollOffsetChanged -= OnHistoryOldScrollOffsetChanged;
             HistoryNewEditor.TextArea.TextView.ScrollOffsetChanged -= OnHistoryNewScrollOffsetChanged;
-
-            SingleHistoryOldEditor.TextArea.TextView.ScrollOffsetChanged -= OnSingleHistoryOldScrollOffsetChanged;
-            SingleHistoryNewEditor.TextArea.TextView.ScrollOffsetChanged -= OnSingleHistoryNewScrollOffsetChanged;
         }
 
         /// <summary>
@@ -220,6 +204,11 @@ namespace DBVC.Vsix.UI
             {
                 UpdateHistoryDiffView();
             }
+            else if (e.PropertyName == nameof(ObjectHistoryViewModel.IsSingleObjectMode)
+                  || e.PropertyName == nameof(ObjectHistoryViewModel.IsDiffVisible))
+            {
+                UpdateHistoryRowHeights();
+            }
         }
 
         private void UpdateHistoryDiffView()
@@ -228,15 +217,37 @@ namespace DBVC.Vsix.UI
             if (model != null)
             {
                 ApplyDiffPanes(model, HistoryOldEditor, _historyOldRenderer, HistoryNewEditor, _historyNewRenderer);
-                ApplyDiffPanes(model, SingleHistoryOldEditor, _singleHistoryOldRenderer, SingleHistoryNewEditor, _singleHistoryNewRenderer);
             }
             else
             {
                 SetPane(HistoryOldEditor, _historyOldRenderer, DiffTextBuilder.Build(null));
                 SetPane(HistoryNewEditor, _historyNewRenderer, DiffTextBuilder.Build(null));
-                SetPane(SingleHistoryOldEditor, _singleHistoryOldRenderer, DiffTextBuilder.Build(null));
-                SetPane(SingleHistoryNewEditor, _singleHistoryNewRenderer, DiffTextBuilder.Build(null));
             }
+
+            UpdateHistoryRowHeights();
+        }
+
+        /// <summary>
+        /// 필터 모드에서는 변경 파일 목록 행을, 볼 Diff가 없으면 Diff 행을 접는다.
+        /// Visibility만으로는 RowDefinition이 자리를 지켜 빈 칸이 화면 1/3을 그대로 차지한다.
+        /// RowDefinition은 시각 트리 밖이라 DataContext가 없어 Height에 바인딩을 걸 수 없다 —
+        /// 그래서 여기서 준다.
+        /// </summary>
+        private void UpdateHistoryRowHeights()
+        {
+            var zero = new System.Windows.GridLength(0);
+            var star = new System.Windows.GridLength(1, System.Windows.GridUnitType.Star);
+            var splitter = new System.Windows.GridLength(5);
+
+            var single = _viewModel.History.IsSingleObjectMode;
+            ChangedFilesRow.Height = single ? zero : star;
+            ChangedFilesSplitterRow.Height = single ? zero : splitter;
+            ChangedFilesPanel.Visibility = single ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
+            ChangedFilesSplitter.Visibility = ChangedFilesPanel.Visibility;
+
+            var hasDiff = _viewModel.History.IsDiffVisible;
+            HistoryDiffRow.Height = hasDiff ? star : zero;
+            HistoryDiffPanel.Visibility = hasDiff ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
         }
 
         private void HistoryListView_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -336,10 +347,6 @@ namespace DBVC.Vsix.UI
         private void OnHistoryOldScrollOffsetChanged(object? sender, EventArgs e) => SyncScroll(HistoryOldEditor, HistoryNewEditor);
 
         private void OnHistoryNewScrollOffsetChanged(object? sender, EventArgs e) => SyncScroll(HistoryNewEditor, HistoryOldEditor);
-
-        private void OnSingleHistoryOldScrollOffsetChanged(object? sender, EventArgs e) => SyncScroll(SingleHistoryOldEditor, SingleHistoryNewEditor);
-
-        private void OnSingleHistoryNewScrollOffsetChanged(object? sender, EventArgs e) => SyncScroll(SingleHistoryNewEditor, SingleHistoryOldEditor);
 
         /// <summary>좌우가 줄 단위로 정렬되어 있으므로 오프셋을 그대로 옮긴다.</summary>
         private void SyncScroll(TextEditor source, TextEditor target)

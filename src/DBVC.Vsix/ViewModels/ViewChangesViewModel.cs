@@ -112,6 +112,13 @@ namespace DBVC.Vsix.ViewModels
             GenerateDeploymentScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Deployment), CanGenerateScript);
             GenerateRollbackScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Rollback), CanGenerateScript);
             CheckRemoteCommand = new RelayCommand(CheckRemote, CanCheckRemote);
+            ShowWholeRepositoryHistoryCommand = new RelayCommand(() =>
+            {
+                _selectedChange = null;
+                OnPropertyChanged(nameof(SelectedChange));
+                History.Load(ServerName, DatabaseName, null);
+                SelectionChanged?.Invoke(this, EventArgs.Empty);
+            });
 
             // BusyState가 바뀌면 이 화면의 바인딩과 버튼 상태를 다시 계산한다.
             // 배포 화면이 일을 시작해도 여기 버튼이 함께 잠겨야 한다 — 같은 저장소와
@@ -734,6 +741,9 @@ namespace DBVC.Vsix.ViewModels
             SelectionChanged?.Invoke(this, EventArgs.Empty);
             SelectedTabIndex = HistoryTabIndex;
         }
+
+        /// <summary>객체로 좁힌 이력을 저장소 전체로 되돌린다.</summary>
+        public ICommand ShowWholeRepositoryHistoryCommand { get; }
 
         public ICommand RefreshCommand { get; }
 

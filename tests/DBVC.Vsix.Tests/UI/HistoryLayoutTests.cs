@@ -33,11 +33,14 @@ namespace DBVC.Vsix.Tests.UI
 
             LayoutAt(control, 800);
 
+            // ChangedFilesListView는 필터 모드에서 행째 접히는 DockPanel(ChangedFilesPanel) 안에
+            // 있다 - 그 DockPanel이 Grid.Row 2를 지니고, 안쪽 ListView 자체는 Grid.Row를 두지 않는다.
+            var changedFilesPanel = (DockPanel)control.FindName("ChangedFilesPanel");
+            Assert.That(changedFilesPanel, Is.Not.Null, "ChangedFilesPanel이 XAML에 존재해야 한다.");
+            Assert.That(Grid.GetRow(changedFilesPanel), Is.EqualTo(2), "ChangedFilesPanel은 Grid.Row 2에 위치해야 한다.");
+
             var changedFilesList = (ListView)control.FindName("ChangedFilesListView");
             Assert.That(changedFilesList, Is.Not.Null, "ChangedFilesListView가 XAML에 존재해야 한다.");
-
-            var row = Grid.GetRow(changedFilesList);
-            Assert.That(row, Is.EqualTo(2), "ChangedFilesListView는 Grid.Row 2에 위치해야 한다.");
 
             var historyList = (ListView)control.FindName("HistoryListView");
             Assert.That(historyList, Is.Not.Null, "HistoryListView가 XAML에 존재해야 한다.");
@@ -55,8 +58,10 @@ namespace DBVC.Vsix.Tests.UI
             var stateBinding = gridView.Columns[0].DisplayMemberBinding as Binding;
             Assert.That(stateBinding?.Path.Path, Is.EqualTo("StateText"));
 
+            // 위 변경 목록(Changes)도 ObjectTypeText를 쓴다 - 같은 헤더 아래 두 목록이 다른 값을
+            // 보이는 것이 이 결함의 원인이었으므로 원본 ObjectType이 아니라 이쪽을 바인딩한다.
             var typeBinding = gridView.Columns[1].DisplayMemberBinding as Binding;
-            Assert.That(typeBinding?.Path.Path, Is.EqualTo("ObjectType"));
+            Assert.That(typeBinding?.Path.Path, Is.EqualTo("ObjectTypeText"));
 
             var nameBinding = gridView.Columns[2].DisplayMemberBinding as Binding;
             Assert.That(nameBinding?.Path.Path, Is.EqualTo("ObjectName"));
