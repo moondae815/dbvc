@@ -268,14 +268,15 @@ namespace DBVC.Vsix.UI
 
             if (diffService != null)
             {
+                var relativePath = _viewModel.History.SelectedChangedFile?.RelativePath ?? _viewModel.History.RelativePath;
                 var leftLabel = selected.HasParent
-                    ? $"{_viewModel.History.RelativePath} ({selected.ShortSha}^)"
-                    : $"{_viewModel.History.RelativePath} (최초 커밋 이전)";
+                    ? $"{relativePath} ({selected.ShortSha}^)"
+                    : $"{relativePath} (최초 커밋 이전)";
 
                 diffService.OpenComparisonWindow2(
                     tempOld, tempNew,
                     leftLabel,
-                    $"{_viewModel.History.RelativePath} ({selected.ShortSha})",
+                    $"{relativePath} ({selected.ShortSha})",
                     $"DBVC Commit: {selected.ShortSha}",
                     $"DBVC Commit: {selected.ShortSha}",
                     "DBVC", string.Empty, 0);
