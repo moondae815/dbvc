@@ -112,7 +112,6 @@ namespace DBVC.Vsix.ViewModels
             GenerateDeploymentScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Deployment), CanGenerateScript);
             GenerateRollbackScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Rollback), CanGenerateScript);
             CheckRemoteCommand = new RelayCommand(CheckRemote, CanCheckRemote);
-            ExitSingleObjectModeCommand = new RelayCommand(ExitSingleObjectMode);
 
             // BusyState가 바뀌면 이 화면의 바인딩과 버튼 상태를 다시 계산한다.
             // 배포 화면이 일을 시작해도 여기 버튼이 함께 잠겨야 한다 — 같은 저장소와
@@ -232,7 +231,6 @@ namespace DBVC.Vsix.ViewModels
             // 대상이 바뀌면 "개체 탐색기 선택이 다릅니다"의 판정 근거가 사라진다.
             // 여전히 다르다면 다음 CheckSsmsSelection()에서 다시 뜬다.
             SsmsHintMessage = null;
-            IsSingleObjectMode = false;
 
             // ServerName/DatabaseName은 이 시점에 이미 새 대상이다(SetTarget이 먼저 세운다).
             // 로컬 상태만 지우는 호출이라 비용이 없으므로 조건 없이 부른다.
@@ -681,44 +679,60 @@ namespace DBVC.Vsix.ViewModels
         /// <summary>선택된 객체의 커밋 이력. (Feature 7)</summary>
         public ObjectHistoryViewModel History { get; }
 
-        private bool _isSingleObjectMode;
+        /// <summary>비교=0, 이력=1. 개체 탐색기에서 들어오면 이력 탭으로 옮긴다.</summary>
+        private const int HistoryTabIndex = 1;
 
-        /// <summary>
-        /// 단일 객체 이력 모드 활성화 여부.
-        /// 개체 탐색기에서 특정 객체의 이력을 요청했을 때 참이 되며, 변경 목록 대신 해당 객체의 이력을 전체 영역에 본다.
-        /// </summary>
-        public bool IsSingleObjectMode
+        private int _selectedTabIndex;
+        public int SelectedTabIndex
         {
-            get => _isSingleObjectMode;
-            private set
+            get => _selectedTabIndex;
+            set
             {
-                if (_isSingleObjectMode == value) return;
-                _isSingleObjectMode = value;
+                if (_selectedTabIndex == value) return;
+                _selectedTabIndex = value;
                 OnPropertyChanged();
             }
         }
 
-        public ICommand ExitSingleObjectModeCommand { get; }
-
-        private void ExitSingleObjectMode()
-        {
-            IsSingleObjectMode = false;
-        }
-
         /// <summary>
-        /// 특정 객체의 이력을 단일 객체 모드로 조회한다.
+        /// 개체 탐색기에서 고른 객체의 이력을 이력 탭에 띄운다.
+        ///
+        /// 도구 창은 호출자가 이미 띄운 뒤다 - 안내를 WarningMessage 배너로 내므로
+        /// 창을 띄우지 않으면 실패 사유가 사용자에게 보이지 않는다.
         /// </summary>
-        public void ShowHistoryFor(string databaseName, string relativePath)
+        public void ShowHistoryFor(string? nodeServerName, string? nodeDatabaseName, string relativePath)
         {
-            if (!string.Equals(DatabaseName, databaseName, StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(ServerName) || string.IsNullOrWhiteSpace(DatabaseName))
             {
-                // 대상 DB가 다르면 현재 연결이 아니므로 경고 처리.
-                WarningMessage = $"선택한 객체는 현재 활성화된 DB({DatabaseName})에 속하지 않습니다.";
+                WarningMessage = "DBVC가 아직 연결되지 않았습니다. DBVC 창에서 [연결]을 눌러 이 데이터베이스를 대상으로 지정한 뒤 다시 시도하세요.";
                 return;
             }
 
-            IsSingleObjectMode = true;
+            if (string.IsNullOrWhiteSpace(nodeServerName) || string.IsNullOrWhiteSpace(nodeDatabaseName))
+            {
+                WarningMessage = "개체 탐색기에서 선택한 노드의 연결 정보를 읽지 못했습니다. 노드를 다시 선택한 뒤 시도하세요.";
+                return;
+            }
+
+            // 서버까지 본다. DB 이름만 비교하면 서버가 다른 동명 DB의 이력을 이 저장소에서 조용히 읽는다.
+            if (!string.Equals(ServerName, nodeServerName, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(DatabaseName, nodeDatabaseName, StringComparison.OrdinalIgnoreCase))
+            {
+                WarningMessage = $"선택한 객체는 {nodeServerName}.{nodeDatabaseName}에 있습니다. DBVC는 지금 {ServerName}.{DatabaseName}에 연결되어 있습니다.";
+                return;
+            }
+
+            WarningMessage = null;
+
+            // 순서가 중요하다. SelectedChange의 setter가 History를 다시 읽으므로 그것을 태우면
+            // 방금 건 필터가 전체 이력으로 덮인다. 뒷단 필드만 맞추고 History는 여기서 한 번만 읽는다.
+            _selectedChange = Changes.FirstOrDefault(c =>
+                string.Equals(c.RelativePath, relativePath, StringComparison.OrdinalIgnoreCase));
+            OnPropertyChanged(nameof(SelectedChange));
+
             History.Load(ServerName, DatabaseName, relativePath);
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
+            SelectedTabIndex = HistoryTabIndex;
         }
 
         public ICommand RefreshCommand { get; }

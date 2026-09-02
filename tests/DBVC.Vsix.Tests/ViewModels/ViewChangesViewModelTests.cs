@@ -2824,58 +2824,62 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
-        public void ShowHistoryFor_WhenMatchingDatabase_EnablesSingleObjectModeAndLoadsHistory()
+        public void ShowHistoryFor_WarnsAndDoesNotLoad_WhenDbvcIsNotConnected()
         {
-            var commits = new List<CommitInfo>
-            {
-                new CommitInfo { Sha = "abc1234567", Message = "Add table", Author = "dev", Date = DateTime.UtcNow }
-            };
-            _git.Setup(g => g.GetHistory(Server, Database, "dbo/Tables/Person.sql")).Returns(commits);
+            var vm = NewViewModel();   // Connect를 부르지 않은 상태
 
-            var vm = NewConnectedViewModel();
-            Assert.That(vm.IsSingleObjectMode, Is.False);
+            vm.ShowHistoryFor(Server, Database, "dbo/Tables/Users.sql");
 
-            vm.ShowHistoryFor(Database, "dbo/Tables/Person.sql");
-
-            Assert.That(vm.IsSingleObjectMode, Is.True);
-            Assert.That(vm.History.Entries.Count, Is.EqualTo(1));
-            Assert.That(vm.WarningMessage, Is.Null);
+            Assert.That(vm.WarningMessage, Does.Contain("연결되지 않았습니다"));
+            _git.Verify(g => g.GetHistory(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         }
 
         [Test]
-        public void ShowHistoryFor_WhenDatabaseMismatch_SetsWarningMessageAndDoesNotEnableMode()
+        public void ShowHistoryFor_WarnsWithBothTargets_WhenTheServerDiffers()
         {
             var vm = NewConnectedViewModel();
 
-            vm.ShowHistoryFor("OtherDatabase", "dbo/Tables/Person.sql");
+            vm.ShowHistoryFor("OtherServer", Database, "dbo/Tables/Users.sql");
 
-            Assert.That(vm.IsSingleObjectMode, Is.False);
-            Assert.That(vm.WarningMessage, Does.Contain($"선택한 객체는 현재 활성화된 DB({Database})에 속하지 않습니다."));
+            Assert.That(vm.WarningMessage, Does.Contain("OtherServer"));
+            Assert.That(vm.WarningMessage, Does.Contain(Server));
         }
 
         [Test]
-        public void ExitSingleObjectModeCommand_WhenExecuted_DisablesSingleObjectMode()
+        public void ShowHistoryFor_WarnsWithBothTargets_WhenTheDatabaseDiffers()
         {
             var vm = NewConnectedViewModel();
-            vm.ShowHistoryFor(Database, "dbo/Tables/Person.sql");
-            Assert.That(vm.IsSingleObjectMode, Is.True);
 
-            vm.ExitSingleObjectModeCommand.Execute(null);
+            vm.ShowHistoryFor(Server, "OtherDb", "dbo/Tables/Users.sql");
 
-            Assert.That(vm.IsSingleObjectMode, Is.False);
+            Assert.That(vm.WarningMessage, Does.Contain("OtherDb"));
+            Assert.That(vm.WarningMessage, Does.Contain(Database));
         }
 
         [Test]
-        public void InvalidateActiveContext_WhenTargetChanges_ResetsSingleObjectMode()
+        public void ShowHistoryFor_FiltersHistoryAndSelectsTheHistoryTab_WhenTheTargetMatches()
         {
             var vm = NewConnectedViewModel();
-            vm.ShowHistoryFor(Database, "dbo/Tables/Person.sql");
-            Assert.That(vm.IsSingleObjectMode, Is.True);
 
-            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info(server: "OtherServer", database: "OtherDB"));
-            vm.ConnectCommand.Execute(null);
+            vm.ShowHistoryFor(Server, Database, "dbo/Tables/Users.sql");
 
-            Assert.That(vm.IsSingleObjectMode, Is.False);
+            Assert.That(vm.History.RelativePath, Is.EqualTo("dbo/Tables/Users.sql"));
+            Assert.That(vm.History.IsSingleObjectMode, Is.True);
+            Assert.That(vm.SelectedTabIndex, Is.EqualTo(1), "이력 탭이 두 번째다");
+        }
+
+        [Test]
+        public void ShowHistoryFor_KeepsTheFilter_WhenTheObjectIsNotInTheChangeList()
+        {
+            // 이미 커밋되어 변경 목록에 없는 객체가 이 기능의 주 대상이다.
+            // SelectedChange setter를 타면 History가 전체 이력으로 되돌아가 필터가 풀린다.
+            var vm = NewConnectedViewModel();
+            Assert.That(vm.Changes.Any(c => c.RelativePath == "dbo/Tables/Gone.sql"), Is.False);
+
+            vm.ShowHistoryFor(Server, Database, "dbo/Tables/Gone.sql");
+
+            Assert.That(vm.SelectedChange, Is.Null);
+            Assert.That(vm.History.RelativePath, Is.EqualTo("dbo/Tables/Gone.sql"));
         }
     }
 }

@@ -198,17 +198,22 @@ namespace DBVC.Vsix.Commands
             ThreadHelper.ThrowIfNotOnUIThread();
 
             var urn = _source.TryGetSelectedUrn();
-            if (!SsmsUrn.TryParseObjectIdentity(urn, out var databaseName, out var schema, out var objectType, out var objectName))
+            if (!SsmsUrn.TryParseObjectIdentity(urn, out _, out var schema, out var objectType, out var objectName))
             {
                 return;
             }
 
             var relativePath = ObjectPathConvention.GetRelativePath(schema, objectType, objectName!);
 
+            // 노드의 연결을 Connect와 같은 경로로 읽는다. URN의 SMO 서버명은 연결 객체의
+            // ServerName과 표기가 달라, URN을 파싱해 비교하면 정상 경로까지 막힌다.
+            var connection = _source.TryGetCurrent();
+
+            // 안내가 도구 창 배너로 나가므로 실패 경로에서도 창을 먼저 띄운다.
             ShowToolWindow();
 
             var viewModel = _package.Services.SharedViewChangesViewModel;
-            viewModel.ShowHistoryFor(databaseName!, relativePath);
+            viewModel.ShowHistoryFor(connection?.ServerName, connection?.DatabaseName, relativePath);
         }
 
         private void ShowToolWindow()
