@@ -653,6 +653,41 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.ChangedFiles[0].RelativePath, Is.EqualTo("dbo/Tables/B.sql"));
         }
 
+        /// <summary>
+        /// 위 테스트는 전체 이력 모드라 변경 파일 목록 요청만 큐에 쌓이고 Diff 요청은 아예
+        /// 나가지 않는다(선택된 변경 파일이 없어 UpdateDiffModel이 조기 종료한다) - 그래서
+        /// _diffToken 쪽 stale 가드는 검증되지 않는다. 단일 객체 모드로 두면 매 SelectedEntry마다
+        /// UpdateDiffModel이 실제로 Diff 요청을 큐에 넣으므로, 여기서만 _diffToken을 확인할 수 있다.
+        /// </summary>
+        [Test]
+        public void SelectedEntry_IgnoresTheEarlierDiffRequest_WhenItFinishesLast()
+        {
+            var scheduler = new DeferredBackgroundScheduler();
+            var vm = new ObjectHistoryViewModel(_git.Object, new DiffService(), scheduler);
+            vm.Load(Server, Database, RelativePath);
+
+            _git.Setup(g => g.GetCommitDetail(Server, Database, "aaa", RelativePath))
+                .Returns(new CommitDetail { OldText = "old-a", NewText = "new-a" });
+            _git.Setup(g => g.GetCommitDetail(Server, Database, "bbb", RelativePath))
+                .Returns(new CommitDetail { OldText = "old-b", NewText = "new-b" });
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = "aaa", ShortSha = "aaa" };
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = "bbb", ShortSha = "bbb" };
+
+            // 단일 객체 모드에서는 LoadChangedFiles가 즉시 반환하므로(IsSingleObjectMode) 두 선택 모두
+            // UpdateDiffModel의 Diff 요청만 큐에 쌓인다 - 이 값이 2가 아니면 이 테스트는 아무것도 증명하지 못한다.
+            Assert.That(scheduler.PendingCount, Is.EqualTo(2));
+
+            // 나중 요청(bbb)을 먼저, 앞선 요청(aaa)을 나중에 흘린다.
+            scheduler.FlushAt(1);
+            scheduler.FlushAt(0);
+
+            Assert.That(vm.SelectedDiffModel, Is.Not.Null);
+            Assert.That(vm.SelectedDiffModel!.NewText.Lines.Select(l => l.Text), Does.Contain("new-b"),
+                "앞선 요청(aaa)이 늦게 끝나 나중 요청(bbb)의 결과를 덮어쓰면 안 된다");
+            Assert.That(vm.SelectedDiffModel!.NewText.Lines.Select(l => l.Text), Does.Not.Contain("new-a"));
+        }
+
         [Test]
         public void SelectedEntry_RunsTheGitReadThroughTheScheduler()
         {
@@ -704,6 +739,22 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.SelectedEntry = new HistoryEntryViewModel { Sha = "aaa", ShortSha = "aaa" };
 
             Assert.That(vm.ChangedFilesNotice, Does.Contain("900"));
+        }
+
+        [Test]
+        public void SelectedEntry_SetsAKoreanNotice_WhenLoadingChangedFilesFails()
+        {
+            var vm = NewViewModel();
+            vm.Load(Server, Database, null);
+
+            _git.Setup(g => g.GetCommitDetail(Server, Database, "aaa", null))
+                .Throws(new InvalidOperationException("repository read failed"));
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = "aaa", ShortSha = "aaa" };
+
+            Assert.That(vm.HasChangedFilesNotice, Is.True);
+            Assert.That(vm.ChangedFilesNotice, Is.EqualTo("변경된 파일 목록을 읽지 못했습니다."),
+                "빈 목록과 읽기 실패를 화면에서 구분할 수 있어야 한다");
         }
 
         [Test]

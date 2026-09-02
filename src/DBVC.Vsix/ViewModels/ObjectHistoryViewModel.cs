@@ -122,7 +122,20 @@ namespace DBVC.Vsix.ViewModels
 
                     SetChangedFilesNotice(BuildNotice(entry, detail));
                 },
-                ex => Debug.WriteLine($"ObjectHistoryViewModel.LoadChangedFiles failed: {ex.Message}"));
+                ex =>
+                {
+                    Debug.WriteLine($"ObjectHistoryViewModel.LoadChangedFiles failed: {ex.Message}");
+
+                    // 늦게 끝난 앞선 요청의 실패다. 지금 화면이 보는 커밋과 다르므로 버린다 -
+                    // 성공 콜백과 같은 표를 써야 나중 요청의 안내를 이 실패가 지우지 않는다.
+                    if (token != _changedFilesToken) return;
+
+                    // Diff 패널과 달리 변경 파일 목록은 실패해도 화면이 조용히 비어 보일 뿐이라
+                    // "이 커밋은 변경이 없다"와 "읽기 실패"를 구분할 수 없다. ChangedFilesNotice는
+                    // 이미 바인딩되어 있으므로(모달 없이) 여기서만 실패를 알린다 - Diff 쪽은
+                    // 화면마다 커밋 선택 때 매번 뜨는 모달을 새로 만들어야 해서 범위 밖이다.
+                    SetChangedFilesNotice("변경된 파일 목록을 읽지 못했습니다.");
+                });
         }
 
         private static string? BuildNotice(HistoryEntryViewModel entry, CommitDetail detail)
