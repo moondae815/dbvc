@@ -718,6 +718,43 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.GetSelectedFileTexts(), Is.EqualTo(("old-b", "new-b")));
         }
 
+        /// <summary>
+        /// 커밋과 변경 파일을 고른 채로 Diff 요청이 아직 진행 중일 때 Load가 다시 불리는 경우다
+        /// ("전체 이력으로" 버튼, 개체 탐색기 우클릭 등). Load의 SelectedEntry = null이 타는
+        /// UpdateDiffModel의 조기 반환 분기가 표(_diffToken)를 올리지 않으면, 진행 중이던 요청이
+        /// 나중에 흘러도 stale 검사를 통과해 방금 비운 SelectedDiffModel 위에 옛 커밋의 Diff를
+        /// 되살린다. 표를 올리지 않고 되돌리면 이 테스트는 실패한다.
+        /// </summary>
+        [Test]
+        public void Load_InvalidatesADiffRequest_ThatWasStillInFlight()
+        {
+            var scheduler = new DeferredBackgroundScheduler();
+            var vm = new ObjectHistoryViewModel(_git.Object, new DiffService(), scheduler);
+            vm.Load(Server, Database, null);
+
+            const string commitSha = "aaa1111111111111";
+            _git.Setup(g => g.GetCommitDetail(Server, Database, commitSha, null))
+                .Returns(Detail(ChangedFile("dbo/Tables/Users.sql")));
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = commitSha, ShortSha = "aaa1111" };
+            scheduler.FlushAll(); // 변경 파일 목록 요청을 흘려 ChangedFiles를 채운다.
+
+            _git.Setup(g => g.GetCommitDetail(Server, Database, commitSha, "dbo/Tables/Users.sql"))
+                .Returns(new CommitDetail { OldText = "old", NewText = "new" });
+            vm.SelectedChangedFile = vm.ChangedFiles[0]; // Diff 요청을 큐에 넣지만 아직 흘리지 않는다.
+            Assert.That(scheduler.PendingCount, Is.EqualTo(1));
+
+            // Diff 요청이 아직 진행 중인 채로 다른 대상의 이력을 연다.
+            vm.Load(Server, Database, "dbo/Tables/Other.sql");
+            Assert.That(scheduler.PendingCount, Is.EqualTo(1), "Load 자체는 새 요청을 내보내지 않아야 한다");
+
+            // 진행 중이던 옛 요청을 흘린다.
+            scheduler.FlushAll();
+
+            Assert.That(vm.SelectedDiffModel, Is.Null,
+                "Load 이후에는 그 전에 나간 Diff 요청의 결과가 화면에 반영되면 안 된다");
+        }
+
         [Test]
         public void SelectedEntry_RunsTheGitReadThroughTheScheduler()
         {

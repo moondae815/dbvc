@@ -98,6 +98,9 @@ namespace DBVC.Vsix.ViewModels
         {
             if (_selectedEntry == null || IsSingleObjectMode || ServerName == null || DatabaseName == null)
             {
+                // 이 분기로 빠져도 앞서 보낸 요청이 아직 살아 있을 수 있다. 표를 올리지 않으면 그
+                // 요청이 나중에 끝나면서 방금 비운 상태를 다시 채운다.
+                ++_changedFilesToken;
                 return;
             }
 
@@ -205,6 +208,9 @@ namespace DBVC.Vsix.ViewModels
             var targetPath = IsSingleObjectMode ? RelativePath : _selectedChangedFile?.RelativePath;
             if (_selectedEntry == null || ServerName == null || DatabaseName == null || string.IsNullOrWhiteSpace(targetPath))
             {
+                // 이 분기로 빠져도 앞서 보낸 Diff 요청이 아직 살아 있을 수 있다. 표를 올리지 않으면
+                // 그 요청이 나중에 끝나면서 방금 비운 SelectedDiffModel 위에 결과를 덮어쓴다.
+                ++_diffToken;
                 _selectedOldText = null;
                 _selectedNewText = null;
                 SelectedDiffModel = null;
@@ -245,9 +251,16 @@ namespace DBVC.Vsix.ViewModels
             Entries.Clear();
             ChangedFiles.Clear();
             SetChangedFilesNotice(null);
-            SelectedChangedFile = null;
             ScopeLabel = string.Empty;
+
+            // SelectedEntry를 먼저 비운다 - RelativePath는 이미 위에서 새 값으로 바뀌었으므로,
+            // SelectedChangedFile을 먼저 비우면 그 setter가 부르는 UpdateDiffModel이 "옛 커밋 +
+            // 새 경로"라는 존재한 적 없는 조합으로 요청을 내보낸다. SelectedEntry의 setter가
+            // _selectedChangedFile도 함께 비우므로, 뒤이은 SelectedChangedFile = null은 대개
+            // ReferenceEquals로 조기 반환한다 - 그래도 SelectedEntry가 이미 null이었던 경우(빈
+            // 새 뷰모델 등)를 위해 남겨 둔다.
             SelectedEntry = null;
+            SelectedChangedFile = null;
 
             if (!string.IsNullOrWhiteSpace(serverName) && !string.IsNullOrWhiteSpace(databaseName))
             {
