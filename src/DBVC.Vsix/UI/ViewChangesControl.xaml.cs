@@ -237,6 +237,7 @@ namespace DBVC.Vsix.UI
                 UpdateHistoryDiffView();
             }
             else if (e.PropertyName == nameof(ObjectHistoryViewModel.IsSingleObjectMode)
+                  || e.PropertyName == nameof(ObjectHistoryViewModel.IsChangedFilesVisible)
                   || e.PropertyName == nameof(ObjectHistoryViewModel.IsDiffVisible))
             {
                 UpdateHistoryRowHeights();
@@ -260,8 +261,9 @@ namespace DBVC.Vsix.UI
         }
 
         /// <summary>
-        /// 필터 모드에서는 변경 파일 목록 행을, 볼 Diff가 없으면 Diff 행을 접는다. 둘 다
-        /// 접히면 아래 블록이 통째로 비므로 그 블록과 바깥 분할선까지 접는다.
+        /// 두 패널을 각각 "볼 것이 있는가"로 접는다 - 변경 파일 목록은 필터 모드이거나 고른
+        /// 커밋이 없을 때, Diff는 그릴 것이 없을 때다. 둘 다 접히면 아래 블록이 통째로 비므로
+        /// 그 블록과 바깥 분할선까지 접는다.
         /// Visibility만으로는 RowDefinition이 자리를 지켜 빈 칸이 화면 1/3을 그대로 차지한다.
         /// RowDefinition은 시각 트리 밖이라 DataContext가 없어 Height에 바인딩을 걸 수 없다 —
         /// 그래서 여기서 준다.
@@ -277,14 +279,14 @@ namespace DBVC.Vsix.UI
             var zero = new GridLength(0);
             var splitterRowHeight = new GridLength(5);
 
-            var single = _viewModel.History.IsSingleObjectMode;
+            var changedFilesCollapsed = !_viewModel.History.IsChangedFilesVisible;
             var diffCollapsed = !_viewModel.History.IsDiffVisible;
             // 아래 블록에 남는 것이 하나도 없는 경우다. 이때만 바깥 분할선이 갈 곳을 잃는다.
-            var lowerBlockCollapsed = single && diffCollapsed;
+            var lowerBlockCollapsed = changedFilesCollapsed && diffCollapsed;
 
-            if (_changedFilesCollapsed != single)
+            if (_changedFilesCollapsed != changedFilesCollapsed)
             {
-                if (single)
+                if (changedFilesCollapsed)
                 {
                     _changedFilesExpandedHeight = ChangedFilesRow.Height;
                     ChangedFilesRow.Height = zero;
@@ -296,7 +298,7 @@ namespace DBVC.Vsix.UI
                     ChangedFilesPanel.Visibility = Visibility.Visible;
                 }
 
-                _changedFilesCollapsed = single;
+                _changedFilesCollapsed = changedFilesCollapsed;
             }
 
             if (_historyDiffCollapsed != diffCollapsed)
@@ -336,7 +338,7 @@ namespace DBVC.Vsix.UI
             // 분할선이 앉은 행의 Height는 GridSplitter가 손대는 값이 아니므로(양옆만 바꾼다)
             // Visibility와 함께 매번 다시 써도 사용자 입력을 잃지 않는다. 숨기면서 행까지
             // 접지 않으면 그 자리에 5px짜리 빈 띠가 남는다.
-            var innerSplitterVisible = !single && !diffCollapsed;
+            var innerSplitterVisible = !changedFilesCollapsed && !diffCollapsed;
             ChangedFilesSplitter.Visibility = innerSplitterVisible ? Visibility.Visible : Visibility.Collapsed;
             ChangedFilesSplitterRow.Height = innerSplitterVisible ? splitterRowHeight : zero;
 

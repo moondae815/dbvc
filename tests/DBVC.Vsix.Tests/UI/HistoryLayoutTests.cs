@@ -200,15 +200,14 @@ namespace DBVC.Vsix.Tests.UI
         [Test]
         public void UpdateHistoryRowHeights_RestoresChangedFilesRow_WhenReturningToWholeRepository()
         {
-            var control = ViewChangesControlFixtures.NewConnectedControl(
-                new RepositoryState { CurrentBranch = "main", BlockReason = RepositoryBlockReason.None },
-                mode: MappingMode.Write,
-                installedVersion: DBVC.Core.StateTracker.RequiredSchemaVersion);
+            var control = NewControlWithOneCommit();
 
             LayoutAt(control, 800);
             RaiseLoaded(control);
 
             var vm = ViewModelOf(control);
+            vm.History.Load(vm.ServerName, vm.DatabaseName, null);
+            vm.History.SelectedEntry = vm.History.Entries[0];
 
             // 전체 이력 모드에서 사용자가 끌어 둔 비율을 흉내 낸다 - GridSplitter가 드래그로
             // 쓰는 것과 같은 대입이다. 접혔다가 되돌아온 값이 하드코딩된 1*가 아니라 이 값과
@@ -221,12 +220,18 @@ namespace DBVC.Vsix.Tests.UI
             Assert.That(control.ChangedFilesRow.Height.Value, Is.EqualTo(0), "전제 조건: 먼저 접혀 있어야 한다.");
 
             // "전체 이력으로"가 하는 것과 같다 - 경로 없이 다시 읽으면 저장소 전체 모드로 돌아온다.
+            // 다만 Load는 선택을 함께 비우므로, 이 시점엔 아직 담길 것이 없어 접힌 채다.
             vm.History.Load(vm.ServerName, vm.DatabaseName, null);
+            Assert.That(control.ChangedFilesRow.Height.Value, Is.EqualTo(0),
+                "모드만 돌아오고 고른 커밋이 없으면 담길 것이 없으므로 접힌 채여야 한다.");
+
+            // 커밋을 다시 고르는 순간 열리며, 그때 끌어 둔 높이로 돌아와야 한다.
+            vm.History.SelectedEntry = vm.History.Entries[0];
 
             Assert.That(control.ChangedFilesRow.Height, Is.EqualTo(draggedHeight),
-                "저장소 전체 모드로 돌아오면 변경 파일 목록 행이 접기 직전 사용자가 끌어 둔 높이로 돌아와야 한다.");
-            // 안쪽 분할선은 변경 파일 목록과 Diff 사이에 있다. 이 화면은 고른 커밋이 없어 Diff가
-            // 없으므로 접힌 채로 있는 것이 맞다 - 아래 블록에 변경 파일 목록만 남아 나눌 경계가 없다.
+                "변경 파일 목록이 다시 열리면 접기 직전 사용자가 끌어 둔 높이로 돌아와야 한다.");
+            // 안쪽 분할선은 변경 파일 목록과 Diff 사이에 있다. 이 화면은 파일을 고르지 않아 Diff가
+            // 없으므로 접힌 채로 있는 것이 맞다 - 아래 블록에 목록만 남아 나눌 경계가 없다.
             Assert.That(control.ChangedFilesSplitterRow.Height.Value, Is.EqualTo(0),
                 "Diff가 없으면 그 위 분할선 행은 접힌 채여야 한다.");
             Assert.That(control.ChangedFilesPanel.Visibility, Is.EqualTo(Visibility.Visible),
@@ -291,6 +296,54 @@ namespace DBVC.Vsix.Tests.UI
 
             // 바깥 분할선도 함께 산다 - 두 분할선이 동시에 잡히는 것이 전체 모드의 정상 화면이다.
             Assert.That(control.HistoryListSplitter.Visibility, Is.EqualTo(Visibility.Visible));
+        }
+
+        /// <summary>
+        /// 전체 이력 모드라도 고른 커밋이 없으면 변경 파일 목록에 담길 것이 없다. 접힘 조건이
+        /// IsSingleObjectMode 하나뿐이던 시절에는 빈 목록이 머리글만 띄운 채 탭의 절반을 차지했다.
+        /// Diff 행은 처음부터 "볼 것이 있는가"(IsDiffVisible)로 판정해 왔다 - 그 짝을 맞춘다.
+        /// </summary>
+        [Test]
+        public void UpdateHistoryRowHeights_CollapsesChangedFilesRow_WhenNoCommitIsSelected()
+        {
+            var control = NewControlWithOneCommit();
+            LayoutAt(control, 800);
+            RaiseLoaded(control);
+
+            var vm = ViewModelOf(control);
+            vm.History.Load(vm.ServerName, vm.DatabaseName, null);
+
+            Assert.That(vm.History.SelectedEntry, Is.Null, "사전 조건: 아직 고른 커밋이 없다.");
+            Assert.That(vm.History.IsSingleObjectMode, Is.False, "사전 조건: 저장소 전체 모드다.");
+
+            Assert.That(control.ChangedFilesPanel.Visibility, Is.EqualTo(Visibility.Collapsed),
+                "담길 것이 없는 변경 파일 목록은 숨어야 한다.");
+            Assert.That(control.ChangedFilesRow.Height.Value, Is.EqualTo(0),
+                "숨기기만 하면 행이 자리를 지켜 빈 칸이 탭의 절반을 차지한다.");
+
+            // Diff도 없으므로 아래 블록이 통째로 비고, 이력 목록이 탭을 꽉 채운다.
+            Assert.That(control.LowerBlockRow.Height.Value, Is.EqualTo(0));
+            Assert.That(control.HistoryListSplitter.Visibility, Is.EqualTo(Visibility.Collapsed),
+                "나눌 경계가 없으면 분할선도 없어야 한다.");
+        }
+
+        /// <summary>커밋을 고르는 순간 목록이 열려야 한다 - 위 테스트가 영영 접어 버리는 구현을 막는다.</summary>
+        [Test]
+        public void UpdateHistoryRowHeights_OpensChangedFilesRow_AsSoonAsACommitIsSelected()
+        {
+            var control = NewControlWithOneCommit();
+            LayoutAt(control, 800);
+            RaiseLoaded(control);
+
+            var vm = ViewModelOf(control);
+            vm.History.Load(vm.ServerName, vm.DatabaseName, null);
+            vm.History.SelectedEntry = vm.History.Entries[0];
+
+            Assert.That(control.ChangedFilesPanel.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(control.ChangedFilesRow.Height.IsStar, Is.True);
+            Assert.That(control.LowerBlockRow.Height.IsStar, Is.True);
+            Assert.That(control.HistoryListSplitter.Visibility, Is.EqualTo(Visibility.Visible),
+                "볼 것이 생겼으므로 이력 목록과 그 사이 분할선도 살아나야 한다.");
         }
 
         /// <summary>커밋 하나와 그 Diff를 내주는 컨트롤. 필터 모드에서 Diff를 띄우려면 이만큼이 필요하다.</summary>

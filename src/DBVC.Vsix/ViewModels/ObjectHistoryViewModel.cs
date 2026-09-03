@@ -63,6 +63,16 @@ namespace DBVC.Vsix.ViewModels
         /// <summary>비어 있으면 화면이 목록 대신 안내 문구를 보여준다.</summary>
         public bool IsEmpty => Entries.Count == 0;
 
+        /// <summary>
+        /// 변경 파일 목록에 지금 담길 것이 있는지. <see cref="IsDiffVisible"/>와 짝이다 -
+        /// 화면은 "어느 모드인가"가 아니라 "볼 것이 있는가"로 행을 접어야 한다.
+        ///
+        /// 담긴 개수가 아니라 고른 커밋으로 판정한다. 커밋을 고르면 목록을 먼저 비우고
+        /// 백그라운드 조회가 끝나야 채우므로, 개수로 보면 고를 때마다 패널이 접혔다 펴지며
+        /// 깜빡이고 사용자가 끌어 둔 높이도 그때마다 다시 잡힌다.
+        /// </summary>
+        public bool IsChangedFilesVisible => !IsSingleObjectMode && _selectedEntry != null;
+
         /// <summary>선택된 객체가 없을 때 <see cref="ScopeLabel"/>이 쓰는 문구.</summary>
         private const string WholeRepositoryScope = "저장소 전체";
 
@@ -80,6 +90,7 @@ namespace DBVC.Vsix.ViewModels
                 if (ReferenceEquals(_selectedEntry, value)) return;
                 _selectedEntry = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(IsChangedFilesVisible));
 
                 ChangedFiles.Clear();
                 SetHistoryNotice(null);
@@ -300,6 +311,7 @@ namespace DBVC.Vsix.ViewModels
             OnPropertyChanged(nameof(IsEmpty));
             OnPropertyChanged(nameof(ScopeLabel));
             OnPropertyChanged(nameof(IsSingleObjectMode));
+            OnPropertyChanged(nameof(IsChangedFilesVisible));
         }
 
         /// <summary>
