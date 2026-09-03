@@ -114,6 +114,23 @@
                                VerticalAlignment="Center"/>
                 </DockPanel>
             </Border>
+
+            <!--
+                인코딩 전환 안내. 추적기 배너와 별도로 둔다 - 원인도 조치도 다르고,
+                둘이 동시에 뜰 수 있어야 한다(구버전 추적기 + 옛 인코딩).
+            -->
+            <Border Background="#FFF4CE" BorderBrush="#E0C77A" BorderThickness="1"
+                    Padding="8,5" Margin="5,0,5,4"
+                    Visibility="{Binding IsRepositoryEncodingLegacy, Converter={StaticResource BoolToVis}}">
+                <DockPanel LastChildFill="True">
+                    <Button DockPanel.Dock="Right" Content="전환하기" Width="110" Margin="8,0,0,0"
+                            Command="{Binding MigrateEncodingCommand}"
+                            ToolTip="저장소의 모든 .sql을 UTF-8로 다시 씁니다. 전체 다시 추출이 한 번 돌고 모든 객체가 수정으로 표시되며, 커밋은 직접 하셔야 합니다.&#10;팀에서 한 사람만 하고 나머지는 그 커밋을 Pull하세요."/>
+                    <TextBlock Text="저장소가 옛 인코딩(UTF-16)입니다. Git이 .sql을 바이너리로 보아 GitLab에서 diff가 보이지 않습니다."
+                               Foreground="#6B5A00" TextWrapping="Wrap" FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
+                </DockPanel>
+            </Border>
         </StackPanel>
 
         <!--

@@ -104,6 +104,8 @@ namespace DBVC.Vsix.ViewModels
             CancelCommand = new RelayCommand(Cancel, () => IsBusy && Busy.IsCancellable);
             SetupCommand = new RelayCommand(Setup, () => !IsBusy && MappingPolicy.IsAllowed(Mode, DbvcOperation.InstallTracker));
             UpdateTrackerCommand = new RelayCommand(UpdateTracker, () => IsTrackerOutdated && !IsBusy && MappingPolicy.IsAllowed(Mode, DbvcOperation.InstallTracker));
+            MigrateEncodingCommand = new RelayCommand(MigrateEncoding,
+                () => IsRepositoryEncodingLegacy && !IsBusy && MappingPolicy.IsAllowed(Mode, DbvcOperation.Extract));
             CommitCommand = new RelayCommand(Commit, CanCommit);
             ConnectCommand = new RelayCommand(Connect, () => _ssmsConnectionSource != null && !IsBusy);
             ConnectRepositoryCommand = new RelayCommand(ConnectRepository, CanConnectRepository);
@@ -415,6 +417,13 @@ namespace DBVC.Vsix.ViewModels
             if (probe.IsMapped)
             {
                 probe.RepositoryState = _gitManager.GetRepositoryState(server, database);
+
+                // 파일을 여는 일이라 UI 스레드에서 부르지 않는다. 저장소 상태를 읽는 것과 같은 이유다.
+                var probedMapping = _configManager.TryGetMapping(server, database);
+                if (probedMapping != null)
+                {
+                    probe.Encoding = RepositoryEncoding.Detect(probedMapping.GitPath);
+                }
             }
 
             return probe;
@@ -450,6 +459,11 @@ namespace DBVC.Vsix.ViewModels
             IsTrackerOutdated = probe.InstalledVersion > 0
                 && probe.InstalledVersion < StateTracker.RequiredSchemaVersion;
 
+            // 배포·감사 클론은 추출이 금지되어 있어 전환 버튼을 눌러도 아무 일도 못 한다.
+            // Pull로 전환된 커밋을 받으면 저절로 해결되므로 배너 자체를 띄우지 않는다.
+            IsRepositoryEncodingLegacy = probe.Encoding == RepositoryEncodingKind.Legacy
+                && MappingPolicy.IsAllowed(probe.Mode, DbvcOperation.Extract);
+
             CurrentBranch = probe.RepositoryState?.CurrentBranch;
             BlockMessage = probe.RepositoryState?.BlockMessage;
 
@@ -483,6 +497,9 @@ namespace DBVC.Vsix.ViewModels
 
             /// <summary>매핑이 없으면 null이다. 판정은 Core가 하고 여기서는 나르기만 한다.</summary>
             public RepositoryState? RepositoryState { get; set; }
+
+            /// <summary>매핑이 없거나 추출물이 없으면 Unknown이다. 판정은 Core가 한다.</summary>
+            public RepositoryEncodingKind Encoding { get; set; } = RepositoryEncodingKind.Unknown;
         }
 
         // ---------- 바인딩 속성 ----------
@@ -591,6 +608,26 @@ namespace DBVC.Vsix.ViewModels
                 _showAllAuthors = value;
                 OnPropertyChanged();
                 Refresh();
+            }
+        }
+
+        private bool _isRepositoryEncodingLegacy;
+
+        /// <summary>
+        /// 저장소가 아직 UTF-16이라 Git이 <c>.sql</c>을 바이너리로 보고 있는 상태.
+        ///
+        /// 전환이 끝나면 <see cref="ApplyRefreshOutcome"/>가 다시 판정해 스스로 내려간다 —
+        /// 커밋하기 전에 이미 사라지며, 그 사라짐이 전환이 실제로 일어났다는 유일한 화면 신호다.
+        /// </summary>
+        public bool IsRepositoryEncodingLegacy
+        {
+            get => _isRepositoryEncodingLegacy;
+            private set
+            {
+                if (_isRepositoryEncodingLegacy == value) return;
+                _isRepositoryEncodingLegacy = value;
+                OnPropertyChanged();
+                RaiseActionCanExecuteChanged();
             }
         }
 
@@ -776,6 +813,9 @@ namespace DBVC.Vsix.ViewModels
 
         /// <summary>구버전 추적기를 현재 버전으로 다시 설치한다.</summary>
         public ICommand UpdateTrackerCommand { get; }
+
+        /// <summary>저장소의 모든 .sql을 UTF-8로 다시 쓴다. 배너에서만 부른다.</summary>
+        public ICommand MigrateEncodingCommand { get; }
 
         public ICommand CommitCommand { get; }
 
@@ -1206,6 +1246,39 @@ namespace DBVC.Vsix.ViewModels
         }
 
         /// <summary>
+        /// 저장소를 UTF-8로 전환한다. .gitattributes를 만든 뒤 전체를 다시 추출하면 모든 .sql이
+        /// 수정으로 뜨고, <b>커밋은 사용자가 한다</b> — 저장소 전체를 다시 쓰는 유일한 커밋이므로
+        /// 메시지와 시점을 사람이 정해야 한다.
+        /// </summary>
+        private void MigrateEncoding()
+        {
+            if (!HasContext || !IsRepositoryEncodingLegacy) return;
+
+            var mapping = _configManager.TryGetMapping(ServerName!, DatabaseName!);
+            if (mapping == null) return;
+
+            // 여러 사람이 각자 누르면 저장소 전체를 다시 쓴 커밋이 사람 수만큼 생겨 서로 충돌한다.
+            // 도구가 막을 수는 없고 말할 수는 있다.
+            var proceed = _notifier.Confirm(
+                "DBVC 저장소 인코딩 전환",
+                "저장소의 모든 .sql을 UTF-8로 다시 씁니다. 전체 다시 추출이 한 번 돌고, 모든 객체가 "
+                + "수정으로 표시됩니다. 커밋은 직접 하셔야 합니다."
+                + Environment.NewLine + Environment.NewLine
+                + "팀에서 한 사람만 하고, 나머지는 그 커밋을 Pull하세요. 여러 사람이 각자 하면 "
+                + "저장소 전체를 다시 쓴 커밋이 사람 수만큼 생겨 서로 충돌합니다."
+                + Environment.NewLine + Environment.NewLine
+                + "계속할까요?");
+
+            if (!proceed) return;
+
+            // 지금 만들어야 전환 커밋에 함께 담긴다. 나중에 넣으면 그 사이에 clone한 사람이
+            // 줄바꿈 변환이 켜진 채로 파일을 받는다.
+            RepositoryEncoding.EnsureGitAttributes(mapping.GitPath);
+
+            RefreshAll();
+        }
+
+        /// <summary>
         /// 설치 스크립트를 실행한다. DDL 여러 배치를 도는 일이라 응답 없는 서버에서는 수십 초까지
         /// 걸린다 - UI 스레드에 남기면 그동안 SSMS 전체가 멈춘다.
         /// </summary>
@@ -1447,6 +1520,17 @@ namespace DBVC.Vsix.ViewModels
             }
 
             WarningMessage = outcome.Warnings.Count > 0 ? string.Join(" / ", outcome.Warnings) : null;
+
+            // 전환이 끝나면 파일이 UTF-8이 되어 배너가 스스로 내려간다. 다시 읽지 않으면 성공한
+            // 뒤에도 배너가 남아 사용자가 또 누른다 — 커밋 전이라 되돌릴 화면 신호가 이것뿐이다.
+            if (IsMapped)
+            {
+                var mapping = _configManager.TryGetMapping(ServerName!, DatabaseName!);
+                IsRepositoryEncodingLegacy = mapping != null
+                    && RepositoryEncoding.Detect(mapping.GitPath) == RepositoryEncodingKind.Legacy
+                    && MappingPolicy.IsAllowed(Mode, DbvcOperation.Extract);
+            }
+
             Busy.IsCancellable = false;
             ProgressText = null;
             IsBusy = false;
