@@ -197,6 +197,21 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void BuildScriptingOptions_WritesUtf8WithBom()
+        {
+            // 설정하지 않으면 SMO 기본값(UTF-16LE)이 나가고, Git이 저장소의 모든 .sql을 바이너리로
+            // 취급한다 - GitLab MR에서 diff가 보이지 않고, 겹치지 않는 변경끼리도 3-way 병합이
+            // 성립하지 않는다.
+            //
+            // BOM을 붙이는 이유는 이 파일을 읽는 것이 DBVC만이 아니기 때문이다. SSMS와 sqlcmd는
+            // BOM이 없는 .sql을 Windows ANSI 코드페이지로 읽어 한국어 주석과 MS_Description을
+            // 깨뜨린다. DBVC 자신의 읽기는 어느 쪽이든 동작한다(FileEncodingTests).
+            var options = SmoManager.BuildScriptingOptions();
+
+            Assert.That(options.Encoding.GetPreamble(), Is.EqualTo(new byte[] { 0xEF, 0xBB, 0xBF }));
+        }
+
+        [Test]
         public void ScriptAll_PreservesBytesExactly_WhenContentDiffers()
         {
             // 인코딩이 바뀌면 내용이 같은 객체도 전부 "변경됨"으로 보인다.
@@ -204,7 +219,7 @@ namespace DBVC.Core.Tests
             var root = NewTempDir();
             try
             {
-                var expected = new byte[] { 0xFF, 0xFE, 0x43, 0x00, 0x52, 0x00 }; // UTF-16LE BOM + "CR"
+                var expected = new byte[] { 0xEF, 0xBB, 0xBF, 0x43, 0x52 }; // UTF-8 BOM + "CR"
 
                 SmoManager.ScriptAll(
                     new[] { Target("dbo", "Table", "Users") },
