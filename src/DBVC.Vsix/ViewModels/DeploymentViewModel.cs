@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Windows.Input;
@@ -368,7 +369,11 @@ namespace DBVC.Vsix.ViewModels
 
             try
             {
-                File.WriteAllText(path, export.Script);
+                // 인자 두 개짜리 오버로드는 BOM 없는 UTF-8로 쓴다. 이 파일은 SSMS 쿼리 창에서
+                // 사람이 직접 실행하는데(배포 3단계 루프), SSMS는 BOM이 없는 .sql을 Windows ANSI
+                // 코드페이지로 읽어 한국어 주석과 MS_Description을 깨뜨린다 - 깨진 채로 실행되면
+                // 데이터베이스에 그 상태로 들어간다.
+                File.WriteAllText(path, export.Script, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
             }
             catch (Exception ex)
             {

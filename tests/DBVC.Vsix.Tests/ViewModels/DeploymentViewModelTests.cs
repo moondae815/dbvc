@@ -278,6 +278,41 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
+        public void SaveScriptCommand_WritesUtf8WithBom_SoSsmsDoesNotReadItAsAnsi()
+        {
+            // 배포 스크립트는 SSMS 쿼리 창에서 사람이 직접 실행한다(배포 3단계 루프).
+            // File.WriteAllText의 인자 두 개짜리 오버로드는 BOM 없는 UTF-8로 쓰는데, SSMS는
+            // BOM이 없는 .sql을 Windows ANSI 코드페이지로 읽어 한국어 주석과 MS_Description을
+            // 깨뜨린다. 깨진 채로 실행되면 데이터베이스에 그 상태로 들어간다.
+            var vm = NewViewModel(MappingMode.Deploy, out var repoPath);
+
+            var procPath = Path.Combine(repoPath, "dbo", "StoredProcedures");
+            Directory.CreateDirectory(procPath);
+            File.WriteAllText(Path.Combine(procPath, "GetUser.sql"),
+                "CREATE OR ALTER PROCEDURE dbo.GetUser AS SELECT 1 -- 사용자 조회");
+
+            _smo.Setup(s => s.CompareWithRepository(Server, Database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
+                .Returns(ResultWith(
+                    new SchemaDifference("dbo.GetUser", "dbo/StoredProcedures/GetUser.sql", "StoredProcedure", ObjectDiffState.Modified)));
+            vm.CompareCommand.Execute(null);
+
+            _saveDialog.PathToReturn = Path.Combine(NewTempDir(), "deploy.sql");
+            vm.SaveScriptCommand.Execute(null);
+
+            var bytes = File.ReadAllBytes(_saveDialog.PathToReturn);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(bytes.Length, Is.GreaterThanOrEqualTo(3));
+                Assert.That(new[] { bytes[0], bytes[1], bytes[2] },
+                    Is.EqualTo(new byte[] { 0xEF, 0xBB, 0xBF }));
+
+                // BOM만 맞고 본문이 깨지면 의미가 없다.
+                Assert.That(File.ReadAllText(_saveDialog.PathToReturn), Does.Contain("사용자 조회"));
+            });
+        }
+
+        [Test]
         public void SaveScriptCommand_ReportsNothingToWrite_WhenEveryObjectIsExcluded()
         {
             var vm = NewViewModel(MappingMode.Deploy, out _);
