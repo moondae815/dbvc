@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Media;
 using Moq;
 using NUnit.Framework;
 using DBVC.Core;
@@ -100,6 +101,62 @@ namespace DBVC.Vsix.Tests.UI
                 "ChangedFilesSplitter는 변경 파일 목록과 Diff 사이인 Grid.Row 3에 있어야 한다.");
             Assert.That(Grid.GetRow(control.HistoryDiffPanel), Is.EqualTo(4),
                 "HistoryDiffPanel은 맨 아래 Grid.Row 4에 있어야 한다.");
+        }
+
+        /// <summary>
+        /// 안내가 ChangedFilesPanel 안에 있던 시절에는 그 패널이 행째 접히는 필터 모드에서
+        /// 병합 안내가 아예 보이지 않았다. 머리글(ScopeLabel이 있는 DockPanel)에 두어야
+        /// 두 모드에서 모두 보인다 - 여기로 되돌리면 이 테스트가 실패한다.
+        /// </summary>
+        [Test]
+        public void HistoryNoticeText_LivesInTheHeader_NotInTheChangedFilesPanel()
+        {
+            var control = ViewChangesControlFixtures.NewConnectedControl(
+                new RepositoryState { CurrentBranch = "main", BlockReason = RepositoryBlockReason.None },
+                mode: MappingMode.Write,
+                installedVersion: DBVC.Core.StateTracker.RequiredSchemaVersion);
+
+            LayoutAt(control, 800);
+            RaiseLoaded(control);
+
+            var notice = (TextBlock)control.FindName("HistoryNoticeText");
+            Assert.That(notice, Is.Not.Null, "HistoryNoticeText가 XAML에 존재해야 한다.");
+
+            var changedFilesPanel = (DockPanel)control.FindName("ChangedFilesPanel");
+            Assert.That(IsDescendantOf(notice, changedFilesPanel), Is.False,
+                "안내가 변경 파일 목록 패널 안에 있으면 필터 모드에서 그 패널과 함께 접혀 보이지 않는다.");
+
+            // 필터 모드로 옮겨도 안내를 담은 조상이 살아 있어야 한다.
+            var vm = ViewModelOf(control);
+            vm.History.Load(vm.ServerName, vm.DatabaseName, "dbo/Table/Foo.sql");
+            control.UpdateLayout();
+
+            Assert.That(changedFilesPanel.Visibility, Is.EqualTo(Visibility.Collapsed),
+                "사전 조건: 필터 모드에서 변경 파일 목록 패널은 접힌다.");
+            Assert.That(IsAnyAncestorCollapsed(notice), Is.False,
+                "필터 모드에서도 안내를 담은 조상 중 접힌 것이 없어야 한다.");
+        }
+
+        private static bool IsDescendantOf(DependencyObject node, DependencyObject ancestor)
+        {
+            for (var current = VisualTreeHelper.GetParent(node); current != null; current = VisualTreeHelper.GetParent(current))
+            {
+                if (ReferenceEquals(current, ancestor)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 조상만 본다 - 안내 자체의 Visibility는 보여 줄 안내가 있는지에 따라 바인딩이 정하는
+        /// 값이라, 커밋을 고르지 않은 화면에서는 접혀 있는 것이 정상이다.
+        /// </summary>
+        private static bool IsAnyAncestorCollapsed(DependencyObject node)
+        {
+            for (var current = VisualTreeHelper.GetParent(node); current != null; current = VisualTreeHelper.GetParent(current))
+            {
+                if (current is UIElement element && element.Visibility == Visibility.Collapsed) return true;
+            }
+            return false;
         }
 
         [Test]

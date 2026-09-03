@@ -785,7 +785,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(vm.ChangedFiles, Is.Empty,
                 "Load 이후에는 그 전에 나간 변경 파일 목록 요청의 결과가 화면에 반영되면 안 된다");
-            Assert.That(vm.HasChangedFilesNotice, Is.False,
+            Assert.That(vm.HasHistoryNotice, Is.False,
                 "안내도 같은 표를 지나야 한다 - 목록만 비어 두면 없는 목록을 설명하는 문구가 남는다");
         }
 
@@ -814,7 +814,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(vm.ChangedFiles, Is.Empty,
                 "선택을 푸는 순간 진행 중이던 요청이 그 목록을 되살리면 안 된다");
-            Assert.That(vm.HasChangedFilesNotice, Is.False);
+            Assert.That(vm.HasHistoryNotice, Is.False);
         }
 
         [Test]
@@ -847,8 +847,42 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             vm.SelectedEntry = new HistoryEntryViewModel { Sha = "aaa", ShortSha = "aaa", ParentCount = 2 };
 
-            Assert.That(vm.HasChangedFilesNotice, Is.True);
-            Assert.That(vm.ChangedFilesNotice, Does.Contain("병합 커밋"));
+            Assert.That(vm.HasHistoryNotice, Is.True);
+            Assert.That(vm.HistoryNotice, Does.Contain("병합 커밋"));
+        }
+
+        /// <summary>
+        /// 안내가 머리글로 올라갔으므로 필터 모드에서도 보인다. 필터 이력에도 병합 커밋은
+        /// 남을 수 있다 - GetHistory가 쓰는 경로 단순화는 파일이 어느 부모와도 다른 병합만
+        /// 남기는데, 그게 바로 첫 부모 기준이라는 사실이 가장 필요한 커밋이다.
+        /// </summary>
+        [Test]
+        public void SelectedEntry_BuildsAMergeNotice_InSingleObjectMode()
+        {
+            var vm = NewViewModel();
+            vm.Load(Server, Database, RelativePath);
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = "aaa", ShortSha = "aaa", ParentCount = 2 };
+
+            Assert.That(vm.HasHistoryNotice, Is.True);
+            Assert.That(vm.HistoryNotice, Does.Contain("병합 커밋"));
+
+            // 안내 하나 때문에 변경 파일 목록 조회를 되살리면 안 된다 - ParentCount는 엔트리에
+            // 이미 있다. 필터 모드에서 목록을 읽지 않는다는 규약은 그대로다.
+            _git.Verify(
+                g => g.GetCommitDetail(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), null),
+                Times.Never);
+        }
+
+        [Test]
+        public void SelectedEntry_LeavesTheNoticeEmpty_InSingleObjectModeForAPlainCommit()
+        {
+            var vm = NewViewModel();
+            vm.Load(Server, Database, RelativePath);
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = "aaa", ShortSha = "aaa", ParentCount = 1 };
+
+            Assert.That(vm.HasHistoryNotice, Is.False);
         }
 
         [Test]
@@ -867,7 +901,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             vm.SelectedEntry = new HistoryEntryViewModel { Sha = "aaa", ShortSha = "aaa" };
 
-            Assert.That(vm.ChangedFilesNotice, Does.Contain("900"));
+            Assert.That(vm.HistoryNotice, Does.Contain("900"));
         }
 
         [Test]
@@ -881,8 +915,8 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             vm.SelectedEntry = new HistoryEntryViewModel { Sha = "aaa", ShortSha = "aaa" };
 
-            Assert.That(vm.HasChangedFilesNotice, Is.True);
-            Assert.That(vm.ChangedFilesNotice, Is.EqualTo("변경된 파일 목록을 읽지 못했습니다."),
+            Assert.That(vm.HasHistoryNotice, Is.True);
+            Assert.That(vm.HistoryNotice, Is.EqualTo("변경된 파일 목록을 읽지 못했습니다."),
                 "빈 목록과 읽기 실패를 화면에서 구분할 수 있어야 한다");
         }
 

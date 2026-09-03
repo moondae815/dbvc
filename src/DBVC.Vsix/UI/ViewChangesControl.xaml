@@ -231,7 +231,16 @@
                                         Command="{Binding ShowWholeRepositoryHistoryCommand}"
                                         Visibility="{Binding History.IsSingleObjectMode, Converter={StaticResource BoolToVis}}"
                                         ToolTip="특정 객체로 좁힌 이력을 저장소 전체 이력으로 되돌립니다."/>
-                                <TextBlock Text="{Binding History.ScopeLabel}" Foreground="#606060" VerticalAlignment="Center"/>
+                                <TextBlock DockPanel.Dock="Left" Text="{Binding History.ScopeLabel}" Foreground="#606060" VerticalAlignment="Center"/>
+                                <!-- 고른 커밋에 대한 안내(병합·잘림·읽기 실패)는 여기 둔다 - 변경 파일 목록
+                                     패널 안에 있으면 그 패널이 행째 접히는 필터 모드에서 아예 보이지 않는다.
+                                     줄바꿈 대신 말줄임과 ToolTip을 쓴다 - 이 행은 Height="Auto"라 감싸면
+                                     좁은 도구 창에서 머리글이 두세 줄로 늘어난다. -->
+                                <TextBlock x:Name="HistoryNoticeText" Margin="12,0,0,0" Foreground="#6B5A00"
+                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                           Text="{Binding History.HistoryNotice}"
+                                           ToolTip="{Binding History.HistoryNotice}"
+                                           Visibility="{Binding History.HasHistoryNotice, Converter={StaticResource BoolToVis}}"/>
                             </DockPanel>
 
                             <Grid Grid.Row="1">
@@ -268,9 +277,6 @@
 
                                 <!-- 중간: 변경된 파일 목록. 필터 모드에서는 행째 접힌다. -->
                                 <DockPanel x:Name="ChangedFilesPanel" Grid.Row="2" LastChildFill="True">
-                                    <TextBlock DockPanel.Dock="Top" Margin="4,2" Foreground="#6B5A00" TextWrapping="Wrap"
-                                               Text="{Binding History.ChangedFilesNotice}"
-                                               Visibility="{Binding History.HasChangedFilesNotice, Converter={StaticResource BoolToVis}}"/>
                                     <ListView x:Name="ChangedFilesListView"
                                               ItemsSource="{Binding History.ChangedFiles}"
                                               SelectedItem="{Binding History.SelectedChangedFile, Mode=TwoWay}"

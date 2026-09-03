@@ -82,7 +82,7 @@ namespace DBVC.Vsix.ViewModels
                 OnPropertyChanged();
 
                 ChangedFiles.Clear();
-                SetChangedFilesNotice(null);
+                SetHistoryNotice(null);
                 _selectedChangedFile = null;
                 OnPropertyChanged(nameof(SelectedChangedFile));
 
@@ -101,6 +101,14 @@ namespace DBVC.Vsix.ViewModels
                 // 이 분기로 빠져도 앞서 보낸 요청이 아직 살아 있을 수 있다. 표를 올리지 않으면 그
                 // 요청이 나중에 끝나면서 방금 비운 상태를 다시 채운다.
                 ++_changedFilesToken;
+
+                // 필터 모드에도 병합 안내는 띄운다 - 안내가 머리글에 있어 이 모드에서도 보이고,
+                // ParentCount는 엔트리에 이미 있어 Git을 다시 읽지 않아도 판정된다. 잘림 안내는
+                // 여기서 낼 수 없다 - 볼 파일 목록 자체를 읽지 않기 때문이다.
+                if (_selectedEntry != null && IsSingleObjectMode)
+                {
+                    SetHistoryNotice(MergeNotice(_selectedEntry));
+                }
                 return;
             }
 
@@ -123,7 +131,7 @@ namespace DBVC.Vsix.ViewModels
                         if (file != null) ChangedFiles.Add(HistoryChangedFileViewModel.From(file));
                     }
 
-                    SetChangedFilesNotice(BuildNotice(entry, detail));
+                    SetHistoryNotice(BuildNotice(entry, detail));
                 },
                 ex =>
                 {
@@ -134,33 +142,46 @@ namespace DBVC.Vsix.ViewModels
                     if (token != _changedFilesToken) return;
 
                     // Diff 패널과 달리 변경 파일 목록은 실패해도 화면이 조용히 비어 보일 뿐이라
-                    // "이 커밋은 변경이 없다"와 "읽기 실패"를 구분할 수 없다. ChangedFilesNotice는
+                    // "이 커밋은 변경이 없다"와 "읽기 실패"를 구분할 수 없다. HistoryNotice는
                     // 이미 바인딩되어 있으므로(모달 없이) 여기서만 실패를 알린다 - Diff 쪽은
                     // 화면마다 커밋 선택 때 매번 뜨는 모달을 새로 만들어야 해서 범위 밖이다.
-                    SetChangedFilesNotice("변경된 파일 목록을 읽지 못했습니다.");
+                    SetHistoryNotice("변경된 파일 목록을 읽지 못했습니다.");
                 });
         }
+
+        /// <summary>
+        /// 병합 커밋 안내. 두 모드가 같은 문구를 써야 한다 - 첫 부모 기준으로 비교한다는 사실은
+        /// 변경 파일 목록을 읽었는지와 무관하게 성립한다.
+        /// </summary>
+        private static string? MergeNotice(HistoryEntryViewModel entry)
+            => entry.ParentCount > 1 ? "병합 커밋입니다 — 첫 부모 기준으로 비교합니다." : null;
 
         private static string? BuildNotice(HistoryEntryViewModel entry, CommitDetail detail)
         {
             var parts = new List<string>();
-            if (entry.ParentCount > 1) parts.Add("병합 커밋입니다 — 첫 부모 기준으로 비교합니다.");
+            var merge = MergeNotice(entry);
+            if (merge != null) parts.Add(merge);
             // 상한 상수가 아니라 실제로 담긴 개수를 쓴다. 둘이 어긋나면 안내가 거짓말이 된다.
             if (detail.IsTruncated) parts.Add($"전체 {detail.TotalChangedFileCount}개 중 {detail.ChangedFiles?.Count ?? 0}개만 표시합니다.");
             return parts.Count == 0 ? null : string.Join(" ", parts);
         }
 
-        private void SetChangedFilesNotice(string? notice)
+        private void SetHistoryNotice(string? notice)
         {
-            ChangedFilesNotice = notice;
-            OnPropertyChanged(nameof(ChangedFilesNotice));
-            OnPropertyChanged(nameof(HasChangedFilesNotice));
+            HistoryNotice = notice;
+            OnPropertyChanged(nameof(HistoryNotice));
+            OnPropertyChanged(nameof(HasHistoryNotice));
         }
 
-        /// <summary>파일 목록 위에 띄울 안내. 없으면 <c>null</c>.</summary>
-        public string? ChangedFilesNotice { get; private set; }
+        /// <summary>
+        /// 고른 커밋에 대해 머리글에 띄울 안내. 없으면 <c>null</c>.
+        ///
+        /// 변경 파일 목록 패널이 아니라 머리글에 있다 - 그 패널은 필터 모드에서 행째 접히므로
+        /// 거기 두면 병합 안내가 정작 단일 객체를 볼 때 보이지 않는다.
+        /// </summary>
+        public string? HistoryNotice { get; private set; }
 
-        public bool HasChangedFilesNotice => !string.IsNullOrEmpty(ChangedFilesNotice);
+        public bool HasHistoryNotice => !string.IsNullOrEmpty(HistoryNotice);
 
         /// <summary>축약 SHA는 충돌할 수 있으므로 전체 SHA가 있으면 그것을 쓴다.</summary>
         private static string ShaOf(HistoryEntryViewModel entry)
@@ -250,7 +271,7 @@ namespace DBVC.Vsix.ViewModels
 
             Entries.Clear();
             ChangedFiles.Clear();
-            SetChangedFilesNotice(null);
+            SetHistoryNotice(null);
             ScopeLabel = string.Empty;
 
             // SelectedEntry를 먼저 비운다 - RelativePath는 이미 위에서 새 값으로 바뀌었으므로,
