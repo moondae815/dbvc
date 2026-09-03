@@ -466,7 +466,11 @@ namespace DBVC.Vsix.ViewModels
             // 배포·감사 클론은 저장소에 쓰면 안 된다 - Refresh는 SMO 추출이라 곧 쓰기다.
             if (IsMapped && IsInitialized && Mode == MappingMode.Write)
             {
-                Refresh();
+                // 이력은 다시 읽지 않는다 - 이 갈래로 오기 전에 InvalidateActiveContext가 같은
+                // 대상으로 이미 읽었고, 그 사이에 낀 ProbeContext는 상태만 읽을 뿐 저장소에
+                // 쓰지 않는다. 여기서 또 부르면 접속 한 번에 커밋 그래프를 UI 스레드에서 두 번
+                // 훑는다 - GetHistory에는 상한이 없어 그 비용이 커밋 수에 비례해 늘어난다.
+                Refresh(fullExtraction: false, reloadHistory: false);
             }
         }
 
@@ -1267,7 +1271,11 @@ namespace DBVC.Vsix.ViewModels
             Refresh(fullExtraction: false);
         }
 
-        private void Refresh(bool fullExtraction)
+        /// <param name="reloadHistory">
+        /// 이력 탭을 다시 읽을지. 부르는 쪽이 바로 앞서 같은 대상으로 이미 읽었다면 끈다 -
+        /// 저장소 전체 이력 조회는 커밋 그래프를 통째로 훑는 일이라 공짜가 아니다.
+        /// </param>
+        private void Refresh(bool fullExtraction, bool reloadHistory = true)
         {
             Changes.Clear();
             SelectedChange = null;
@@ -1279,7 +1287,10 @@ namespace DBVC.Vsix.ViewModels
             // setter가 ReferenceEquals로 조기 반환해 이력이 갱신되지 않는다. 커밋 직후가 정확히
             // 그 경우다(목록에서 객체를 고른 적이 없으면 계속 null이다). 그래서 첫 커밋을 하고도
             // 이력 탭이 비어 있었다. Git만 읽으므로 아래 SMO 추출을 기다리지 않고 바로 뜬다.
-            History.Load(ServerName, DatabaseName, null);
+            if (reloadHistory)
+            {
+                History.Load(ServerName, DatabaseName, null);
+            }
 
             if (!HasContext) return;
 

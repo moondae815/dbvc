@@ -1051,6 +1051,23 @@ namespace DBVC.Vsix.Tests.ViewModels
 
         // ---------- 객체 이력 ----------
 
+        /// <summary>
+        /// 접속 한 번에 저장소 전체 이력을 두 번 읽던 자리다. InvalidateActiveContext가 새 대상으로
+        /// 한 번 읽고, 그 뒤 ApplyContextProbe -> Refresh가 같은 대상으로 또 읽었다. 둘 다 UI
+        /// 스레드에서 커밋 그래프를 통째로 훑는 일이라(GetHistory에 상한이 없다) 저장소가 커질수록
+        /// 접속할 때마다 그 비용을 두 번 낸다.
+        /// </summary>
+        [Test]
+        public void Connect_ReadsTheRepositoryHistoryOnce_NotOncePerInvalidationAndRefresh()
+        {
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.History.ServerName, Is.EqualTo(Server), "사전 조건: 이력이 새 대상을 가리킨다");
+            _git.Verify(
+                g => g.GetHistory(Server, Database, It.Is<string?>(p => string.IsNullOrWhiteSpace(p))),
+                Times.Once);
+        }
+
         [Test]
         public void SelectedChange_LoadsTheHistoryOfTheSelectedObject()
         {
@@ -1680,11 +1697,11 @@ namespace DBVC.Vsix.Tests.ViewModels
                 Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql")
             });
             _git.Setup(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>())).Returns(GitCommitResult.Committed);
-            // 4번 불린다: Connect의 InvalidateActiveContext(대상 무효화 시 이력도 재설정), Connect가
-            // 잇따라 돌리는 첫 Refresh, 이 테스트가 명시적으로 누르는 RefreshCommand, 마지막으로
-            // Commit이 끝에서 부르는 Refresh.
+            // 3번 불린다: Connect의 InvalidateActiveContext(대상 무효화 시 이력도 재설정), 이 테스트가
+            // 명시적으로 누르는 RefreshCommand, 마지막으로 Commit이 끝에서 부르는 Refresh. Connect가
+            // 잇따라 돌리는 첫 Refresh는 이력을 다시 읽지 않는다 - 바로 앞 무효화가 같은 대상으로
+            // 이미 읽었다(Connect_ReadsTheRepositoryHistoryOnce_...).
             _git.SetupSequence(g => g.GetHistory(Server, Database, It.Is<string?>(p => string.IsNullOrWhiteSpace(p))))
-                .Returns(new List<CommitInfo>())
                 .Returns(new List<CommitInfo>())
                 .Returns(new List<CommitInfo>())
                 .Returns(new List<CommitInfo>
