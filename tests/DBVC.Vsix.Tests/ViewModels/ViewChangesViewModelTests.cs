@@ -3,6 +3,7 @@ using System.Threading;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using Moq;
 using NUnit.Framework;
 using DBVC.Core;
@@ -116,6 +117,36 @@ namespace DBVC.Vsix.Tests.ViewModels
             _config.Setup(c => c.TryGetMapping(Server, Database))
                 .Returns(new MappingConfig { ServerName = Server, DatabaseName = Database, GitPath = @"C:\repo", Mode = mode });
             return NewConnectedViewModel();
+        }
+
+        /// <summary>
+        /// 실제 폴더로 매핑을 갈아 끼우고 규약대로 .sql 하나를 놓는다. 기본 매핑의 GitPath는
+        /// 존재하지 않는 경로(C:\repo)라 인코딩 판정이 늘 Unknown으로 떨어진다.
+        /// </summary>
+        private string NewMappedRepoWithObject(bool legacy, MappingMode mode = MappingMode.Write)
+        {
+            var repoPath = Path.Combine(Path.GetTempPath(), "dbvc_vmenc_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(repoPath);
+            _tempDirs.Add(repoPath);
+
+            var dir = Path.Combine(repoPath, "dbo", "Tables");
+            Directory.CreateDirectory(dir);
+            var enc = legacy
+                ? (Encoding)new UnicodeEncoding(bigEndian: false, byteOrderMark: true)
+                : new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+            File.WriteAllText(Path.Combine(dir, "Users.sql"), "CREATE TABLE dbo.Users (Id int);", enc);
+
+            _config.Setup(c => c.TryGetMapping(Server, Database))
+                .Returns(new MappingConfig
+                {
+                    ServerName = Server,
+                    DatabaseName = Database,
+                    GitPath = repoPath,
+                    Mode = mode,
+                    Branch = mode == MappingMode.Write ? null : "develop"
+                });
+
+            return repoPath;
         }
 
         private static SsmsConnectionInfo Info(
@@ -3006,6 +3037,107 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.History.RelativePath, Is.Null,
                 "SelectedChange가 이미 null이어도 버튼은 필터를 풀어야 한다");
             Assert.That(vm.History.IsSingleObjectMode, Is.False);
+        }
+
+        // ---------- 저장소 인코딩 전환 ----------
+
+        [Test]
+        public void Connect_RaisesTheEncodingBanner_WhenTheRepositoryIsStillUtf16()
+        {
+            NewMappedRepoWithObject(legacy: true);
+
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.IsRepositoryEncodingLegacy, Is.True);
+        }
+
+        [Test]
+        public void Connect_LeavesTheEncodingBannerDown_WhenTheRepositoryIsAlreadyUtf8()
+        {
+            NewMappedRepoWithObject(legacy: false);
+
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.IsRepositoryEncodingLegacy, Is.False);
+        }
+
+        [TestCase(MappingMode.Deploy)]
+        [TestCase(MappingMode.Audit)]
+        public void Connect_LeavesTheEncodingBannerDown_ForReadOnlyModes(MappingMode mode)
+        {
+            // 배포·감사 클론은 추출이 금지되어 있어 버튼을 눌러도 아무 일도 못 한다.
+            // 전환된 커밋을 Pull하면 저절로 해결되므로, 누를 수 없는 버튼을 보여 줄 이유가 없다.
+            NewMappedRepoWithObject(legacy: true, mode: mode);
+
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.IsRepositoryEncodingLegacy, Is.False);
+        }
+
+        [Test]
+        public void MigrateEncoding_WritesGitAttributesAndReExtractsEverything()
+        {
+            var repoPath = NewMappedRepoWithObject(legacy: true);
+            _notifier.ConfirmResult = true;
+
+            var vm = NewConnectedViewModel();
+            vm.MigrateEncodingCommand.Execute(null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(File.Exists(Path.Combine(repoPath, ".gitattributes")), Is.True,
+                    ".gitattributes가 없으면 기계마다 다른 autocrlf 설정이 가짜 diff를 만든다");
+
+                // 전체 추출은 필터가 null이다. 변경분만 뽑는 새로고침은 이름 목록을 넘긴다.
+                _smo.Verify(s => s.ScriptObjectsDetailed(Server, Database, null,
+                    It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+            });
+        }
+
+        [Test]
+        public void MigrateEncoding_DoesNothing_WhenTheUserCancelsTheConfirmation()
+        {
+            // 전 파일을 다시 쓰는 일이다. 실수로 눌렀을 때 되돌리려면 외부 Git 클라이언트가 필요하다.
+            var repoPath = NewMappedRepoWithObject(legacy: true);
+            _notifier.ConfirmResult = false;
+
+            var vm = NewConnectedViewModel();
+            vm.MigrateEncodingCommand.Execute(null);
+
+            Assert.That(File.Exists(Path.Combine(repoPath, ".gitattributes")), Is.False);
+        }
+
+        [Test]
+        public void MigrateEncoding_WarnsThatOnlyOnePersonShouldDoIt()
+        {
+            // 여러 사람이 각자 누르면 저장소 전체를 다시 쓴 커밋이 사람 수만큼 생겨 서로 충돌한다.
+            // 도구가 막을 수는 없고 말할 수는 있다.
+            NewMappedRepoWithObject(legacy: true);
+            _notifier.ConfirmResult = false;
+
+            var vm = NewConnectedViewModel();
+            vm.MigrateEncodingCommand.Execute(null);
+
+            Assert.That(_notifier.ConfirmCalls.Any(c => c.Message.Contains("한 사람만")), Is.True);
+        }
+
+        [Test]
+        public void Refresh_LowersTheEncodingBanner_AfterTheFilesBecameUtf8()
+        {
+            // 전환이 끝나면 배너가 스스로 내려가야 한다. 그 사라짐이 전환이 실제로 일어났다는
+            // 유일한 화면 신호이고, 다시 읽지 않으면 성공한 뒤에도 남아 사용자가 또 누른다.
+            var repoPath = NewMappedRepoWithObject(legacy: true);
+
+            var vm = NewConnectedViewModel();
+            Assume.That(vm.IsRepositoryEncodingLegacy, Is.True);
+
+            // 추출이 목이라 파일이 저절로 바뀌지는 않는다. 전환된 결과를 손으로 만든다.
+            File.WriteAllText(Path.Combine(repoPath, "dbo", "Tables", "Users.sql"),
+                "CREATE TABLE dbo.Users (Id int);", new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+
+            vm.RefreshCommand.Execute(null);
+
+            Assert.That(vm.IsRepositoryEncodingLegacy, Is.False);
         }
     }
 }

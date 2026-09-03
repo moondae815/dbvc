@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using DBVC.Core.Models;
 using Microsoft.Data.SqlClient;
@@ -395,7 +396,17 @@ namespace DBVC.Core
                 // 반드시 ScriptDrops 뒤에 와야 한다 - SMO의 ScriptDrops setter가 값과 무관하게
                 // ScriptForCreateOrAlter를 꺼버리는 부작용이 있다(리플렉션 없이 실측으로 확인).
                 // 객체 초기화 구문은 나열한 순서대로 세터를 호출하므로 순서 자체가 정확성의 일부다.
-                ScriptForCreateOrAlter = true
+                ScriptForCreateOrAlter = true,
+
+                // 설정하지 않으면 SMO 기본값 UTF-16LE로 나가고, Git이 그 파일을 바이너리로 본다 —
+                // diff도 3-way 병합도 성립하지 않아 GitLab에서 스키마 변경을 리뷰할 수 없다.
+                // BOM을 붙이는 이유는 이 파일을 읽는 것이 DBVC만이 아니기 때문이다. SSMS·sqlcmd는
+                // BOM 없는 .sql을 Windows ANSI 코드페이지로 읽어 한국어 주석과 MS_Description을
+                // 깨뜨린다. DBVC 자신의 읽기는 어느 쪽이든 동작한다(FileEncodingTests).
+                //
+                // 바로 위 ScriptDrops처럼 이 세터에도 순서 부작용이 있는지는 문서로 알 수 없다.
+                // 실제 산출물의 앞 3바이트를 SmoManagerIntegrationTests가 확인한다.
+                Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true)
             };
         }
 

@@ -82,6 +82,36 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void ScriptObjectsDetailed_WritesUtf8WithBom_ToTheRepository()
+        {
+            // 옵션을 설정하는 것과 SMO가 그것을 지키는 것은 다르다. ScriptDrops 세터가 값과 무관하게
+            // ScriptForCreateOrAlter를 꺼버린 전례가 있으므로 실제로 나온 파일의 앞 3바이트를 본다.
+            //
+            // 여기가 이 변경에서 SMO의 실제 동작을 확인하는 유일한 자리다. 단위 테스트는
+            // ScriptingOptions 객체만 보므로 SMO가 그 값을 무시해도 통과한다.
+            using var repo = new TempRepo(_database!);
+
+            var result = repo.Smo.ScriptObjectsDetailed(ServerName, _database!, null);
+            Assert.That(result, Is.Not.Null, "추출이 시작조차 못 했습니다.");
+
+            var path = Path.Combine(repo.Path, "dbo", "Tables", "Users.sql");
+            Assert.That(File.Exists(path), Is.True);
+
+            var bytes = File.ReadAllBytes(path);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(bytes.Length, Is.GreaterThanOrEqualTo(3));
+                Assert.That(new[] { bytes[0], bytes[1], bytes[2] },
+                    Is.EqualTo(new byte[] { 0xEF, 0xBB, 0xBF }),
+                    "SMO가 ScriptingOptions.Encoding을 지키지 않았습니다");
+
+                // BOM만 맞고 본문이 깨지면 의미가 없다. 픽스처가 심은 MS_Description 값이 '사용자'다.
+                Assert.That(File.ReadAllText(path), Does.Contain("사용자"));
+            });
+        }
+
+        [Test]
         public void ScriptObjectsDetailed_WritesTheActualCreateStatement()
         {
             using var repo = new TempRepo(_database!);
