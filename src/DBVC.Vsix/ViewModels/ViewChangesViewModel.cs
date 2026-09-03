@@ -1844,6 +1844,7 @@ namespace DBVC.Vsix.ViewModels
             (CancelCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (SetupCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (UpdateTrackerCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (MigrateEncodingCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (ConnectCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CommitCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GenerateDeploymentScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();

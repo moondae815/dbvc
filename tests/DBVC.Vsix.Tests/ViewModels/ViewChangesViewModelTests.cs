@@ -3,11 +3,13 @@ using System.Threading;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using Moq;
 using NUnit.Framework;
 using DBVC.Core;
 using DBVC.Core.Models;
+using DBVC.Vsix.Commands;
 using DBVC.Vsix.Services;
 using DBVC.Vsix.ViewModels;
 
@@ -3119,6 +3121,72 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.MigrateEncodingCommand.Execute(null);
 
             Assert.That(_notifier.ConfirmCalls.Any(c => c.Message.Contains("한 사람만")), Is.True);
+        }
+
+        [Test]
+        public void Connect_EnablesTheMigrateButton_WhenTheRepositoryIsStillUtf16()
+        {
+            // 배너와 버튼은 서로 다른 통지 채널을 쓴다. 배너의 Visibility는
+            // INotifyPropertyChanged로, 버튼의 IsEnabled는 CanExecuteChanged로 갱신된다.
+            // RelayCommand는 CommandManager.RequerySuggested를 쓰지 않으므로,
+            // RaiseActionCanExecuteChanged의 목록에서 빠지면 WPF가 CanExecute를 다시 묻지 않아
+            // 버튼이 생성 시점의 false에 고정된다 - 배너만 뜨고 버튼은 눌리지 않았다.
+            //
+            // CanExecute를 직접 부르면 람다가 그때 평가되어 참이 나오므로 이 결함을 잡지 못한다.
+            // 발화 여부를 봐야 한다.
+            NewMappedRepoWithObject(legacy: true);
+
+            var vm = NewViewModel();
+            var raised = 0;
+            vm.MigrateEncodingCommand.CanExecuteChanged += (s, e) => raised++;
+
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info());
+            vm.ConnectCommand.Execute(null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(vm.IsRepositoryEncodingLegacy, Is.True, "배너 조건이 성립하지 않아 검증이 무의미합니다");
+                Assert.That(raised, Is.GreaterThan(0), "버튼이 CanExecute를 다시 묻지 않아 비활성인 채로 남는다");
+                Assert.That(vm.MigrateEncodingCommand.CanExecute(null), Is.True);
+            });
+        }
+
+        [Test]
+        public void EveryCommandWithACondition_IsNotifiedWhenTheViewModelStateChanges()
+        {
+            // 위 결함의 원인은 통지 목록이 손으로 나열되어 있다는 것이다 - 명령을 더하면서
+            // 그 목록에 넣는 것을 잊으면, 빌드도 테스트도 통과한 뒤 버튼만 조용히 죽는다.
+            // 이름을 하나씩 보태는 방식으로는 다음 명령에서 같은 일이 반복되므로 여기서 통째로 본다.
+            //
+            // 조건이 없는 명령(ShowWholeRepositoryHistoryCommand)은 늘 실행 가능하므로 제외한다.
+            NewMappedRepoWithObject(legacy: true);
+
+            var vm = NewViewModel();
+            var notified = new List<string>();
+            var conditional = new List<string>();
+
+            foreach (var property in typeof(ViewChangesViewModel).GetProperties()
+                         .Where(p => typeof(System.Windows.Input.ICommand).IsAssignableFrom(p.PropertyType)))
+            {
+                var command = property.GetValue(vm) as RelayCommand;
+                if (command == null) continue;
+
+                // 조건 없이 만들어진 명령은 상태가 바뀌어도 다시 물을 것이 없다.
+                var predicate = typeof(RelayCommand)
+                    .GetField("_canExecute", BindingFlags.NonPublic | BindingFlags.Instance)!
+                    .GetValue(command);
+                if (predicate == null) continue;
+
+                var name = property.Name;
+                conditional.Add(name);
+                command.CanExecuteChanged += (s, e) => { if (!notified.Contains(name)) notified.Add(name); };
+            }
+
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info());
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(conditional.Except(notified), Is.Empty,
+                "이 명령들이 RaiseActionCanExecuteChanged 목록에서 빠져 있습니다");
         }
 
         [Test]
