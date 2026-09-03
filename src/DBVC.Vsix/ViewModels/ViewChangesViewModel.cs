@@ -114,9 +114,12 @@ namespace DBVC.Vsix.ViewModels
             CheckRemoteCommand = new RelayCommand(CheckRemote, CanCheckRemote);
             ShowWholeRepositoryHistoryCommand = new RelayCommand(() =>
             {
-                // setter를 타지 않는 이유는 ShowHistoryFor 아래의 같은 대입과 같다 - 이미 커밋된
-                // 객체의 필터에서 이 버튼을 누르면 _selectedChange가 이미 null이라 setter가
-                // ReferenceEquals로 조기 반환해 History.Load가 아예 불리지 않는다.
+                // setter를 타지 않는 이유는 Refresh·InvalidateActiveContext가 History.Load를 직접
+                // 부르는 이유와 같다 - ShowHistoryFor가 변경 목록에 없는(이미 커밋된) 객체로 필터를
+                // 걸면 _selectedChange가 이미 null이라, 여기서 setter에 기대면 ReferenceEquals로
+                // 조기 반환해 History.Load가 아예 불리지 않고 필터가 풀리지 않는다.
+                // ShowHistoryFor가 setter를 피하는 이유는 정반대다 - 그쪽은 setter가 돌아서
+                // 방금 건 필터를 전체 이력으로 덮는 것이 문제다.
                 _selectedChange = null;
                 OnPropertyChanged(nameof(SelectedChange));
                 History.Load(ServerName, DatabaseName, null);
