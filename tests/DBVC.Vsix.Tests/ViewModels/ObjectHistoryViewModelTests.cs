@@ -755,6 +755,68 @@ namespace DBVC.Vsix.Tests.ViewModels
                 "Load 이후에는 그 전에 나간 Diff 요청의 결과가 화면에 반영되면 안 된다");
         }
 
+        /// <summary>
+        /// 위 Diff 테스트의 변경 파일 목록 판이다. 목록 요청이 진행 중일 때 필터 모드로
+        /// 옮겨 가면 LoadChangedFiles가 IsSingleObjectMode로 조기 반환하는데, 그 자리가 표
+        /// (_changedFilesToken)를 올리지 않으면 진행 중이던 요청이 stale 검사를 통과해 방금 비운
+        /// 목록을 옆 대상의 파일로 다시 채운다. 표를 올리지 않고 되돌리면 이 테스트는 실패한다.
+        /// </summary>
+        [Test]
+        public void Load_InvalidatesAChangedFilesRequest_ThatWasStillInFlight()
+        {
+            var scheduler = new DeferredBackgroundScheduler();
+            var vm = new ObjectHistoryViewModel(_git.Object, new DiffService(), scheduler);
+            vm.Load(Server, Database, null);
+
+            const string commitSha = "aaa1111111111111";
+            _git.Setup(g => g.GetCommitDetail(Server, Database, commitSha, null))
+                .Returns(Detail(ChangedFile("dbo/Tables/Users.sql")));
+
+            // 병합 커밋으로 둔다 - 아니면 늦게 끝난 콜백이 안내까지 되살리는지를 볼 수 없다.
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = commitSha, ShortSha = "aaa1111", ParentCount = 2 };
+            Assert.That(scheduler.PendingCount, Is.EqualTo(1), "사전 조건: 변경 파일 목록 요청 하나만 떠 있다");
+
+            // 목록 요청이 아직 진행 중인 채로 다른 객체로 좁힌 이력을 연다.
+            vm.Load(Server, Database, "dbo/Tables/Other.sql");
+            Assert.That(vm.ChangedFiles, Is.Empty, "사전 조건: Load가 목록을 비웠다");
+            Assert.That(scheduler.PendingCount, Is.EqualTo(1), "Load 자체는 새 요청을 내보내지 않아야 한다");
+
+            scheduler.FlushAll();
+
+            Assert.That(vm.ChangedFiles, Is.Empty,
+                "Load 이후에는 그 전에 나간 변경 파일 목록 요청의 결과가 화면에 반영되면 안 된다");
+            Assert.That(vm.HasChangedFilesNotice, Is.False,
+                "안내도 같은 표를 지나야 한다 - 목록만 비어 두면 없는 목록을 설명하는 문구가 남는다");
+        }
+
+        /// <summary>
+        /// 같은 조기 반환 분기의 다른 조건(_selectedEntry == null)이다. 이력 목록에서
+        /// 선택을 푸는 경로라 모드는 그대로고 선택만 사라진다.
+        /// </summary>
+        [Test]
+        public void SelectedEntry_InvalidatesAChangedFilesRequest_WhenClearedWhileStillInFlight()
+        {
+            var scheduler = new DeferredBackgroundScheduler();
+            var vm = new ObjectHistoryViewModel(_git.Object, new DiffService(), scheduler);
+            vm.Load(Server, Database, null);
+
+            const string commitSha = "bbb2222222222222";
+            _git.Setup(g => g.GetCommitDetail(Server, Database, commitSha, null))
+                .Returns(Detail(ChangedFile("dbo/Tables/Users.sql")));
+
+            vm.SelectedEntry = new HistoryEntryViewModel { Sha = commitSha, ShortSha = "bbb2222", ParentCount = 2 };
+            Assert.That(scheduler.PendingCount, Is.EqualTo(1), "사전 조건: 변경 파일 목록 요청 하나만 떠 있다");
+
+            vm.SelectedEntry = null;
+            Assert.That(vm.ChangedFiles, Is.Empty, "사전 조건: setter가 목록을 비웠다");
+
+            scheduler.FlushAll();
+
+            Assert.That(vm.ChangedFiles, Is.Empty,
+                "선택을 푸는 순간 진행 중이던 요청이 그 목록을 되살리면 안 된다");
+            Assert.That(vm.HasChangedFilesNotice, Is.False);
+        }
+
         [Test]
         public void SelectedEntry_RunsTheGitReadThroughTheScheduler()
         {
