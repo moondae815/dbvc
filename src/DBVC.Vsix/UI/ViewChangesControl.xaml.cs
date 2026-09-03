@@ -32,8 +32,10 @@ namespace DBVC.Vsix.UI
         // 1*로 리셋되지 않고 되돌아온다.
         private bool? _changedFilesCollapsed;
         private bool? _historyDiffCollapsed;
+        private bool? _lowerBlockCollapsed;
         private GridLength _changedFilesExpandedHeight = new GridLength(1, GridUnitType.Star);
         private GridLength _historyDiffExpandedHeight = new GridLength(1, GridUnitType.Star);
+        private GridLength _lowerBlockExpandedHeight = new GridLength(1, GridUnitType.Star);
 
         /// <summary>외부 비교 창에 넘긴 임시 파일. 창이 붙들고 있어 즉시 지울 수 없다.</summary>
         private readonly System.Collections.Generic.List<string> _tempDiffFiles = new System.Collections.Generic.List<string>();
@@ -258,7 +260,8 @@ namespace DBVC.Vsix.UI
         }
 
         /// <summary>
-        /// 필터 모드에서는 변경 파일 목록 행을, 볼 Diff가 없으면 Diff 행을 접는다.
+        /// 필터 모드에서는 변경 파일 목록 행을, 볼 Diff가 없으면 Diff 행을 접는다. 둘 다
+        /// 접히면 아래 블록이 통째로 비므로 그 블록과 바깥 분할선까지 접는다.
         /// Visibility만으로는 RowDefinition이 자리를 지켜 빈 칸이 화면 1/3을 그대로 차지한다.
         /// RowDefinition은 시각 트리 밖이라 DataContext가 없어 Height에 바인딩을 걸 수 없다 —
         /// 그래서 여기서 준다.
@@ -275,32 +278,27 @@ namespace DBVC.Vsix.UI
             var splitterRowHeight = new GridLength(5);
 
             var single = _viewModel.History.IsSingleObjectMode;
+            var diffCollapsed = !_viewModel.History.IsDiffVisible;
+            // 아래 블록에 남는 것이 하나도 없는 경우다. 이때만 바깥 분할선이 갈 곳을 잃는다.
+            var lowerBlockCollapsed = single && diffCollapsed;
+
             if (_changedFilesCollapsed != single)
             {
                 if (single)
                 {
                     _changedFilesExpandedHeight = ChangedFilesRow.Height;
                     ChangedFilesRow.Height = zero;
-                    ChangedFilesSplitterRow.Height = zero;
-                    // HistoryListSplitter는 아래에서 Visibility만 접힌다. 그 행 자체의
-                    // Height="5"는 하드코딩이라 그대로 두면 접힌 분할선 자리만큼 5px짜리
-                    // 빈 띠가 목록과 변경 파일 목록 사이에 계속 남는다.
-                    HistoryListSplitterRow.Height = zero;
                     ChangedFilesPanel.Visibility = Visibility.Collapsed;
                 }
                 else
                 {
                     ChangedFilesRow.Height = _changedFilesExpandedHeight;
-                    ChangedFilesSplitterRow.Height = splitterRowHeight;
-                    HistoryListSplitterRow.Height = splitterRowHeight;
                     ChangedFilesPanel.Visibility = Visibility.Visible;
                 }
 
                 _changedFilesCollapsed = single;
             }
 
-            var hasDiff = _viewModel.History.IsDiffVisible;
-            var diffCollapsed = !hasDiff;
             if (_historyDiffCollapsed != diffCollapsed)
             {
                 if (diffCollapsed)
@@ -318,11 +316,32 @@ namespace DBVC.Vsix.UI
                 _historyDiffCollapsed = diffCollapsed;
             }
 
+            if (_lowerBlockCollapsed != lowerBlockCollapsed)
+            {
+                if (lowerBlockCollapsed)
+                {
+                    _lowerBlockExpandedHeight = LowerBlockRow.Height;
+                    LowerBlockRow.Height = zero;
+                }
+                else
+                {
+                    LowerBlockRow.Height = _lowerBlockExpandedHeight;
+                }
+
+                _lowerBlockCollapsed = lowerBlockCollapsed;
+            }
+
             // 분할선은 접힌 행 쪽으로는 끌리면 안 된다 - 자기 위치가 아니라 양옆 행을 리사이즈하는
             // PreviousAndNext 동작이라, 접힌 빈 칸이 있으면 그 안으로 끌어 들이는 손잡이가 된다.
-            // Visibility는 GridSplitter가 손대는 값이 아니므로 매번 다시 써도 사용자 입력을 잃지 않는다.
-            HistoryListSplitter.Visibility = single ? Visibility.Collapsed : Visibility.Visible;
-            ChangedFilesSplitter.Visibility = (single || diffCollapsed) ? Visibility.Collapsed : Visibility.Visible;
+            // 분할선이 앉은 행의 Height는 GridSplitter가 손대는 값이 아니므로(양옆만 바꾼다)
+            // Visibility와 함께 매번 다시 써도 사용자 입력을 잃지 않는다. 숨기면서 행까지
+            // 접지 않으면 그 자리에 5px짜리 빈 띠가 남는다.
+            var innerSplitterVisible = !single && !diffCollapsed;
+            ChangedFilesSplitter.Visibility = innerSplitterVisible ? Visibility.Visible : Visibility.Collapsed;
+            ChangedFilesSplitterRow.Height = innerSplitterVisible ? splitterRowHeight : zero;
+
+            HistoryListSplitter.Visibility = lowerBlockCollapsed ? Visibility.Collapsed : Visibility.Visible;
+            HistoryListSplitterRow.Height = lowerBlockCollapsed ? zero : splitterRowHeight;
         }
 
         private void HistoryListView_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)

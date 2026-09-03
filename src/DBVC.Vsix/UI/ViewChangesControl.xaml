@@ -244,12 +244,14 @@
                             </DockPanel>
 
                             <Grid Grid.Row="1">
+                                <!-- 두 겹이다. WPF의 GridSplitter는 인접 행만 리사이즈하므로, 한 겹으로
+                                     두면 필터 모드에서 변경 파일 목록 행이 접히는 순간 이력 목록과
+                                     Diff 사이에 남길 분할선이 없다. 아래 블록을 따로 묶어 두면 바깥
+                                     분할선이 그 경계를 계속 맡는다. -->
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="1*" />
                                     <RowDefinition x:Name="HistoryListSplitterRow" Height="5" />
-                                    <RowDefinition x:Name="ChangedFilesRow" Height="1*" />
-                                    <RowDefinition x:Name="ChangedFilesSplitterRow" Height="5" />
-                                    <RowDefinition x:Name="HistoryDiffRow" Height="1*" />
+                                    <RowDefinition x:Name="LowerBlockRow" Height="1*" />
                                 </Grid.RowDefinitions>
 
                                 <!-- 상단: 이력 목록 -->
@@ -271,36 +273,45 @@
                                            HorizontalAlignment="Center" VerticalAlignment="Center"
                                            Visibility="{Binding History.IsEmpty, Converter={StaticResource BoolToVis}}"/>
 
-                                <!-- 이력 목록⇄변경 파일 목록 분할선. 필터 모드에서는 아래 행이 접히므로
-                                     함께 숨긴다 - 그대로 두면 접힌 빈 칸으로 끌어 들어가는 분할선이 된다. -->
+                                <!-- 이력 목록⇄아래 블록 분할선. 필터 모드에서도 살아남아 이력 목록과
+                                     Diff의 비율을 맡는다. 아래 블록이 통째로 빌 때만 함께 숨긴다 -
+                                     그대로 두면 접힌 빈 칸으로 끌어 들어가는 분할선이 된다. -->
                                 <GridSplitter x:Name="HistoryListSplitter" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Background="Transparent" ShowsPreview="True" Cursor="SizeNS"/>
 
-                                <!-- 중간: 변경된 파일 목록. 필터 모드에서는 행째 접힌다. -->
-                                <DockPanel x:Name="ChangedFilesPanel" Grid.Row="2" LastChildFill="True">
-                                    <ListView x:Name="ChangedFilesListView"
-                                              ItemsSource="{Binding History.ChangedFiles}"
-                                              SelectedItem="{Binding History.SelectedChangedFile, Mode=TwoWay}"
-                                              MouseDoubleClick="HistoryListView_MouseDoubleClick">
-                                        <ListView.View>
-                                            <GridView>
-                                                <GridViewColumn Header="상태" Width="80" DisplayMemberBinding="{Binding StateText}"/>
-                                                <GridViewColumn Header="객체 유형" Width="110" DisplayMemberBinding="{Binding ObjectTypeText}"/>
-                                                <GridViewColumn Header="객체명" Width="260" DisplayMemberBinding="{Binding ObjectName}"/>
-                                            </GridView>
-                                        </ListView.View>
-                                    </ListView>
-                                </DockPanel>
+                                <!-- 아래 블록: 변경된 파일 목록과 Diff. 필터 모드에서는 목록만 접힌다. -->
+                                <Grid x:Name="HistoryLowerBlock" Grid.Row="2">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition x:Name="ChangedFilesRow" Height="1*" />
+                                        <RowDefinition x:Name="ChangedFilesSplitterRow" Height="5" />
+                                        <RowDefinition x:Name="HistoryDiffRow" Height="1*" />
+                                    </Grid.RowDefinitions>
 
-                                <GridSplitter x:Name="ChangedFilesSplitter" Grid.Row="3" Height="5" HorizontalAlignment="Stretch" Background="Transparent" ShowsPreview="True" Cursor="SizeNS"/>
+                                    <DockPanel x:Name="ChangedFilesPanel" Grid.Row="0" LastChildFill="True">
+                                        <ListView x:Name="ChangedFilesListView"
+                                                  ItemsSource="{Binding History.ChangedFiles}"
+                                                  SelectedItem="{Binding History.SelectedChangedFile, Mode=TwoWay}"
+                                                  MouseDoubleClick="HistoryListView_MouseDoubleClick">
+                                            <ListView.View>
+                                                <GridView>
+                                                    <GridViewColumn Header="상태" Width="80" DisplayMemberBinding="{Binding StateText}"/>
+                                                    <GridViewColumn Header="객체 유형" Width="110" DisplayMemberBinding="{Binding ObjectTypeText}"/>
+                                                    <GridViewColumn Header="객체명" Width="260" DisplayMemberBinding="{Binding ObjectName}"/>
+                                                </GridView>
+                                            </ListView.View>
+                                        </ListView>
+                                    </DockPanel>
 
-                                <!-- 하단: 커밋 Diff 뷰. 볼 것이 없으면 행째 접힌다(코드비하인드). -->
-                                <Grid x:Name="HistoryDiffPanel" Grid.Row="4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="1*"/>
-                                        <ColumnDefinition Width="1*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <avalonEdit:TextEditor x:Name="HistoryOldEditor" Grid.Column="0" IsReadOnly="True" Margin="0,0,2,0" SyntaxHighlighting="TSQL"/>
-                                    <avalonEdit:TextEditor x:Name="HistoryNewEditor" Grid.Column="1" IsReadOnly="True" Margin="2,0,0,0" SyntaxHighlighting="TSQL"/>
+                                    <GridSplitter x:Name="ChangedFilesSplitter" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Background="Transparent" ShowsPreview="True" Cursor="SizeNS"/>
+
+                                    <!-- 하단: 커밋 Diff 뷰. 볼 것이 없으면 행째 접힌다(코드비하인드). -->
+                                    <Grid x:Name="HistoryDiffPanel" Grid.Row="2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="1*"/>
+                                            <ColumnDefinition Width="1*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <avalonEdit:TextEditor x:Name="HistoryOldEditor" Grid.Column="0" IsReadOnly="True" Margin="0,0,2,0" SyntaxHighlighting="TSQL"/>
+                                        <avalonEdit:TextEditor x:Name="HistoryNewEditor" Grid.Column="1" IsReadOnly="True" Margin="2,0,0,0" SyntaxHighlighting="TSQL"/>
+                                    </Grid>
                                 </Grid>
                             </Grid>
                         </Grid>

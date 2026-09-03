@@ -54,10 +54,11 @@ namespace DBVC.Vsix.Tests.UI
             LayoutAt(control, 800);
 
             // ChangedFilesListView는 필터 모드에서 행째 접히는 DockPanel(ChangedFilesPanel) 안에
-            // 있다 - 그 DockPanel이 Grid.Row 2를 지니고, 안쪽 ListView 자체는 Grid.Row를 두지 않는다.
+            // 있다 - 그 DockPanel이 Grid.Row를 지니고, 안쪽 ListView 자체는 두지 않는다. 행 번호가
+            // 0인 것은 아래 블록(HistoryLowerBlock)이 자기 Grid를 갖기 때문이다.
             var changedFilesPanel = (DockPanel)control.FindName("ChangedFilesPanel");
             Assert.That(changedFilesPanel, Is.Not.Null, "ChangedFilesPanel이 XAML에 존재해야 한다.");
-            Assert.That(Grid.GetRow(changedFilesPanel), Is.EqualTo(2), "ChangedFilesPanel은 Grid.Row 2에 위치해야 한다.");
+            Assert.That(Grid.GetRow(changedFilesPanel), Is.EqualTo(0), "ChangedFilesPanel은 아래 블록의 Grid.Row 0에 위치해야 한다.");
 
             var changedFilesList = (ListView)control.FindName("ChangedFilesListView");
             Assert.That(changedFilesList, Is.Not.Null, "ChangedFilesListView가 XAML에 존재해야 한다.");
@@ -97,10 +98,12 @@ namespace DBVC.Vsix.Tests.UI
 
             LayoutAt(control, 800);
 
-            Assert.That(Grid.GetRow(control.ChangedFilesSplitter), Is.EqualTo(3),
-                "ChangedFilesSplitter는 변경 파일 목록과 Diff 사이인 Grid.Row 3에 있어야 한다.");
-            Assert.That(Grid.GetRow(control.HistoryDiffPanel), Is.EqualTo(4),
-                "HistoryDiffPanel은 맨 아래 Grid.Row 4에 있어야 한다.");
+            Assert.That(Grid.GetRow(control.ChangedFilesSplitter), Is.EqualTo(1),
+                "ChangedFilesSplitter는 아래 블록 안에서 변경 파일 목록과 Diff 사이인 Grid.Row 1에 있어야 한다.");
+            Assert.That(Grid.GetRow(control.HistoryDiffPanel), Is.EqualTo(2),
+                "HistoryDiffPanel은 아래 블록의 맨 아래 Grid.Row 2에 있어야 한다.");
+            Assert.That(Grid.GetRow(control.HistoryLowerBlock), Is.EqualTo(2),
+                "아래 블록 자체는 바깥 Grid의 Row 2, 즉 바깥 분할선 밑에 있어야 한다.");
         }
 
         /// <summary>
@@ -180,12 +183,18 @@ namespace DBVC.Vsix.Tests.UI
                 "단일 객체 모드에서는 변경 파일 목록 행이 접혀야 한다.");
             Assert.That(control.ChangedFilesSplitterRow.Height.Value, Is.EqualTo(0),
                 "단일 객체 모드에서는 그 분할선 행도 접혀야 한다.");
-            Assert.That(control.HistoryListSplitterRow.Height.Value, Is.EqualTo(0),
-                "이력 목록⇄변경 파일 목록 분할선 행도 접혀야 한다 - 그러지 않으면 접힌 자리에 5px 빈 띠가 남는다.");
             Assert.That(control.ChangedFilesPanel.Visibility, Is.EqualTo(Visibility.Collapsed),
                 "ChangedFilesPanel도 접혀서 숨어야 한다.");
+
+            // 이 화면은 아직 고른 커밋이 없어 Diff도 없다 - 그래서 아래 블록이 통째로 빈다.
+            // 바깥 분할선이 접히는 것은 필터 모드라서가 아니라 그 때문이다(아래 KeepsTheOuterSplitter
+            // 테스트가 Diff가 있을 때는 살아 있음을 못 박는다).
+            Assert.That(control.LowerBlockRow.Height.Value, Is.EqualTo(0),
+                "볼 것이 하나도 없으면 아래 블록 행이 통째로 접혀야 한다.");
+            Assert.That(control.HistoryListSplitterRow.Height.Value, Is.EqualTo(0),
+                "그 위 분할선 행도 접혀야 한다 - 그러지 않으면 접힌 자리에 5px 빈 띠가 남는다.");
             Assert.That(control.HistoryListSplitter.Visibility, Is.EqualTo(Visibility.Collapsed),
-                "이력 목록⇄변경 파일 목록 분할선은 접힌 행 쪽으로 끌리면 안 되므로 함께 숨어야 한다.");
+                "분할선은 접힌 행 쪽으로 끌리면 안 되므로 함께 숨어야 한다.");
         }
 
         [Test]
@@ -216,15 +225,98 @@ namespace DBVC.Vsix.Tests.UI
 
             Assert.That(control.ChangedFilesRow.Height, Is.EqualTo(draggedHeight),
                 "저장소 전체 모드로 돌아오면 변경 파일 목록 행이 접기 직전 사용자가 끌어 둔 높이로 돌아와야 한다.");
-            Assert.That(control.ChangedFilesSplitterRow.Height.Value, Is.EqualTo(5),
-                "그 분할선 행도 원래 두께로 돌아와야 한다.");
-            Assert.That(control.HistoryListSplitterRow.Height.Value, Is.EqualTo(5),
-                "이력 목록⇄변경 파일 목록 분할선 행도 원래 두께로 돌아와야 한다.");
+            // 안쪽 분할선은 변경 파일 목록과 Diff 사이에 있다. 이 화면은 고른 커밋이 없어 Diff가
+            // 없으므로 접힌 채로 있는 것이 맞다 - 아래 블록에 변경 파일 목록만 남아 나눌 경계가 없다.
+            Assert.That(control.ChangedFilesSplitterRow.Height.Value, Is.EqualTo(0),
+                "Diff가 없으면 그 위 분할선 행은 접힌 채여야 한다.");
             Assert.That(control.ChangedFilesPanel.Visibility, Is.EqualTo(Visibility.Visible),
                 "ChangedFilesPanel도 다시 보여야 한다.");
+
+            // 아래 블록에 변경 파일 목록이 돌아왔으므로 바깥 분할선은 다시 산다.
+            Assert.That(control.LowerBlockRow.Height, Is.EqualTo(new GridLength(1, GridUnitType.Star)),
+                "아래 블록 행도 다시 펼쳐져야 한다.");
+            Assert.That(control.HistoryListSplitterRow.Height.Value, Is.EqualTo(5),
+                "바깥 분할선 행도 원래 두께로 돌아와야 한다.");
             Assert.That(control.HistoryListSplitter.Visibility, Is.EqualTo(Visibility.Visible),
-                "이력 목록⇄변경 파일 목록 분할선도 다시 보여야 한다.");
+                "바깥 분할선도 다시 보여야 한다.");
         }
+
+        /// <summary>
+        /// 필터 모드에서도 이력 목록⇄Diff 비율은 조절할 수 있어야 한다. 예전에는 변경 파일
+        /// 목록 행과 분할선 두 개가 모두 접혀 두 패널이 50:50으로 굳었다.
+        /// </summary>
+        [Test]
+        public void UpdateHistoryRowHeights_KeepsTheOuterSplitter_WhenSingleObjectModeHasADiff()
+        {
+            var control = NewControlWithOneCommit();
+
+            LayoutAt(control, 800);
+            RaiseLoaded(control);
+
+            var vm = ViewModelOf(control);
+            vm.History.Load(vm.ServerName, vm.DatabaseName, "dbo/Table/Foo.sql");
+            vm.History.SelectedEntry = vm.History.Entries[0];
+
+            Assert.That(vm.History.IsDiffVisible, Is.True, "사전 조건: 필터 모드에서 커밋을 고르면 Diff가 뜬다.");
+            Assert.That(control.ChangedFilesRow.Height.Value, Is.EqualTo(0),
+                "사전 조건: 변경 파일 목록 행은 여전히 접힌다.");
+
+            Assert.That(control.HistoryListSplitter.Visibility, Is.EqualTo(Visibility.Visible),
+                "필터 모드에서도 이력 목록과 Diff 사이 분할선은 살아 있어야 한다.");
+            Assert.That(control.HistoryListSplitterRow.Height.Value, Is.EqualTo(5),
+                "그 분할선 행도 두께를 가져야 한다 - 0이면 잡을 손잡이가 없다.");
+        }
+
+        /// <summary>
+        /// 안쪽 분할선(변경 파일 목록⇄Diff)의 의미는 이번 중첩으로 바뀌지 않았다 - 전체 모드에서
+        /// 둘 다 보일 때만 산다.
+        /// </summary>
+        [Test]
+        public void UpdateHistoryRowHeights_KeepsTheInnerSplitter_WhenBothChangedFilesAndDiffAreVisible()
+        {
+            var control = NewControlWithOneCommit();
+
+            LayoutAt(control, 800);
+            RaiseLoaded(control);
+
+            var vm = ViewModelOf(control);
+            vm.History.Load(vm.ServerName, vm.DatabaseName, null);
+            vm.History.SelectedEntry = vm.History.Entries[0];
+            vm.History.SelectedChangedFile = vm.History.ChangedFiles[0];
+
+            Assert.That(vm.History.IsDiffVisible, Is.True, "사전 조건: 파일까지 골라야 Diff가 뜬다.");
+            Assert.That(control.ChangedFilesSplitter.Visibility, Is.EqualTo(Visibility.Visible),
+                "전체 모드에서 변경 파일 목록과 Diff가 모두 보이면 그 사이 분할선이 살아 있어야 한다.");
+            Assert.That(control.ChangedFilesSplitterRow.Height.Value, Is.EqualTo(5));
+
+            // 바깥 분할선도 함께 산다 - 두 분할선이 동시에 잡히는 것이 전체 모드의 정상 화면이다.
+            Assert.That(control.HistoryListSplitter.Visibility, Is.EqualTo(Visibility.Visible));
+        }
+
+        /// <summary>커밋 하나와 그 Diff를 내주는 컨트롤. 필터 모드에서 Diff를 띄우려면 이만큼이 필요하다.</summary>
+        private static ViewChangesControl NewControlWithOneCommit()
+            => ViewChangesControlFixtures.NewConnectedControl(
+                new RepositoryState { CurrentBranch = "main", BlockReason = RepositoryBlockReason.None },
+                mode: MappingMode.Write,
+                installedVersion: DBVC.Core.StateTracker.RequiredSchemaVersion,
+                configureGitManager: git =>
+                {
+                    git.Setup(g => g.GetHistory(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+                        .Returns(new List<CommitInfo>
+                        {
+                            new CommitInfo { Sha = "sha-one", ParentCount = 1, Message = "first", Author = "a", Date = DateTimeOffset.Now }
+                        });
+                    git.Setup(g => g.GetCommitDetail(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+                        .Returns(new CommitDetail
+                        {
+                            OldText = "old-1",
+                            NewText = "new-1",
+                            ChangedFiles = new List<HistoryChangedFile>
+                            {
+                                new HistoryChangedFile { State = HistoryChangedFileState.Modified, RelativePath = "dbo/Table/Foo.sql" }
+                            }
+                        });
+                });
 
         /// <summary>
         /// 회귀 방지: UpdateHistoryRowHeights는 GridSplitter와 같은 RowDefinition.Height를 쓴다.
