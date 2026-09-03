@@ -101,6 +101,18 @@ BEGIN
 END
 GO
 
+-- 로그를 읽고 닫는 일은 클라이언트가 접속 계정 그대로 한다 - 트리거의 INSERT만 dbo로 돈다.
+-- 이 GRANT가 없으면 db_owner가 아닌 계정의 커밋이 로그를 닫지 못하고, 그 항목이 새로고침마다
+-- 되살아난다. 커밋은 이미 성공한 뒤라 사용자에게는 원인이 보이지 않는다.
+--
+-- public에 주는 이유는 빠뜨릴 수 있는 등록 단계를 만들지 않기 위해서다. 역할을 만들어 두면
+-- 사람을 넣는 것을 잊는 순간 똑같은 증상이 돌아온다. 노출되는 것은 그 DB의 DDL 이력인데,
+-- 그 DB에 접속할 수 있는 사람은 sys.sql_modules로 어차피 같은 것을 읽는다.
+--
+-- INSERT는 주지 않는다. 트리거가 dbo로 쓰므로 필요 없고, 주면 사용자가 로그를 직접 조작할 수 있다.
+GRANT SELECT, UPDATE ON [dbo].[DBVC_ChangeLog] TO [public];
+GO
+
 IF EXISTS (SELECT * FROM sys.triggers WHERE parent_class = 0 AND name = 'trg_DBVC_DDL_Tracker')
 BEGIN
     DROP TRIGGER [trg_DBVC_DDL_Tracker] ON DATABASE;
@@ -186,13 +198,13 @@ IF NOT EXISTS (SELECT 1 FROM sys.extended_properties
                WHERE class = 1 AND major_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]')
                  AND minor_id = 0 AND name = N'DBVC_SchemaVersion')
 BEGIN
-    EXEC sp_addextendedproperty @name = N'DBVC_SchemaVersion', @value = N'4',
+    EXEC sp_addextendedproperty @name = N'DBVC_SchemaVersion', @value = N'5',
          @level0type = N'SCHEMA', @level0name = N'dbo',
          @level1type = N'TABLE',  @level1name = N'DBVC_ChangeLog';
 END
 ELSE
 BEGIN
-    EXEC sp_updateextendedproperty @name = N'DBVC_SchemaVersion', @value = N'4',
+    EXEC sp_updateextendedproperty @name = N'DBVC_SchemaVersion', @value = N'5',
          @level0type = N'SCHEMA', @level0name = N'dbo',
          @level1type = N'TABLE',  @level1name = N'DBVC_ChangeLog';
 END

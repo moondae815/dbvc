@@ -2619,6 +2619,42 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
+        public void Commit_TellsTheUser_WhenTheLogRowsCouldNotBeClosed()
+        {
+            // 커밋은 성공했는데 로그가 닫히지 않으면 그 항목이 새로고침마다 되살아난다.
+            // 조용히 넘어가면 사용자는 원인을 알 길이 없고 도구가 고장 난 것으로 읽는다.
+            _stateTracker.Setup(s => s.MarkProcessed(Server, Database, It.IsAny<IEnumerable<ChangeRecord>>()))
+                .Returns("커밋은 성공했습니다. 다만 변경 로그를 닫지 못해...");
+
+            var vm = NewViewModelWithOneSelectedChange("dbo.P");
+            vm.CommitMessage = "테스트";
+
+            vm.CommitCommand.Execute(null);
+
+            var call = _notifier.ErrorCalls.SingleOrDefault(c => c.Message.Contains("변경 로그를 닫지 못해"));
+            Assert.That(call.Message, Is.Not.Null, "로그를 닫지 못한 사실을 알리지 않았습니다");
+
+            // 커밋 자체는 성공했다. 제목이 "커밋 실패"면 사용자가 같은 커밋을 다시 만든다.
+            Assert.That(call.Title, Does.Not.Contain("실패").IgnoreCase.Or.Contain("로그"),
+                "제목이 커밋 자체가 실패한 것처럼 읽힙니다");
+        }
+
+        [Test]
+        public void Commit_SaysNothing_WhenTheLogRowsClosedCleanly()
+        {
+            // 정상 경로에서 상자가 뜨면 커밋마다 클릭이 하나 늘어난다.
+            _stateTracker.Setup(s => s.MarkProcessed(Server, Database, It.IsAny<IEnumerable<ChangeRecord>>()))
+                .Returns((string?)null);
+
+            var vm = NewViewModelWithOneSelectedChange("dbo.P");
+            vm.CommitMessage = "테스트";
+
+            vm.CommitCommand.Execute(null);
+
+            Assert.That(_notifier.ErrorCalls, Is.Empty);
+        }
+
+        [Test]
         public void Commit_DoesNotCloseTheLogRows_WhenTheRepositoryCannotBeFound()
         {
             // "커밋할 것이 없다"와 "커밋할 수 없다"를 같이 다루면, 매핑이 끊긴 상태에서 누른

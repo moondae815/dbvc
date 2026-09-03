@@ -19,7 +19,7 @@ namespace DBVC.Core
     public class StateTracker : IStateTracker
     {
         /// <summary>설치 스크립트가 심는 스키마 버전. 이 값보다 낮으면 도구 창이 업데이트를 안내한다.</summary>
-        public const int RequiredSchemaVersion = 4;
+        public const int RequiredSchemaVersion = 5;
 
         /// <summary>
         /// 설치 상태를 한 번의 왕복으로 판정한다.
@@ -907,13 +907,38 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
         // ---------- 동기화 표시 ----------
 
         /// <summary>
+        /// 사용자가 볼 실패 안내를 만든다. 조립을 여기로 뺀 이유는 SQL Server 없이 검증하기 위해서다.
+        ///
+        /// 세 가지를 반드시 말한다. (1) 커밋 자체는 성공했다 - 아니면 사용자가 같은 커밋을 다시 만든다.
+        /// (2) 그 항목이 목록에 되살아난다 - 미리 말하지 않으면 결함으로 읽힌다. (3) 원인이 거의 항상
+        /// 권한이고 고치는 자리가 화면 안에 있다 - 서버 원문만 보여 주면 무엇을 해야 할지 알 수 없다.
+        /// </summary>
+        internal static string BuildMarkProcessedFailureMessage(string reason)
+        {
+            return "커밋은 성공했습니다. 다만 변경 로그를 닫지 못해 이 항목이 새로고침 목록에 다시 나타납니다."
+                + Environment.NewLine + Environment.NewLine
+                + "dbo.DBVC_ChangeLog에 대한 UPDATE 권한 문제일 수 있습니다. "
+                + "db_owner 권한이 있는 사람이 [변경 추적기 업데이트]를 한 번 누르면 필요한 권한이 부여됩니다."
+                + Environment.NewLine + Environment.NewLine
+                + "원인: " + reason;
+        }
+
+        /// <summary>
         /// 커밋된 객체의 DDL 로그 행을 처리 완료로 표시해 다음 새로고침에서 제외한다.
         /// 새로고침 시점 이후에 추가된 이벤트는 건드리지 않는다.
         /// </summary>
-        public void MarkProcessed(string serverName, string databaseName, IEnumerable<ChangeRecord> records)
+        /// <returns>
+        /// 닫는 데 성공하면 <c>null</c>, 실패하면 사용자에게 보일 한국어 사유
+        /// (<see cref="TestConnection"/>과 같은 관용이다).
+        ///
+        /// 삼키면 안 되는 실패다 - 커밋은 이미 만들어졌는데 로그만 열려 있으면 그 항목이 새로고침마다
+        /// 되살아나고, 다시 커밋해도 담을 차이가 없어 사용자가 목록에서 지울 방법이 없다. 공용 계정이
+        /// db_owner가 아닌 환경에서 실제로 그렇게 된다.
+        /// </returns>
+        public string? MarkProcessed(string serverName, string databaseName, IEnumerable<ChangeRecord> records)
         {
             var targets = records?.Where(r => r.LastLogId > 0).ToList();
-            if (targets == null || targets.Count == 0) return;
+            if (targets == null || targets.Count == 0) return null;
 
             try
             {
@@ -938,10 +963,14 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
                         cmd.ExecuteNonQuery();
                     }
                 }
+
+                return null;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"StateTracker.MarkProcessed failed for '{serverName}.{databaseName}': {ex.Message}");
+                // 반환값에는 ex.Message만 담긴다. 스택은 여기서만 볼 수 있으므로 로그는 남긴다.
+                Debug.WriteLine($"StateTracker.MarkProcessed failed for '{serverName}.{databaseName}': {ex}");
+                return BuildMarkProcessedFailureMessage(ex.Message);
             }
         }
 

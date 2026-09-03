@@ -61,5 +61,30 @@ namespace DBVC.Core.Tests
             Assert.That(match.Success, Is.True, "설치 스크립트에서 DBVC_SchemaVersion 값을 찾지 못했습니다");
             Assert.That(int.Parse(match.Groups[1].Value), Is.EqualTo(StateTracker.RequiredSchemaVersion));
         }
+
+        [Test]
+        public void InstallScript_GrantsTheChangeLogAccessTheClientNeeds()
+        {
+            // 트리거의 INSERT는 EXECUTE AS 'dbo'로 돌지만, 목록 조회와 커밋 후 로그 닫기는
+            // 클라이언트가 접속 계정 그대로 한다. 이 GRANT가 없으면 db_owner가 아닌 사용자의
+            // 커밋이 로그를 닫지 못해 같은 항목이 새로고침마다 되살아난다.
+            var script = StateTracker.ReadInstallScript();
+
+            var match = Regex.Match(
+                script,
+                @"GRANT\s+([A-Z,\s]+?)\s+ON\s+\[dbo\]\.\[DBVC_ChangeLog\]\s+TO\s+\[public\]",
+                RegexOptions.IgnoreCase);
+
+            Assert.That(match.Success, Is.True, "DBVC_ChangeLog에 대한 public GRANT를 찾지 못했습니다");
+
+            var verbs = match.Groups[1].Value
+                .Split(',')
+                .Select(v => v.Trim().ToUpperInvariant())
+                .ToArray();
+
+            // INSERT는 일부러 빼 둔다 - 트리거가 dbo로 쓰므로 필요 없고, 주면 사용자가
+            // 로그를 직접 조작할 수 있게 된다.
+            Assert.That(verbs, Is.EquivalentTo(new[] { "SELECT", "UPDATE" }));
+        }
     }
 }

@@ -66,7 +66,12 @@ namespace DBVC.Core
         IReadOnlyList<string> GetChangedObjectNames(string serverName, string databaseName);
         IReadOnlyList<ChangeRecord> GetPendingChanges(string serverName, string databaseName);
         string GetObjectState(string serverName, string databaseName, string objectName);
-        void MarkProcessed(string serverName, string databaseName, IEnumerable<ChangeRecord> records);
+        /// <summary>
+        /// 커밋된 객체의 DDL 로그 행을 닫는다. 성공하면 <c>null</c>, 실패하면 사용자에게 보일 한국어 사유.
+        /// 호출자는 사유를 반드시 알려야 한다 - 닫히지 않은 행은 새로고침마다 되살아나는데,
+        /// 커밋 자체는 성공한 뒤라 사용자가 원인을 짐작할 단서가 화면에 하나도 없다.
+        /// </summary>
+        string? MarkProcessed(string serverName, string databaseName, IEnumerable<ChangeRecord> records);
     }
 
     public interface IGitManager

@@ -1552,8 +1552,12 @@ namespace DBVC.Vsix.ViewModels
                     //
                     // 추출이 조용히 실패해 파일이 낡은 채로 깨끗한 경우까지 닫히는 것은 감수한다.
                     // 사용자가 그 항목을 골라 커밋을 누른 결과이고, 다음 실제 변경이 다시 기록된다.
-                    _stateTracker.MarkProcessed(server, database, committedRecords);
-                    return new CommitOutcome { Committed = true, WroteACommit = result == GitCommitResult.Committed };
+                    return new CommitOutcome
+                    {
+                        Committed = true,
+                        WroteACommit = result == GitCommitResult.Committed,
+                        MarkProcessedFailure = _stateTracker.MarkProcessed(server, database, committedRecords)
+                    };
                 },
                 outcome =>
                 {
@@ -1590,6 +1594,16 @@ namespace DBVC.Vsix.ViewModels
                         RemoteStatusText = null;
                     }
 
+                    // Refresh보다 먼저, 그리고 WarningMessage가 아니라 상자로 알린다. ApplyRefreshOutcome이
+                    // WarningMessage를 무조건 덮어쓰므로 거기 담으면 새로고침이 끝나는 순간 지워진다.
+                    // 게다가 닫히지 않은 항목은 그 새로고침으로 목록에 되살아난다 - 사용자가 그것을
+                    // 보기 전에 이유를 알아야 한다.
+                    if (outcome.MarkProcessedFailure != null)
+                    {
+                        // 제목에 "실패"를 쓰지 않는다. 커밋 자체는 성공했고, 실패로 읽으면 같은 커밋을 또 만든다.
+                        _notifier.ShowError("DBVC 커밋 — 변경 로그 정리", outcome.MarkProcessedFailure);
+                    }
+
                     CommitMessage = string.Empty;
                     Refresh();
                 },
@@ -1613,6 +1627,9 @@ namespace DBVC.Vsix.ViewModels
 
             /// <summary>null이 아니면 커밋하지 않았고 사용자 확인이 필요하다는 뜻이다.</summary>
             public IReadOnlyList<CoAuthorWarning>? CoAuthors { get; set; }
+
+            /// <summary>null이 아니면 커밋은 됐지만 DDL 로그를 닫지 못했다는 뜻과 그 사유다.</summary>
+            public string? MarkProcessedFailure { get; set; }
         }
 
         private bool AskToCommitWithOtherAuthorsWork(IReadOnlyList<CoAuthorWarning> coAuthors)

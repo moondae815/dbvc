@@ -646,11 +646,42 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
-        public void RequiredSchemaVersion_IsFour()
+        public void RequiredSchemaVersion_IsFive()
         {
             // 설치 스크립트가 심는 값과 같아야 한다. 어긋나면 모든 사용자에게 업데이트 배너가 계속 뜨거나
             // 구버전이 최신으로 읽힌다. 스크립트 쪽 값은 InstallScriptSyncTests가 대조한다.
-            Assert.That(StateTracker.RequiredSchemaVersion, Is.EqualTo(4));
+            Assert.That(StateTracker.RequiredSchemaVersion, Is.EqualTo(5));
+        }
+
+        [Test]
+        public void MarkProcessedFailureMessage_SaysTheCommitSucceededAndTheItemWillReturn()
+        {
+            // 이 안내가 "커밋 실패"로 읽히면 사용자가 같은 커밋을 다시 만든다.
+            // 항목이 목록에 되살아나는 것도 미리 말해야 결함으로 신고되지 않는다.
+            var message = StateTracker.BuildMarkProcessedFailureMessage("SELECT 권한이 거부되었습니다");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(message, Does.Contain("커밋은 성공"));
+                Assert.That(message, Does.Contain("다시 나타납니다"));
+                Assert.That(message, Does.Contain("SELECT 권한이 거부되었습니다"));
+            });
+        }
+
+        [Test]
+        public void MarkProcessedFailureMessage_PointsAtThePermissionAndTheButtonThatFixesIt()
+        {
+            // 원인이 거의 항상 권한이고, 고치는 자리가 화면 안에 있다. 그 두 가지를 말하지 않으면
+            // 사용자는 libgit2/서버 원문만 보고 무엇을 해야 할지 모른다.
+            var message = StateTracker.BuildMarkProcessedFailureMessage("무엇이든");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(message, Does.Contain("DBVC_ChangeLog"));
+                Assert.That(message, Does.Contain("UPDATE"));
+                Assert.That(message, Does.Contain("db_owner"));
+                Assert.That(message, Does.Contain("변경 추적기 업데이트"));
+            });
         }
 
         [Test]

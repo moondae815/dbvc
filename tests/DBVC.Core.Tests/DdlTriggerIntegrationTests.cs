@@ -243,6 +243,71 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void MarkProcessed_ReturnsNull_WhenTheRowsClose()
+        {
+            // 정상 경로에서 사유가 돌아오면 커밋마다 상자가 뜬다.
+            _db!.Execute("CREATE TABLE dbo.QuietCloseTable (Id int NOT NULL PRIMARY KEY)");
+
+            var maxId = Convert.ToInt64(_db.QueryScalar(
+                "SELECT MAX(Id) FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'QuietCloseTable'"));
+
+            var reason = new StateTracker(NewConfig()).MarkProcessed(
+                SqlServerTestDatabase.ServerName, _db.Name, new[] { RecordFor("QuietCloseTable", maxId) });
+
+            Assert.That(reason, Is.Null);
+        }
+
+        [Test]
+        public void MarkProcessed_ReturnsTheReason_WhenTheUpdateCannotRun()
+        {
+            // 여기가 이 수정의 요점이다. 예전에는 예외를 Debug.WriteLine으로 삼켜, 커밋은 성공했는데
+            // 로그가 닫히지 않은 상태를 사용자가 알 방법이 없었다 - 그 항목이 새로고침마다 되살아나고
+            // 원인은 어디에도 나타나지 않았다. 없는 데이터베이스를 가리켜 접속 자체를 실패시킨다.
+            var reason = new StateTracker(NewConfig()).MarkProcessed(
+                SqlServerTestDatabase.ServerName,
+                SqlServerTestDatabase.Prefix + "no_such_db_" + Guid.NewGuid().ToString("N"),
+                new[] { RecordFor("Anything", 1) });
+
+            Assert.That(reason, Is.Not.Null, "실패했는데 사유가 돌아오지 않았습니다");
+            Assert.That(reason, Does.Contain("커밋은 성공"));
+        }
+
+        [Test]
+        public void InstallScript_LetsAnUnprivilegedUserReadAndCloseTheLog()
+        {
+            // db_owner가 아닌 계정도 목록 조회(SELECT)와 커밋 후 로그 닫기(UPDATE)를 자기 권한으로 한다.
+            // 트리거의 INSERT만 dbo로 도는 것이라, 이 GRANT가 없으면 그런 계정의 커밋이 로그를 닫지
+            // 못한다.
+            //
+            // INSERT가 막혀 있다는 것은 여기서 확인하지 않는다 - 권한이 거부된 문장은 세션을 중지
+            // 상태로 만들어 뒤따르는 REVERT까지 실패시키고, 그 접속이 풀로 돌아가 무관한 테스트를
+            // 깨뜨린다. 부여한 동사 목록이 정확히 SELECT·UPDATE인지는 InstallScriptSyncTests가
+            // 스크립트를 파싱해 검사하므로, 넓어지는 회귀는 그쪽에서 잡힌다.
+            _db!.ExecuteInOneSession("CREATE USER dbvc_low_grant WITHOUT LOGIN");
+
+            Assert.DoesNotThrow(() => _db.ExecuteInOneSession(
+                "EXECUTE AS USER = 'dbvc_low_grant'",
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog",
+                "UPDATE dbo.DBVC_ChangeLog SET IsProcessed = IsProcessed WHERE 1 = 0",
+                "REVERT"), "설치 스크립트의 GRANT가 없거나 부족합니다");
+        }
+
+        /// <summary>MarkProcessed에 넘길 최소 레코드. 작업자를 채우지 않으면 아무 행도 닫히지 않는다.</summary>
+        private static DBVC.Core.Models.ChangeRecord RecordFor(string name, long lastLogId) =>
+            new DBVC.Core.Models.ChangeRecord
+            {
+                Schema = "dbo",
+                ObjectName = name,
+                ObjectType = "TABLE",
+                State = "Modified",
+                QualifiedName = "dbo." + name,
+                RelativePath = "dbo/Tables/" + name + ".sql",
+                LastLogId = lastLogId,
+                Author = CurrentLogin(),
+                HostName = CurrentHost()
+            };
+
+        [Test]
         public void Trigger_RecordsTheParentTable_ForColumnRenames()
         {
             // sp_rename은 COLUMN 이벤트 하나만 남기고 테이블 이벤트를 따로 내지 않는다.
