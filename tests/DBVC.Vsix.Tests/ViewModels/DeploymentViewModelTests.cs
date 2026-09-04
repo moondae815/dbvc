@@ -194,6 +194,23 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
+        public void CompareCommand_ReportsRemedy_WhenIdentityIsMissing()
+        {
+            // GitIdentityMissingException은 InvalidOperationException을 물려받지만
+            // GitRemoteNotConfiguredException 캐치로 묻히면 안 된다 - 커밋을 하지 않는
+            // 이 화면에서 "커밋 작성자가..." 원문 메시지만 보이면 해결책(배너)을 가리키지
+            // 못한다.
+            var vm = NewViewModel(MappingMode.Deploy, out _);
+            _git.Setup(g => g.PullChanges(Server, Database)).Throws(new GitIdentityMissingException());
+
+            vm.CompareCommand.Execute(null);
+
+            Assert.That(_notifier.Errors, Is.Not.Empty);
+            Assert.That(_notifier.Errors[0], Does.Contain("작성자 설정"));
+            _smo.Verify(s => s.CompareWithRepository(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Test]
         public void CompareCommand_DoesNotClaimMatch_WhenTheRepositoryScanWasIncomplete()
         {
             // 권한 없는 폴더 하나를 만나면 Directory.EnumerateFiles가 순회를 통째로 멈춘다.

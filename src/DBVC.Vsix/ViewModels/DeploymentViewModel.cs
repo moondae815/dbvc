@@ -271,6 +271,17 @@ namespace DBVC.Vsix.ViewModels
             {
                 // 통신을 시도조차 하지 않았고 저장소도 그대로다. 잃은 것이 없다.
             }
+            catch (GitIdentityMissingException)
+            {
+                // 그대로 두면 "커밋 작성자가..." 메시지가 뜬다 - 이 화면에서는 커밋하지
+                // 않으므로 사용자를 엉뚱한 곳으로 보낸다. 화면 위 배너가 실제 해결책이니
+                // 그쪽을 가리키도록 바꿔 던진다. 삼키지는 않는다 - 낡은 브랜치로 비교하면
+                // 이미 배포된 변경이 목록에서 빠지는 위험은 원격이 있을 때와 같다.
+                throw new InvalidOperationException(
+                    "커밋 작성자가 설정되어 있지 않아 최신 브랜치를 받지 못했습니다. " +
+                    "낡은 브랜치로 비교하면 이미 배포된 변경이 목록에서 빠집니다. " +
+                    "위 [작성자 설정...] 배너에서 이름과 메일 주소를 지정한 뒤 다시 검사하세요.");
+            }
         }
 
         private void ApplyComparison(ComparisonResult? result, MappingMode mode)

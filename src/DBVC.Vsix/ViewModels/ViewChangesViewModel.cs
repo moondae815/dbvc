@@ -956,6 +956,11 @@ namespace DBVC.Vsix.ViewModels
 
             // Pull은 병합 커밋을 만들 수 있다. 시작한 뒤 Core가 던지면 사용자는 네트워크가 도는
             // 동안 기다린 끝에 사유만 본다. 시작 전에 받는다.
+            //
+            // UI 스레드에서 config를 읽는다 - 다른 자리(ApplyContextProbe)는 백그라운드로
+            // 미루는데, 여기서는 그러지 않는 이유: 파일 하나를 여는 판정이고, 바로 아래
+            // GetChangedFiles도 이미 UI 스레드에서 동기로 돈다. Pull 자체를 백그라운드로
+            // 옮기는 더 큰 리팩터링 없이는 이 한 줄만 옮겨도 얻는 것이 없다.
             if (GitIdentity.Detect(mapping.GitPath) == GitIdentityState.Missing
                 && !PromptForCommitIdentity())
             {
@@ -1618,6 +1623,13 @@ namespace DBVC.Vsix.ViewModels
                 IsRepositoryEncodingLegacy = mapping != null
                     && RepositoryEncoding.Detect(mapping.GitPath) == RepositoryEncodingKind.Legacy
                     && MappingPolicy.IsAllowed(Mode, DbvcOperation.Extract);
+
+                // 같은 이유로 신원도 다시 본다 - 터미널에서 git config를 직접 설정하고
+                // 새로고침만 누르는 사람은 배너가 낡은 채로 남는다. 해는 없다(다음 커밋은
+                // 그대로 성공한다)지만, 인코딩 배너 옆에서 다른 규칙을 따르면 다음 사람에게
+                // 혼란만 남긴다.
+                IsCommitIdentityMissing = mapping != null
+                    && GitIdentity.Detect(mapping.GitPath) == GitIdentityState.Missing;
             }
 
             Busy.IsCancellable = false;
@@ -1754,9 +1766,11 @@ namespace DBVC.Vsix.ViewModels
                         // 차단이 막다른 길이 되지 않게 한다. 여기서 받고 같은 경로를 다시 탄다.
                         //
                         // identityPrompted 가드: PromptForCommitIdentity가 true를 돌려준 뒤에도
-                        // 배경 재검사가 다시 Missing을 볼 수 있는 경우(권한 등)를 막는다. 다이얼로그
-                        // 호출과 재검사 사이에 끼어들 이음매가 없어 이 경우 자체는 테스트로 만들 수
-                        // 없다 - 그렇다고 가드를 없애도 되는 것은 아니다.
+                        // 배경 재검사가 다시 Missing을 볼 수 있는 경우(권한 등)를 막는다. 실제로는
+                        // 매핑이 다이얼로그 호출 *전*에 캡처되고 재진입 시 새로 읽히므로, 그 사이에
+                        // 매핑이 가리키는 경로가 바뀌면 이 상태가 그대로 재현된다 -
+                        // ViewChangesViewModelTests.Commit_PromptsOnlyOnce_WhenWriteSucceedsButTheRecheckStillSeesMissing이
+                        // 그 경로로 가드를 직접 검증한다.
                         if (!identityPrompted && PromptForCommitIdentity())
                         {
                             Commit(coAuthorConfirmed, identityPrompted: true);

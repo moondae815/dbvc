@@ -90,11 +90,19 @@ namespace DBVC.Vsix.Tests.ViewModels
         public string? SuggestedName { get; private set; }
         public string? SuggestedEmail { get; private set; }
 
+        /// <summary>
+        /// 다이얼로그가 뜬 시점에 개입한다. PromptForCommitIdentity는 매핑을 다이얼로그
+        /// 호출 전에 캡처해 두므로, 여기서 매핑이 가리키는 경로를 바꿔치기해도 이번
+        /// Write는 원래 경로에 그대로 들어간다 - 재진입한 배경 재검사만 새 경로를 본다.
+        /// </summary>
+        public Action? WhenPrompted { get; set; }
+
         public CommitIdentityInput? Prompt(string suggestedName, string suggestedEmail)
         {
             PromptCount++;
             SuggestedName = suggestedName;
             SuggestedEmail = suggestedEmail;
+            WhenPrompted?.Invoke();
             return Result;
         }
     }

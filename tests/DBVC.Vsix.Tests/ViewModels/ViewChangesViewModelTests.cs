@@ -3211,6 +3211,23 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.IsRepositoryEncodingLegacy, Is.False);
         }
 
+        [Test]
+        public void Refresh_LowersTheIdentityBanner_AfterTheUserSetsGitConfigOutsideTheTool()
+        {
+            // 인코딩 배너와 같은 이유다: 사용자가 터미널에서 git config를 직접 설정하고
+            // 새로고침만 누르면, 다시 읽지 않는 한 배너가 낡은 채로 남는다.
+            var repoPath = NewMappedGitRepo(withIdentity: false);
+
+            var vm = NewConnectedViewModel();
+            Assume.That(vm.IsCommitIdentityMissing, Is.True);
+
+            GitIdentity.Write(repoPath, "홍길동", "gildong@corp.co.kr");
+
+            vm.RefreshCommand.Execute(null);
+
+            Assert.That(vm.IsCommitIdentityMissing, Is.False);
+        }
+
         // ---------- 커밋 작성자 신원 ----------
 
         /// <summary>
@@ -3381,6 +3398,10 @@ namespace DBVC.Vsix.Tests.ViewModels
             {
                 Assert.That(_identityDialog.PromptCount, Is.EqualTo(1));
                 _git.Verify(g => g.CommitChanges(Server, Database, "메시지", It.IsAny<IEnumerable<string>>()), Times.Once);
+                // Environment.UserName은 Windows에서 절대 비지 않는다 - Suggest()가 던지거나
+                // 빈 값을 돌려주는 회귀를 이것으로 잡는다. 메일은 도메인 미가입 PC에서 빈
+                // 값이 정상이므로 여기서는 단언하지 않는다.
+                Assert.That(_identityDialog.SuggestedName, Is.Not.Empty);
             });
         }
 
@@ -3402,9 +3423,8 @@ namespace DBVC.Vsix.Tests.ViewModels
         public void Commit_DoesNotCommitAndPromptsOnce_WhenTheIdentityInputIsRejected()
         {
             // PromptForCommitIdentity 자체가 검증에서 막혀 false를 돌려주는 경우를 확인한다.
-            // (identityPrompted 가드가 지키는 "쓰기는 됐는데 재검사가 또 Missing을 보는" 경우는
-            // 다이얼로그 호출과 재검사 사이에 끼어들 이음매가 없어 이 테스트로는 만들 수 없다 -
-            // ViewChangesViewModel.Commit의 해당 가드 옆 주석 참고.)
+            // ("쓰기는 됐는데 재검사가 또 Missing을 보는" 경우는 별도로
+            // Commit_PromptsOnlyOnce_WhenWriteSucceedsButTheRecheckStillSeesMissing이 검증한다.)
             NewMappedGitRepo(withIdentity: false);
             var vm = NewViewModelWithChanges(Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql"));
             vm.CommitMessage = "메시지";
@@ -3418,6 +3438,61 @@ namespace DBVC.Vsix.Tests.ViewModels
                 Assert.That(_identityDialog.PromptCount, Is.EqualTo(1));
                 _git.Verify(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>()), Times.Never);
                 Assert.That(_notifier.Errors, Is.Not.Empty, "검증 실패 사유를 사용자에게 알려야 한다");
+            });
+        }
+
+        [Test]
+        public void Commit_PromptsOnlyOnce_WhenWriteSucceedsButTheRecheckStillSeesMissing()
+        {
+            // identityPrompted 가드가 지키는 실제 상태다: PromptForCommitIdentity는 매핑을
+            // 다이얼로그 호출 *전*에 캡처해 그 경로에 쓰지만, 재진입한 배경 재검사는 매핑을
+            // 다시 읽는다. _configManager는 Moq 대역이라 그 사이에 매핑이 가리키는 경로를
+            // 바꿔치기할 수 있다 - "쓰기는 됐는데 재검사가 또 Missing을 본다"는 정확히 이 경우다.
+            var firstRepo = NewMappedGitRepo(withIdentity: false);
+            var secondRepo = Path.Combine(Path.GetTempPath(), "dbvc_vmident_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(secondRepo);
+            _tempDirs.Add(secondRepo);
+            LibGit2Sharp.Repository.Init(secondRepo);
+            using (var repo = new LibGit2Sharp.Repository(secondRepo))
+            {
+                repo.Config.Set("user.name", string.Empty, LibGit2Sharp.ConfigurationLevel.Local);
+                repo.Config.Set("user.email", string.Empty, LibGit2Sharp.ConfigurationLevel.Local);
+            }
+
+            var currentPath = firstRepo;
+            _config.Setup(c => c.TryGetMapping(Server, Database))
+                .Returns(() => new MappingConfig
+                {
+                    ServerName = Server,
+                    DatabaseName = Database,
+                    GitPath = currentPath,
+                    Mode = MappingMode.Write
+                });
+
+            var promptNumber = 0;
+            _identityDialog.Result = new CommitIdentityInput { Name = "홍길동", Email = "gildong@corp.co.kr" };
+            _identityDialog.WhenPrompted = () =>
+            {
+                promptNumber++;
+                // 첫 프롬프트 뒤: PromptForCommitIdentity가 이미 캡처해 둔 firstRepo에 쓰는
+                // 동안, 재진입한 배경 재검사는 secondRepo(신원 없음)를 보게 경로를 바꾼다.
+                // 두 번째 프롬프트 뒤에는 되돌려 놓아, 가드가 없다면 무한 재귀가 되는 대신
+                // 정확히 2회에서 끝난다는 것까지 확인한다.
+                if (promptNumber == 1) currentPath = secondRepo;
+                else currentPath = firstRepo;
+            };
+
+            var vm = NewViewModelWithChanges(Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql"));
+            vm.CommitMessage = "메시지";
+            vm.Changes[0].IsSelected = true;
+
+            vm.CommitCommand.Execute(null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(_identityDialog.PromptCount, Is.EqualTo(1), "가드가 없으면 재진입마다 또 물어 무한 모달이 된다");
+                _git.Verify(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>()), Times.Never);
+                Assert.That(_notifier.Errors, Is.Not.Empty, "두 번째부터는 사유를 알리고 멈춰야 한다");
             });
         }
 
