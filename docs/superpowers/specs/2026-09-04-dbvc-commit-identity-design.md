@@ -90,10 +90,18 @@ Pull을 빠뜨리면 커밋만 막고 병합 커밋은 `DBVC User`로 새어 나
 Core에 새로 둔다. `RepositoryEncoding`과 같은 결의 정적 클래스다.
 
 ```
-CommitIdentity? Read(string repoPath)          // 하나라도 비면 null
-void            Write(string repoPath, name, email)   // ConfigurationLevel.Local
-string?         Validate(string? name, string? email) // 통과면 null, 아니면 한국어 사유
+GitIdentityState Detect(string repoPath)               // Unknown / Missing / Configured
+bool             IsConfigured(Repository repo)         // 이미 열린 저장소용. 규칙의 유일한 자리
+void             Write(string repoPath, name, email)   // ConfigurationLevel.Local
+string?          Validate(string? name, string? email) // 통과면 null, 아니면 한국어 사유
 ```
+
+**`Missing`과 `Unknown`을 가르는 것이 이 API의 요점이다.** 판정할 수 없는 경우 —
+경로가 없거나 유효한 Git 저장소가 아닌 경우 — 를 "신원 없음"으로 뭉개면 배너가 상시로 뜬다.
+`RepositoryEncoding.Detect`가 `Unknown`을 두는 이유와 같다.
+
+`Detect`는 저장소를 열어 `IsConfigured`에 위임한다. 규칙(`BuildSignature`가 `null`인가)이 두 곳에
+생기면 화면의 판정과 Core의 차단이 갈라지고, 갈라진 날 배너 없이 차단되는 사람이 나온다.
 
 `Validate`는 순수 함수다. DB도 Git도 닿지 않으므로 판정의 유일한 시험대가 여기다.
 검증 규칙은 형식까지만 본다 — 이름이 비지 않을 것, 메일에 `@`와 점이 있고 공백이 없을 것.
@@ -178,9 +186,9 @@ Commit(coAuthorConfirmed, identityPrompted)
 | 확인할 것 | 어디서 |
 | --- | --- |
 | `Validate`가 빈 이름·`@` 없는 메일·공백 포함을 거른다 | `GitIdentityTests` |
-| `Read`/`Write`가 왕복한다 | `GitIdentityTests` |
+| `Write` 뒤에 `Detect`가 `Configured`를 낸다 | `GitIdentityTests` |
 | **`Write`가 전역이 아니라 로컬에만 쓴다** | `GitIdentityTests` |
-| 전역에만 신원이 있어도 `Read`가 값을 낸다 | `GitIdentityTests` |
+| 저장소가 아닌 경로에서 `Detect`가 `Unknown`이다(배너를 띄우지 않는다) | `GitIdentityTests` |
 | `CommitChanges`가 신원 없이 던진다 | `GitManagerTests` |
 | **차단 시 인덱스가 그대로다**(스테이징 부작용 없음) | `GitManagerTests` |
 | `PullChanges`가 신원 없이 던진다 | `GitManagerTests` |
