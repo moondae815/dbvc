@@ -1752,6 +1752,11 @@ namespace DBVC.Vsix.ViewModels
                     if (outcome.NeedsIdentity)
                     {
                         // 차단이 막다른 길이 되지 않게 한다. 여기서 받고 같은 경로를 다시 탄다.
+                        //
+                        // identityPrompted 가드: PromptForCommitIdentity가 true를 돌려준 뒤에도
+                        // 배경 재검사가 다시 Missing을 볼 수 있는 경우(권한 등)를 막는다. 다이얼로그
+                        // 호출과 재검사 사이에 끼어들 이음매가 없어 이 경우 자체는 테스트로 만들 수
+                        // 없다 - 그렇다고 가드를 없애도 되는 것은 아니다.
                         if (!identityPrompted && PromptForCommitIdentity())
                         {
                             Commit(coAuthorConfirmed, identityPrompted: true);

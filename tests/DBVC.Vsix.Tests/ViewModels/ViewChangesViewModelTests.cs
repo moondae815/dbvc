@@ -3399,10 +3399,12 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
-        public void Commit_PromptsOnlyOnce_WhenWritingTheIdentityDoesNotTake()
+        public void Commit_DoesNotCommitAndPromptsOnce_WhenTheIdentityInputIsRejected()
         {
-            // 다이얼로그가 값을 돌려줬는데도 신원이 남지 않는 경우(권한 등)를 흉내 낸다.
-            // 가드가 없으면 대화상자가 무한히 뜬다.
+            // PromptForCommitIdentity 자체가 검증에서 막혀 false를 돌려주는 경우를 확인한다.
+            // (identityPrompted 가드가 지키는 "쓰기는 됐는데 재검사가 또 Missing을 보는" 경우는
+            // 다이얼로그 호출과 재검사 사이에 끼어들 이음매가 없어 이 테스트로는 만들 수 없다 -
+            // ViewChangesViewModel.Commit의 해당 가드 옆 주석 참고.)
             NewMappedGitRepo(withIdentity: false);
             var vm = NewViewModelWithChanges(Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql"));
             vm.CommitMessage = "메시지";
@@ -3411,7 +3413,12 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             vm.CommitCommand.Execute(null);
 
-            Assert.That(_identityDialog.PromptCount, Is.EqualTo(1));
+            Assert.Multiple(() =>
+            {
+                Assert.That(_identityDialog.PromptCount, Is.EqualTo(1));
+                _git.Verify(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>()), Times.Never);
+                Assert.That(_notifier.Errors, Is.Not.Empty, "검증 실패 사유를 사용자에게 알려야 한다");
+            });
         }
 
         [Test]
