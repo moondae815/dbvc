@@ -21,7 +21,11 @@ namespace DBVC.Vsix.Services
         private const int NameDisplay = 3;
         private const int NameUserPrincipal = 8;
 
+        // 반환형이 네이티브로는 1바이트 BOOLEAN이다. 여기를 C# bool(4바이트 UnmanagedType.Bool)로
+        // 두면 콜리가 하위 1바이트만 채워도 상위 3바이트의 쓰레기값을 성공으로 읽을 수 있다 -
+        // 도메인 미가입 PC에서 ERROR_NONE_MAPPED로 실패하는 바로 그 경로가 성공으로 둔갑한다.
         [DllImport("secur32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.U1)]
         private static extern bool GetUserNameEx(int nameFormat, StringBuilder nameBuffer, ref uint size);
 
         /// <summary>

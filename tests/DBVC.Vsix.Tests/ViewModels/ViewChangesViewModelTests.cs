@@ -3342,5 +3342,28 @@ namespace DBVC.Vsix.Tests.ViewModels
                 Assert.That(vm.IsCommitIdentityMissing, Is.True);
             });
         }
+
+        [Test]
+        public void SetCommitIdentityCommand_ReportsTheFailureAndKeepsTheBanner_WhenWritingConfigFails()
+        {
+            var repoPath = NewMappedGitRepo(withIdentity: false);
+            var vm = NewConnectedViewModel();
+            _identityDialog.Result = new CommitIdentityInput { Name = "홍길동", Email = "gildong@corp.co.kr" };
+
+            // .git/config를 읽기 전용으로 만드는 시도는 이 머신에서 통하지 않았다 - libgit2가
+            // 임시 파일에 쓰고 원본을 덮어써서(rename) 읽기 전용 속성을 우회한다. 대신 .git 자체를
+            // 지워 GitIdentity.Write 안의 new Repository(repoPath)가 실제로 던지게 만든다 -
+            // catch 분기를 진짜로 태우지 않으면 그 분기는 검증되지 않은 채로 남는다.
+            var gitDir = Path.Combine(repoPath, ".git");
+            Directory.Delete(gitDir, recursive: true);
+
+            vm.SetCommitIdentityCommand.Execute(null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(_notifier.Errors, Is.Not.Empty);
+                Assert.That(vm.IsCommitIdentityMissing, Is.True);
+            });
+        }
     }
 }
