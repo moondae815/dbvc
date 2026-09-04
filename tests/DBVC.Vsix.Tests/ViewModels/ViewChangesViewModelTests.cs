@@ -29,6 +29,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         private RecordingSaveDialog _saveDialog = null!;
         private Mock<IWorkingTreeCleaner> _cleaner = null!;
         private RecordingConnectDialog _connectDialog = null!;
+        private RecordingIdentityDialog _identityDialog = null!;
         private Mock<ISqlCredentialStore> _credentials = null!;
         private Mock<ISsmsConnectionSource> _ssms = null!;
         private readonly List<string> _tempDirs = new List<string>();
@@ -51,6 +52,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             _saveDialog = new RecordingSaveDialog();
             _connectDialog = new RecordingConnectDialog();
+            _identityDialog = new RecordingIdentityDialog();
             _config = new Mock<IConfigManager>();
             _stateTracker = new Mock<IStateTracker>();
             _git = new Mock<IGitManager>();
@@ -95,7 +97,8 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             return new ViewChangesViewModel(
                 _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
-                _cleaner.Object, _connectDialog, _credentials.Object, _ssms.Object);
+                _cleaner.Object, _connectDialog, _credentials.Object, _ssms.Object,
+                identityDialog: _identityDialog);
         }
 
         /// <summary>
@@ -3288,6 +3291,56 @@ namespace DBVC.Vsix.Tests.ViewModels
             var vm = NewConnectedViewModel();
 
             Assert.That(vm.IsCommitIdentityMissing, Is.True);
+        }
+
+        [Test]
+        public void SetCommitIdentityCommand_WritesTheIdentityAndDropsTheBanner_WhenTheUserConfirms()
+        {
+            var repoPath = NewMappedGitRepo(withIdentity: false);
+            var vm = NewConnectedViewModel();
+            Assert.That(vm.IsCommitIdentityMissing, Is.True, "사전 조건: 배너가 떠 있어야 검증이 의미 있다");
+            _identityDialog.Result = new CommitIdentityInput { Name = "홍길동", Email = "gildong@corp.co.kr" };
+
+            vm.SetCommitIdentityCommand.Execute(null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(GitIdentity.Detect(repoPath), Is.EqualTo(GitIdentityState.Configured));
+                Assert.That(vm.IsCommitIdentityMissing, Is.False,
+                    "설정이 끝났는데 배너가 남으면 사용자가 또 누른다");
+            });
+        }
+
+        [Test]
+        public void SetCommitIdentityCommand_WritesNothing_WhenTheUserCancels()
+        {
+            var repoPath = NewMappedGitRepo(withIdentity: false);
+            var vm = NewConnectedViewModel();
+            _identityDialog.Result = null;
+
+            vm.SetCommitIdentityCommand.Execute(null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(GitIdentity.Detect(repoPath), Is.EqualTo(GitIdentityState.Missing));
+                Assert.That(vm.IsCommitIdentityMissing, Is.True);
+            });
+        }
+
+        [Test]
+        public void SetCommitIdentityCommand_ReportsTheReasonAndKeepsTheBanner_WhenTheInputIsInvalid()
+        {
+            NewMappedGitRepo(withIdentity: false);
+            var vm = NewConnectedViewModel();
+            _identityDialog.Result = new CommitIdentityInput { Name = "홍길동", Email = "gildong" };
+
+            vm.SetCommitIdentityCommand.Execute(null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(_notifier.Errors, Is.Not.Empty);
+                Assert.That(vm.IsCommitIdentityMissing, Is.True);
+            });
         }
     }
 }

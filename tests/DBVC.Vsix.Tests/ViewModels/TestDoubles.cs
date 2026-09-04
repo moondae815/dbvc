@@ -82,6 +82,23 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
     }
 
+    /// <summary>신원 입력 대화상자의 대역. 무엇을 돌려줄지와 몇 번 불렸는지를 기록한다.</summary>
+    internal sealed class RecordingIdentityDialog : ICommitIdentityDialog
+    {
+        public CommitIdentityInput? Result { get; set; }
+        public int PromptCount { get; private set; }
+        public string? SuggestedName { get; private set; }
+        public string? SuggestedEmail { get; private set; }
+
+        public CommitIdentityInput? Prompt(string suggestedName, string suggestedEmail)
+        {
+            PromptCount++;
+            SuggestedName = suggestedName;
+            SuggestedEmail = suggestedEmail;
+            return Result;
+        }
+    }
+
     /// <summary>
     /// 작업은 즉시 돌리되 결과 반영은 큐에 담아 둔다. 테스트가 순서를 골라 흘려보내
     /// "늦게 끝난 앞선 요청"을 흉내 낼 수 있다 - stale 가드는 그 상황에서만 드러난다.

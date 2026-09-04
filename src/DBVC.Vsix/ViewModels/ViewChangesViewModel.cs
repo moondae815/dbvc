@@ -33,6 +33,7 @@ namespace DBVC.Vsix.ViewModels
         private readonly IUserNotifier _notifier;
         private readonly IFileSaveDialog _saveDialog;
         private readonly IRepositoryConnectDialog _connectDialog;
+        private readonly ICommitIdentityDialog _identityDialog;
         private readonly IWorkingTreeCleaner _cleaner;
         private readonly ScriptExporter _scriptExporter;
         private readonly IBackgroundScheduler _scheduler;
@@ -74,7 +75,8 @@ namespace DBVC.Vsix.ViewModels
             IRepositoryConnectDialog? connectDialog = null,
             ISqlCredentialStore? credentialStore = null,
             ISsmsConnectionSource? ssmsConnectionSource = null,
-            IBackgroundScheduler? scheduler = null)
+            IBackgroundScheduler? scheduler = null,
+            ICommitIdentityDialog? identityDialog = null)
         {
             // 기본값이 인라인인 이유: 단위 테스트와 셸 밖 실행이 이 경로다.
             // 실제 도구 창에는 DbvcServices가 UI 스레드를 비우는 구현을 넣어 준다.
@@ -91,6 +93,7 @@ namespace DBVC.Vsix.ViewModels
             _saveDialog = saveDialog ?? new SaveFileDialogAdapter();
             _cleaner = cleaner ?? new WorkingTreeCleaner();
             _connectDialog = connectDialog ?? new RepositoryConnectDialogAdapter();
+            _identityDialog = identityDialog ?? new CommitIdentityDialogAdapter();
             _scriptExporter = new ScriptExporter(_configManager, _gitManager);
             Deployment = new DeploymentViewModel(
                 _configManager, _gitManager, _smoManager, _scriptExporter,
@@ -106,6 +109,7 @@ namespace DBVC.Vsix.ViewModels
             UpdateTrackerCommand = new RelayCommand(UpdateTracker, () => IsTrackerOutdated && !IsBusy && MappingPolicy.IsAllowed(Mode, DbvcOperation.InstallTracker));
             MigrateEncodingCommand = new RelayCommand(MigrateEncoding,
                 () => IsRepositoryEncodingLegacy && !IsBusy && MappingPolicy.IsAllowed(Mode, DbvcOperation.Extract));
+            SetCommitIdentityCommand = new RelayCommand(SetCommitIdentity, () => !IsBusy);
             CommitCommand = new RelayCommand(Commit, CanCommit);
             ConnectCommand = new RelayCommand(Connect, () => _ssmsConnectionSource != null && !IsBusy);
             ConnectRepositoryCommand = new RelayCommand(ConnectRepository, CanConnectRepository);
@@ -648,6 +652,10 @@ namespace DBVC.Vsix.ViewModels
         /// 커밋 작성자 신원이 없다. 배너가 이 값을 본다.
         /// 판정할 수 없는 경우(저장소가 아닌 경로)는 거짓이다 - 매핑되지 않은 대상에서
         /// 배너가 상시로 뜨는 것을 막는다.
+        ///
+        /// setter가 RaiseActionCanExecuteChanged를 부르지 않는다 - SetCommitIdentityCommand의
+        /// CanExecute는 이 값을 읽지 않고 IsBusy만 본다(배너가 없어도 미리 설정할 수 있어야
+        /// 하므로). 이 값을 읽는 CanExecute가 생기면 그때 IsRepositoryEncodingLegacy처럼 고친다.
         /// </summary>
         public bool IsCommitIdentityMissing
         {
@@ -845,6 +853,9 @@ namespace DBVC.Vsix.ViewModels
 
         /// <summary>저장소의 모든 .sql을 UTF-8로 다시 쓴다. 배너에서만 부른다.</summary>
         public ICommand MigrateEncodingCommand { get; }
+
+        /// <summary>배너와 커밋 차단이 함께 쓴다. 신원을 물어 저장소 로컬 config에 쓴다.</summary>
+        public ICommand SetCommitIdentityCommand { get; }
 
         public ICommand CommitCommand { get; }
 
@@ -1306,6 +1317,47 @@ namespace DBVC.Vsix.ViewModels
 
             RefreshAll();
         }
+
+        /// <returns>신원이 설정되었으면 true. 취소했거나 입력이 쓸 수 없으면 false.</returns>
+        private bool PromptForCommitIdentity()
+        {
+            if (!HasContext) return false;
+
+            var mapping = _configManager.TryGetMapping(ServerName!, DatabaseName!);
+            if (mapping == null) return false;
+
+            var (suggestedName, suggestedEmail) = WindowsAccountIdentity.Suggest();
+            var input = _identityDialog.Prompt(suggestedName, suggestedEmail);
+
+            // 취소는 오류가 아니다.
+            if (input == null) return false;
+
+            var reason = GitIdentity.Validate(input.Name, input.Email);
+            if (reason != null)
+            {
+                // 대화상자가 이미 걸렀어야 하는 값이다. 여기까지 왔다면 대역이거나 버그이므로
+                // 조용히 넘기지 않는다 - 넘기면 신원 없이 커밋이 이어진다.
+                _notifier.ShowError("DBVC 작성자 설정", reason);
+                return false;
+            }
+
+            try
+            {
+                GitIdentity.Write(mapping.GitPath, input.Name, input.Email);
+            }
+            catch (Exception ex)
+            {
+                _notifier.ShowError("DBVC 작성자 설정 실패", ex.Message);
+                return false;
+            }
+
+            // 설정이 끝났는데 배너가 남으면 사용자가 또 누른다. 인코딩 전환이 끝난 뒤 배너를
+            // 내리는 것과 같은 이유다.
+            IsCommitIdentityMissing = GitIdentity.Detect(mapping.GitPath) == GitIdentityState.Missing;
+            return !IsCommitIdentityMissing;
+        }
+
+        private void SetCommitIdentity() => PromptForCommitIdentity();
 
         /// <summary>
         /// 설치 스크립트를 실행한다. DDL 여러 배치를 도는 일이라 응답 없는 서버에서는 수십 초까지
@@ -1874,6 +1926,7 @@ namespace DBVC.Vsix.ViewModels
             (SetupCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (UpdateTrackerCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (MigrateEncodingCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (SetCommitIdentityCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (ConnectCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CommitCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GenerateDeploymentScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();

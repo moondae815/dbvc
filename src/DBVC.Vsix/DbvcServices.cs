@@ -99,7 +99,8 @@ namespace DBVC.Vsix
                 ConfigManager, StateTracker, GitManager, SmoManager, notifier,
                 credentialStore: CredentialStore,
                 ssmsConnectionSource: ssmsConnectionSource ?? new ObjectExplorerConnectionSource(),
-                scheduler: BackgroundScheduler);
+                scheduler: BackgroundScheduler,
+                identityDialog: new CommitIdentityDialogAdapter());
         }
 
         public DiffService CreateDiffService()
