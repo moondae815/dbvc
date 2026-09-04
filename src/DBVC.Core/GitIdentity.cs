@@ -88,7 +88,15 @@ namespace DBVC.Core
         /// </summary>
         public static string? Validate(string? name, string? email)
         {
-            if (string.IsNullOrWhiteSpace(name)) return "이름을 입력하세요.";
+            var trimmedName = (name ?? string.Empty).Trim();
+            if (trimmedName.Length == 0) return "이름을 입력하세요.";
+
+            // 줄바꿈은 Trim으로 걸러지지 않는다(양 끝이 아니라 중간에 있으므로). 그대로
+            // .git/config와 커밋 객체 헤더에 들어가면 git이 읽을 수 없는 값이 된다.
+            if (trimmedName.IndexOf('\r') >= 0 || trimmedName.IndexOf('\n') >= 0)
+            {
+                return "이름에 줄바꿈이 들어갈 수 없습니다.";
+            }
 
             var trimmed = (email ?? string.Empty).Trim();
             if (trimmed.Length == 0) return "메일 주소를 입력하세요.";
@@ -105,8 +113,9 @@ namespace DBVC.Core
                 return "메일 주소 형식이 올바르지 않습니다. 예: hong@corp.co.kr";
             }
 
-            // 공백이 든 주소는 git이 받아 주더라도 이력에서 사람을 찾을 수 없게 만든다.
-            if (trimmed.IndexOf(' ') >= 0 || trimmed.IndexOf('\t') >= 0)
+            // 공백·줄바꿈이 든 주소는 git이 받아 주더라도 이력에서 사람을 찾을 수 없게 만든다.
+            if (trimmed.IndexOf(' ') >= 0 || trimmed.IndexOf('\t') >= 0
+                || trimmed.IndexOf('\r') >= 0 || trimmed.IndexOf('\n') >= 0)
             {
                 return "메일 주소에 공백이 들어갈 수 없습니다.";
             }

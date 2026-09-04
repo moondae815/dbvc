@@ -91,17 +91,29 @@ namespace DBVC.Core.Tests
         {
             // SSMS 확장이 개발자의 전역 git 설정을 조용히 바꾸면 다른 프로젝트의 커밋
             // 작성자까지 바뀐다. 되돌리는 길은 도구 안에 없다.
+            //
+            // 네 조합(이름/메일 × 로컬/전역)을 전부 본다 - 이름만 로컬에 쓰고 메일은 전역에
+            // 새는 것과 그 반대를 모두 잡아야 하며, 값도 실행마다 고유해야 한다. 개발자의
+            // 실제 전역 신원이 우연히 리터럴과 같으면 Not.EqualTo가 거짓으로 실패한다.
             var path = NewRepoWithoutIdentity();
+            var suffix = Guid.NewGuid().ToString("N");
+            var name = "홍길동-" + suffix;
+            var email = $"gildong-{suffix}@example.com";
 
-            GitIdentity.Write(path, "홍길동", "gildong@example.com");
+            GitIdentity.Write(path, name, email);
 
             using var repo = new Repository(path);
             Assert.Multiple(() =>
             {
                 Assert.That(repo.Config.Get<string>("user.name", ConfigurationLevel.Local)?.Value,
-                    Is.EqualTo("홍길동"));
+                    Is.EqualTo(name));
+                Assert.That(repo.Config.Get<string>("user.email", ConfigurationLevel.Local)?.Value,
+                    Is.EqualTo(email));
+                Assert.That(repo.Config.Get<string>("user.name", ConfigurationLevel.Global)?.Value,
+                    Is.Not.EqualTo(name),
+                    "전역 config에 쓰면 안 된다");
                 Assert.That(repo.Config.Get<string>("user.email", ConfigurationLevel.Global)?.Value,
-                    Is.Not.EqualTo("gildong@example.com"),
+                    Is.Not.EqualTo(email),
                     "전역 config에 쓰면 안 된다");
             });
         }
@@ -129,6 +141,8 @@ namespace DBVC.Core.Tests
         [TestCase("홍길동", "gildong@example", TestName = "Validate_Rejects_WhenEmailHasNoDot")]
         [TestCase("홍길동", "gil dong@example.com", TestName = "Validate_Rejects_WhenEmailHasWhitespace")]
         [TestCase("홍길동", "@example.com", TestName = "Validate_Rejects_WhenEmailHasNoLocalPart")]
+        [TestCase("홍길\r\n동", "gildong@example.com", TestName = "Validate_Rejects_WhenNameHasNewline")]
+        [TestCase("홍길동", "gil\r\ndong@example.com", TestName = "Validate_Rejects_WhenEmailHasNewline")]
         public void Validate_ReturnsAKoreanReason_WhenInputIsUnusable(string? name, string? email)
         {
             var reason = GitIdentity.Validate(name, email);
