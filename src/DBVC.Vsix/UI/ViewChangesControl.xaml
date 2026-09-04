@@ -131,6 +131,23 @@
                                VerticalAlignment="Center"/>
                 </DockPanel>
             </Border>
+
+            <!--
+                커밋 작성자 안내. 인코딩·추적기 배너와 별도로 둔다 - 원인도 조치도 다르고,
+                셋이 동시에 뜰 수 있어야 한다.
+            -->
+            <Border Background="#FFF4CE" BorderBrush="#E0C77A" BorderThickness="1"
+                    Padding="8,5" Margin="5,0,5,4"
+                    Visibility="{Binding IsCommitIdentityMissing, Converter={StaticResource BoolToVis}}">
+                <DockPanel LastChildFill="True">
+                    <Button DockPanel.Dock="Right" Content="작성자 설정..." Width="110" Margin="8,0,0,0"
+                            Command="{Binding SetCommitIdentityCommand}"
+                            ToolTip="커밋에 남을 이름과 메일 주소를 지정합니다. 이 저장소(.git/config)에만 저장되며 다른 저장소에는 영향이 없습니다."/>
+                    <TextBlock Text="커밋 작성자가 설정되어 있지 않습니다. 지금은 커밋과 Pull이 막힙니다."
+                               Foreground="#6B5A00" TextWrapping="Wrap" FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
+                </DockPanel>
+            </Border>
         </StackPanel>
 
         <!--

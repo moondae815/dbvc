@@ -423,6 +423,9 @@ namespace DBVC.Vsix.ViewModels
                 if (probedMapping != null)
                 {
                     probe.Encoding = RepositoryEncoding.Detect(probedMapping.GitPath);
+
+                    // config 파일을 여는 일이라 UI 스레드에서 부르지 않는다. 인코딩 판정과 같은 이유다.
+                    probe.Identity = GitIdentity.Detect(probedMapping.GitPath);
                 }
             }
 
@@ -447,6 +450,7 @@ namespace DBVC.Vsix.ViewModels
             {
                 IsInitialized = false;
                 IsTrackerOutdated = false;
+                IsCommitIdentityMissing = false;
                 WarningMessage = probe.ConnectionError;
                 IsBusy = false;
                 return;
@@ -463,6 +467,10 @@ namespace DBVC.Vsix.ViewModels
             // Pull로 전환된 커밋을 받으면 저절로 해결되므로 배너 자체를 띄우지 않는다.
             IsRepositoryEncodingLegacy = probe.Encoding == RepositoryEncodingKind.Legacy
                 && MappingPolicy.IsAllowed(probe.Mode, DbvcOperation.Extract);
+
+            // 인코딩 배너와 달리 mode로 거르지 않는다. 배포·감사 클론도 Pull의 병합 커밋에 신원이
+            // 필요하고, 걸러 버리면 그 사람만 배너 없이 차단당해 빠져나올 길이 없다.
+            IsCommitIdentityMissing = probe.Identity == GitIdentityState.Missing;
 
             CurrentBranch = probe.RepositoryState?.CurrentBranch;
             BlockMessage = probe.RepositoryState?.BlockMessage;
@@ -500,6 +508,9 @@ namespace DBVC.Vsix.ViewModels
 
             /// <summary>매핑이 없거나 추출물이 없으면 Unknown이다. 판정은 Core가 한다.</summary>
             public RepositoryEncodingKind Encoding { get; set; } = RepositoryEncodingKind.Unknown;
+
+            /// <summary>매핑이 없거나 유효한 저장소가 아니면 Unknown이다. 판정은 Core가 한다.</summary>
+            public GitIdentityState Identity { get; set; } = GitIdentityState.Unknown;
         }
 
         // ---------- 바인딩 속성 ----------
@@ -628,6 +639,24 @@ namespace DBVC.Vsix.ViewModels
                 _isRepositoryEncodingLegacy = value;
                 OnPropertyChanged();
                 RaiseActionCanExecuteChanged();
+            }
+        }
+
+        private bool _isCommitIdentityMissing;
+
+        /// <summary>
+        /// 커밋 작성자 신원이 없다. 배너가 이 값을 본다.
+        /// 판정할 수 없는 경우(저장소가 아닌 경로)는 거짓이다 - 매핑되지 않은 대상에서
+        /// 배너가 상시로 뜨는 것을 막는다.
+        /// </summary>
+        public bool IsCommitIdentityMissing
+        {
+            get => _isCommitIdentityMissing;
+            private set
+            {
+                if (_isCommitIdentityMissing == value) return;
+                _isCommitIdentityMissing = value;
+                OnPropertyChanged();
             }
         }
 

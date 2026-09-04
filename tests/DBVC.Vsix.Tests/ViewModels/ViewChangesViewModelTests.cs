@@ -3207,5 +3207,87 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(vm.IsRepositoryEncodingLegacy, Is.False);
         }
+
+        // ---------- 커밋 작성자 신원 ----------
+
+        /// <summary>
+        /// 실제 Git 저장소로 매핑을 갈아 끼운다. 기본 매핑의 GitPath(C:\repo)는 저장소가 아니라
+        /// 신원 판정이 늘 Unknown으로 떨어진다.
+        /// </summary>
+        private string NewMappedGitRepo(bool withIdentity, MappingMode mode = MappingMode.Write)
+        {
+            var repoPath = Path.Combine(Path.GetTempPath(), "dbvc_vmident_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(repoPath);
+            _tempDirs.Add(repoPath);
+
+            LibGit2Sharp.Repository.Init(repoPath);
+            if (withIdentity)
+            {
+                GitIdentity.Write(repoPath, "홍길동", "gildong@corp.co.kr");
+            }
+            else
+            {
+                // 로컬을 비워 두기만 하면 실행 기계의 전역 설정이 결과를 바꾼다.
+                using var repo = new LibGit2Sharp.Repository(repoPath);
+                repo.Config.Set("user.name", string.Empty, LibGit2Sharp.ConfigurationLevel.Local);
+                repo.Config.Set("user.email", string.Empty, LibGit2Sharp.ConfigurationLevel.Local);
+            }
+
+            _config.Setup(c => c.TryGetMapping(Server, Database))
+                .Returns(new MappingConfig
+                {
+                    ServerName = Server,
+                    DatabaseName = Database,
+                    GitPath = repoPath,
+                    Mode = mode,
+                    Branch = mode == MappingMode.Write ? null : "develop"
+                });
+
+            return repoPath;
+        }
+
+        [Test]
+        public void Connect_RaisesTheIdentityBanner_WhenTheRepositoryHasNoAuthor()
+        {
+            NewMappedGitRepo(withIdentity: false);
+
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.IsCommitIdentityMissing, Is.True);
+        }
+
+        [Test]
+        public void Connect_LeavesTheIdentityBannerDown_WhenTheAuthorIsConfigured()
+        {
+            NewMappedGitRepo(withIdentity: true);
+
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.IsCommitIdentityMissing, Is.False);
+        }
+
+        [Test]
+        public void Connect_LeavesTheIdentityBannerDown_WhenThePathIsNotARepository()
+        {
+            // SetUp의 기본 매핑이 이 경우다 - GitPath가 C:\repo라 매핑은 있지만 저장소가 아니다.
+            // 판정할 수 없는 것을 "없음"으로 뭉개면 이 파일의 거의 모든 테스트에서 배너가 뜬다.
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.IsCommitIdentityMissing, Is.False);
+        }
+
+        [TestCase(MappingMode.Deploy)]
+        [TestCase(MappingMode.Audit)]
+        public void Connect_RaisesTheIdentityBanner_EvenForReadOnlyModes(MappingMode mode)
+        {
+            // 인코딩 배너와 다르다. 배포·감사 클론도 Pull은 하고, 비-fast-forward Pull은 병합
+            // 커밋을 만들어 같은 신원을 요구한다. 모드로 걸러 버리면 그 사람만 배너 없이
+            // 차단당해 빠져나올 길이 없다.
+            NewMappedGitRepo(withIdentity: false, mode: mode);
+
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.IsCommitIdentityMissing, Is.True);
+        }
     }
 }
