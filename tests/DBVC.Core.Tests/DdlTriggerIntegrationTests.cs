@@ -521,6 +521,9 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
             try
             {
                 LibGit2Sharp.Repository.Init(repoPath);
+                // GitManager가 신원 없이는 커밋을 거부하므로, 실행 기계의 전역 config에
+                // 기대지 않고 이 저장소에만 심는다.
+                GitIdentity.Write(repoPath, "Test", "test@example.com");
 
                 // 새로고침이 남의 객체까지 추출한 뒤의 모습이다. 미추적 파일이라 Git이 더럽다고 본다.
                 var relative = ObjectPathConvention.GetRelativePath("dbo", "PROCEDURE", "OtherPcDirtyProbe");
@@ -702,6 +705,10 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
         private static void CommitFile(string repoPath, string fullPath, string content)
         {
             LibGit2Sharp.Repository.Init(repoPath);
+            // 이 저장소를 뒤에서 git.CommitChanges(GitManager)로 다시 커밋하는 테스트가
+            // 있다 - GitManager는 신원 없이는 거부하므로 실행 기계의 전역 config와
+            // 무관하게 여기서 심어 둔다.
+            GitIdentity.Write(repoPath, "Test", "test@example.com");
             Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
             File.WriteAllText(fullPath, content);
 
