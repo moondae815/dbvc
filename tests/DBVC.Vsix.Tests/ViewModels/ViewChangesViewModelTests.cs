@@ -3365,5 +3365,71 @@ namespace DBVC.Vsix.Tests.ViewModels
                 Assert.That(vm.IsCommitIdentityMissing, Is.True);
             });
         }
+
+        [Test]
+        public void Commit_PromptsForIdentityAndCommits_WhenTheUserFillsItIn()
+        {
+            var repoPath = NewMappedGitRepo(withIdentity: false);
+            var vm = NewViewModelWithChanges(Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql"));
+            vm.CommitMessage = "메시지";
+            vm.Changes[0].IsSelected = true;
+            _identityDialog.Result = new CommitIdentityInput { Name = "홍길동", Email = "gildong@corp.co.kr" };
+
+            vm.CommitCommand.Execute(null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(_identityDialog.PromptCount, Is.EqualTo(1));
+                _git.Verify(g => g.CommitChanges(Server, Database, "메시지", It.IsAny<IEnumerable<string>>()), Times.Once);
+            });
+        }
+
+        [Test]
+        public void Commit_DoesNotCommit_WhenTheUserCancelsTheIdentityPrompt()
+        {
+            NewMappedGitRepo(withIdentity: false);
+            var vm = NewViewModelWithChanges(Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql"));
+            vm.CommitMessage = "메시지";
+            vm.Changes[0].IsSelected = true;
+            _identityDialog.Result = null;
+
+            vm.CommitCommand.Execute(null);
+
+            _git.Verify(g => g.CommitChanges(Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>()), Times.Never);
+        }
+
+        [Test]
+        public void Commit_PromptsOnlyOnce_WhenWritingTheIdentityDoesNotTake()
+        {
+            // 다이얼로그가 값을 돌려줬는데도 신원이 남지 않는 경우(권한 등)를 흉내 낸다.
+            // 가드가 없으면 대화상자가 무한히 뜬다.
+            NewMappedGitRepo(withIdentity: false);
+            var vm = NewViewModelWithChanges(Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql"));
+            vm.CommitMessage = "메시지";
+            vm.Changes[0].IsSelected = true;
+            _identityDialog.Result = new CommitIdentityInput { Name = "홍길동", Email = "gildong" }; // 검증에 걸린다
+
+            vm.CommitCommand.Execute(null);
+
+            Assert.That(_identityDialog.PromptCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Pull_PromptsForIdentityBeforeStarting_WhenTheRepositoryHasNoAuthor()
+        {
+            // Pull은 병합 커밋을 만든다. 신원 없이 시작하면 Core가 던지고, 사용자는 무엇을
+            // 해야 하는지 알 수 없다.
+            NewMappedGitRepo(withIdentity: false);
+            var vm = NewConnectedViewModel();
+            _identityDialog.Result = null;
+
+            vm.PullCommand.Execute(null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(_identityDialog.PromptCount, Is.EqualTo(1));
+                _git.Verify(g => g.PullChanges(Server, Database), Times.Never);
+            });
+        }
     }
 }

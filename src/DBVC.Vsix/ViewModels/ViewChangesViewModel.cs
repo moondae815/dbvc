@@ -954,6 +954,14 @@ namespace DBVC.Vsix.ViewModels
             var mapping = _configManager.TryGetMapping(ServerName!, DatabaseName!);
             if (mapping == null) return;
 
+            // Pull은 병합 커밋을 만들 수 있다. 시작한 뒤 Core가 던지면 사용자는 네트워크가 도는
+            // 동안 기다린 끝에 사유만 본다. 시작 전에 받는다.
+            if (GitIdentity.Detect(mapping.GitPath) == GitIdentityState.Missing
+                && !PromptForCommitIdentity())
+            {
+                return;
+            }
+
             // GetChangedFiles는 미추적 파일도 포함하므로 이 개수가 곧 손실량은 아니다.
             // 문구가 개수를 손실량으로 단정하지 않도록 두 결과를 분리해 알린다.
             var pending = _gitManager.GetChangedFiles(mapping.GitPath);
@@ -1656,14 +1664,18 @@ namespace DBVC.Vsix.ViewModels
         /// 스테이징은 객체 3000개 기준 15초가 걸린다(libgit2 고유 비용이라 API를 바꿔도 줄지 않는다).
         /// 그래서 커밋도 UI 스레드에서 하지 않는다.
         /// </summary>
-        private void Commit() => Commit(coAuthorConfirmed: false);
+        private void Commit() => Commit(coAuthorConfirmed: false, identityPrompted: false);
 
         /// <param name="coAuthorConfirmed">
         /// 사용자가 이미 "남의 변경이 딸려 온다"는 확인에 동의했는지. 확인 대화상자는 UI
         /// 스레드에서만 띄울 수 있는데 판정은 DB를 읽어야 해서, 판정을 백그라운드에서 마치고
         /// 확인을 받은 뒤 이 값을 참으로 해서 같은 경로를 다시 탄다.
         /// </param>
-        private void Commit(bool coAuthorConfirmed)
+        /// <param name="identityPrompted">
+        /// 이미 신원을 물었는지. 입력을 받았는데도 신원이 남지 않으면(권한 등) 판정이 다시
+        /// "없음"으로 돌아와 대화상자가 무한히 뜬다. 두 번째는 사유를 알리고 멈춘다.
+        /// </param>
+        private void Commit(bool coAuthorConfirmed, bool identityPrompted)
         {
             if (!CanCommit()) return;
 
@@ -1691,6 +1703,15 @@ namespace DBVC.Vsix.ViewModels
             _scheduler.Run<CommitOutcome>(
                 () =>
                 {
+                    // CoAuthor 확인보다 먼저 본다. 순서가 뒤집히면 확인 대화상자와 신원 대화상자가
+                    // 연달아 뜬다. 파일을 여는 일이라 UI 스레드가 아닌 여기서 한다.
+                    var mappingForIdentity = _configManager.TryGetMapping(server, database);
+                    if (mappingForIdentity != null
+                        && GitIdentity.Detect(mappingForIdentity.GitPath) == GitIdentityState.Missing)
+                    {
+                        return new CommitOutcome { NeedsIdentity = true };
+                    }
+
                     // 커밋 직전에 본다. 목록을 만든 시점과 커밋 시점 사이에 남이 또 만졌을 수 있다.
                     // 조회가 DB를 읽으므로 UI 스레드가 아니라 여기서 한다.
                     if (!coAuthorConfirmed)
@@ -1728,13 +1749,30 @@ namespace DBVC.Vsix.ViewModels
                 {
                     IsBusy = false;
 
+                    if (outcome.NeedsIdentity)
+                    {
+                        // 차단이 막다른 길이 되지 않게 한다. 여기서 받고 같은 경로를 다시 탄다.
+                        if (!identityPrompted && PromptForCommitIdentity())
+                        {
+                            Commit(coAuthorConfirmed, identityPrompted: true);
+                            return;
+                        }
+
+                        if (identityPrompted)
+                        {
+                            _notifier.ShowError("DBVC 커밋 실패", GitIdentityMissingException.UserMessage);
+                        }
+
+                        return;
+                    }
+
                     if (outcome.CoAuthors != null)
                     {
                         // 차단이 아니라 확인이다. 대부분은 실제로 이어서 작업한 정상적인 경우이고,
                         // 막으면 사람들이 도구를 쓰지 않게 된다(설계 3.10).
                         if (AskToCommitWithOtherAuthorsWork(outcome.CoAuthors))
                         {
-                            Commit(coAuthorConfirmed: true);
+                            Commit(coAuthorConfirmed: true, identityPrompted: identityPrompted);
                         }
 
                         return;
@@ -1795,6 +1833,9 @@ namespace DBVC.Vsix.ViewModels
 
             /// <summary>null이 아니면 커밋은 됐지만 DDL 로그를 닫지 못했다는 뜻과 그 사유다.</summary>
             public string? MarkProcessedFailure { get; set; }
+
+            /// <summary>참이면 커밋하지 않았고 작성자 신원을 받아야 한다는 뜻이다.</summary>
+            public bool NeedsIdentity { get; set; }
         }
 
         private bool AskToCommitWithOtherAuthorsWork(IReadOnlyList<CoAuthorWarning> coAuthors)
