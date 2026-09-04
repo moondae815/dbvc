@@ -56,11 +56,24 @@ namespace DBVC.Core.Tests
 
         private static readonly Signature TestSignature = new Signature("Test", "test@example.com", new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
 
+        /// <summary>
+        /// 커밋할 수 있는 저장소로 만든다. GitManager는 신원이 없으면 커밋을 거부하므로
+        /// 실제 커밋을 부르는 테스트는 전부 이것을 거쳐야 한다.
+        ///
+        /// 실행 기계의 전역 config에 기대지 않는 것이 요점이다 - 기대면 CI와 개발 PC에서
+        /// 다른 결과가 나오고, 어느 쪽이 옳은지 테스트만 봐서는 알 수 없다.
+        /// </summary>
+        private static void SeedIdentity(string repoPath)
+        {
+            GitIdentity.Write(repoPath, "Test", "test@example.com");
+        }
+
         /// <summary>커밋 1개를 가진 저장소를 만든다.</summary>
         private string NewRepoWithCommit(string fileName = "dbo/Tables/Users.sql", string content = "CREATE TABLE Users (Id INT);")
         {
             var path = NewTempDir();
             Repository.Init(path);
+            SeedIdentity(path);
             WriteRepoFile(path, fileName, content);
             using var repo = new Repository(path);
             Commands.Stage(repo, "*");
@@ -96,6 +109,7 @@ namespace DBVC.Core.Tests
 
             var localPath = NewTempDir();
             Repository.Clone(originPath, localPath);
+            SeedIdentity(localPath);
             return (localPath, originPath);
         }
 
@@ -284,6 +298,7 @@ namespace DBVC.Core.Tests
         {
             var repoPath = NewTempDir();
             Repository.Init(repoPath);
+            SeedIdentity(repoPath);
 
             using (var repo = new Repository(repoPath))
             {
@@ -850,6 +865,7 @@ namespace DBVC.Core.Tests
             var originPath = NewRepoWithCommit();
             var clonePath = NewTempDir();
             Repository.Clone(originPath, clonePath);
+            SeedIdentity(clonePath);
 
             WriteRepoFile(originPath, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);");
             using (var origin = new Repository(originPath))
@@ -875,6 +891,7 @@ namespace DBVC.Core.Tests
             var originPath = NewRepoWithCommit();
             var clonePath = NewTempDir();
             Repository.Clone(originPath, clonePath);
+            SeedIdentity(clonePath);
 
             var git = NewGitManager("localhost", "testdb", clonePath);
 
@@ -895,6 +912,7 @@ namespace DBVC.Core.Tests
             var originPath = NewRepoWithCommit();
             var clonePath = NewTempDir();
             Repository.Clone(originPath, clonePath);
+            SeedIdentity(clonePath);
 
             WriteRepoFile(originPath, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);");
             using (var origin = new Repository(originPath))
@@ -1040,6 +1058,7 @@ namespace DBVC.Core.Tests
             var originPath = NewRepoWithCommit();
             var localPath = NewTempDir();
             Repository.Clone(originPath, localPath);
+            SeedIdentity(localPath);
             TryDeleteDirectory(originPath);
 
             var git = NewGitManager("localhost", "testdb", localPath);
@@ -1088,6 +1107,7 @@ namespace DBVC.Core.Tests
             var originPath = NewRepoWithCommit();
             var clonePath = NewTempDir();
             Repository.Clone(originPath, clonePath);
+            SeedIdentity(clonePath);
 
             // 같은 파일을 원격과 로컬에서 서로 다르게 수정 -> 충돌
             WriteRepoFile(originPath, "dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT, RemoteCol INT);");
@@ -1306,6 +1326,7 @@ namespace DBVC.Core.Tests
             // 다른 사람이 원격에 먼저 올린다.
             var otherPath = NewTempDir();
             Repository.Clone(originPath, otherPath);
+            SeedIdentity(otherPath);
             CommitOneFile(otherPath, "dbo/Tables/Other.sql", "CREATE TABLE Other (Id INT);", "other change");
             using (var other = new Repository(otherPath))
             {
@@ -1678,6 +1699,7 @@ namespace DBVC.Core.Tests
             var originPath = NewRepoWithCommit();
             var clonePath = NewTempDir();
             Repository.Clone(originPath, clonePath);
+            SeedIdentity(clonePath);
 
             // 원격이 파일을 바꿔 커밋한다.
             WriteRepoFile(originPath, "dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT, RemoteCol INT);");
