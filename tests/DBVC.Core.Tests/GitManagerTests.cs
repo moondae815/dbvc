@@ -554,6 +554,82 @@ namespace DBVC.Core.Tests
             Assert.That(result, Is.EqualTo(GitCommitResult.Committed));
         }
 
+        // ---------- 커밋 작성자 신원 ----------
+
+        /// <summary>
+        /// 신원이 비어 있는 저장소. 로컬에 빈 값을 심는 이유는 GitIdentityTests와 같다 -
+        /// 로컬을 비워 두기만 하면 실행 기계의 전역 설정이 결과를 바꾼다.
+        /// </summary>
+        private string NewRepoWithCommitButNoIdentity()
+        {
+            var path = NewRepoWithCommit();
+            using (var repo = new Repository(path))
+            {
+                repo.Config.Set("user.name", string.Empty, ConfigurationLevel.Local);
+                repo.Config.Set("user.email", string.Empty, ConfigurationLevel.Local);
+            }
+            return path;
+        }
+
+        [Test]
+        public void CommitChanges_Throws_WhenTheIdentityIsMissing()
+        {
+            var repoPath = NewRepoWithCommitButNoIdentity();
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "CREATE TABLE Users (Id BIGINT);");
+            var git = NewGitManager("srv", "db", repoPath);
+
+            Assert.Throws<GitIdentityMissingException>(() => git.CommitChanges("srv", "db", "메시지"));
+        }
+
+        [Test]
+        public void CommitChanges_LeavesTheIndexUntouched_WhenTheIdentityIsMissing()
+        {
+            // 차단은 아무것도 바꾸지 않아야 한다. Commands.Stage가 서명보다 먼저 돌기 때문에,
+            // 검사를 BuildSignature 자리에 두면 스테이징만 된 채 실패한다.
+            var repoPath = NewRepoWithCommitButNoIdentity();
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "CREATE TABLE Users (Id BIGINT);");
+            var git = NewGitManager("srv", "db", repoPath);
+
+            Assert.Throws<GitIdentityMissingException>(() => git.CommitChanges("srv", "db", "메시지"));
+
+            using var repo = new Repository(repoPath);
+            var staged = repo.Diff.Compare<TreeChanges>(repo.Head.Tip.Tree, DiffTargets.Index);
+            Assert.That(staged.Any(), Is.False, "차단된 커밋이 인덱스를 건드리면 안 된다");
+        }
+
+        [Test]
+        public void PullChanges_Throws_WhenTheIdentityIsMissing()
+        {
+            // Pull은 병합 커밋을 만든다. 커밋만 막고 여기를 열어 두면 폴백이 그리로 새어 나간다.
+            var (localPath, _) = NewClonedRepoWithBareOrigin();
+            using (var repo = new Repository(localPath))
+            {
+                repo.Config.Set("user.name", string.Empty, ConfigurationLevel.Local);
+                repo.Config.Set("user.email", string.Empty, ConfigurationLevel.Local);
+            }
+            var git = NewGitManager("srv", "db", localPath);
+
+            Assert.Throws<GitIdentityMissingException>(() => git.PullChanges("srv", "db"));
+        }
+
+        [Test]
+        public void CommitChanges_UsesTheConfiguredIdentity_WhenItIsPresent()
+        {
+            var repoPath = NewRepoWithCommit();
+            GitIdentity.Write(repoPath, "홍길동", "gildong@corp.co.kr");
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "CREATE TABLE Users (Id BIGINT);");
+            var git = NewGitManager("srv", "db", repoPath);
+
+            git.CommitChanges("srv", "db", "메시지");
+
+            using var repo = new Repository(repoPath);
+            Assert.Multiple(() =>
+            {
+                Assert.That(repo.Head.Tip.Author.Name, Is.EqualTo("홍길동"));
+                Assert.That(repo.Head.Tip.Author.Email, Is.EqualTo("gildong@corp.co.kr"));
+            });
+        }
+
         // ---------- GetHistory ----------
 
         [Test]

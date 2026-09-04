@@ -17,9 +17,6 @@ namespace DBVC.Core
     /// </summary>
     public class GitManager : IGitManager
     {
-        private const string DefaultAuthorName = "DBVC User";
-        private const string DefaultAuthorEmail = "dbvc@example.com";
-
         /// <summary>
         /// <see cref="RemoteDiagnostics.Explain"/>이 판정하지 못한 원격에서 자격 증명이 요구된 경우.
         /// 정상 경로에서는 도달하지 않지만, 메시지 없는 예외를 던지지 않도록 둔다.
@@ -310,6 +307,11 @@ namespace DBVC.Core
             }
 
             using var repo = new Repository(repoPath);
+
+            // 스테이징보다 먼저 본다. Commands.Stage가 서명보다 앞서 돌기 때문에, 검사를
+            // BuildSignature 자리에 맡기면 스테이징만 된 채 실패해 작업 트리 상태가 바뀐다.
+            // 차단은 아무것도 바꾸지 않아야 한다.
+            if (!GitIdentity.IsConfigured(repo)) throw new GitIdentityMissingException();
 
             var paths = relativePaths?.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
             if (paths == null)
@@ -910,9 +912,10 @@ namespace DBVC.Core
 
         private static Signature BuildSignature(Repository repo)
         {
-            // 사용자의 git config를 우선 사용하고, 없을 때만 DBVC 기본값으로 대체한다.
+            // 폴백을 두지 않는다. 신원 없이 만든 커밋은 공용 저장소에서 되돌릴 수 없다 -
+            // 이력을 다시 쓰면 저장소를 가진 모두가 클론을 다시 받아야 한다.
             return repo.Config.BuildSignature(DateTimeOffset.Now)
-                ?? new Signature(DefaultAuthorName, DefaultAuthorEmail, DateTimeOffset.Now);
+                ?? throw new GitIdentityMissingException();
         }
 
         private static string NormalizePath(string path)
