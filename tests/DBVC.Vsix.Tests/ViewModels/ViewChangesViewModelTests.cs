@@ -3513,5 +3513,73 @@ namespace DBVC.Vsix.Tests.ViewModels
                 _git.Verify(g => g.PullChanges(Server, Database), Times.Never);
             });
         }
+
+        // ---------- 재추출 없는 갱신 ----------
+
+        /// <summary>
+        /// 되돌리기가 이 갱신을 쓴다. 재추출하면 열린 로그 행이 가리키는 객체가 다시
+        /// 추출되어 같은 클릭 안에서 되돌리기가 취소된다.
+        /// </summary>
+        [Test]
+        public void Refresh_DoesNotExtract_WhenSyncRepositoryIsFalse()
+        {
+            var vm = NewConnectedViewModel();
+            _smo.Invocations.Clear();
+            _cleaner.Invocations.Clear();
+
+            InvokeRefresh(vm, syncRepository: false);
+
+            _smo.Verify(s => s.ScriptObjectsDetailed(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>(),
+                It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        /// <summary>
+        /// 되돌리기가 되살린 파일을 같은 갱신 안에서 cleaner가 다시 지우면, 사용자가 누른
+        /// 일이 눈앞에서 취소된다. 그래서 "저장소에 아무것도 쓰지 않는다"가 규약이다.
+        /// </summary>
+        [Test]
+        public void Refresh_DoesNotCleanWorkingTree_WhenSyncRepositoryIsFalse()
+        {
+            var vm = NewConnectedViewModel();
+            _smo.Invocations.Clear();
+            _cleaner.Invocations.Clear();
+
+            InvokeRefresh(vm, syncRepository: false);
+
+            _cleaner.Verify(c => c.RemoveDeletedObjectFiles(
+                It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()), Times.Never);
+        }
+
+        [Test]
+        public void Refresh_StillReadsPendingChanges_WhenSyncRepositoryIsFalse()
+        {
+            var vm = NewConnectedViewModel();
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                new ChangeRecord
+                {
+                    QualifiedName = "dbo.Users", ObjectType = "TABLE", State = "Modified",
+                    RelativePath = "dbo/Tables/Users.sql"
+                }
+            });
+
+            InvokeRefresh(vm, syncRepository: false);
+
+            Assert.That(vm.Changes.Count, Is.EqualTo(1));
+            Assert.That(vm.Changes[0].RelativePath, Is.EqualTo("dbo/Tables/Users.sql"));
+        }
+
+        private static void InvokeRefresh(ViewChangesViewModel vm, bool syncRepository)
+        {
+            var method = typeof(ViewChangesViewModel).GetMethod(
+                "Refresh",
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                binder: null,
+                types: new[] { typeof(bool), typeof(bool), typeof(bool) },
+                modifiers: null);
+            Assert.That(method, Is.Not.Null, "Refresh(bool, bool, bool)이 없다");
+            method!.Invoke(vm, new object[] { false, false, syncRepository });
+        }
     }
 }

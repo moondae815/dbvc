@@ -59,6 +59,12 @@ namespace DBVC.Vsix.ViewModels
         /// </summary>
         private readonly HashSet<string> _failedCleanupPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// 다음 갱신이 끝난 뒤에 보여야 하는 한 줄. ApplyRefreshOutcome이 WarningMessage를
+        /// 무조건 덮어쓰므로, 갱신을 부르기 전에 여기 담아 둔다.
+        /// </summary>
+        private string? _pendingStatusMessage;
+
         public ViewChangesViewModel()
             : this(new ConfigManager(), null, null, null, null)
         {
@@ -1442,7 +1448,14 @@ namespace DBVC.Vsix.ViewModels
         /// 이력 탭을 다시 읽을지. 부르는 쪽이 바로 앞서 같은 대상으로 이미 읽었다면 끈다 -
         /// 저장소 전체 이력 조회는 커밋 그래프를 통째로 훑는 일이라 공짜가 아니다.
         /// </param>
-        private void Refresh(bool fullExtraction, bool reloadHistory = true)
+        /// <param name="syncRepository">
+        /// 저장소를 데이터베이스에 맞출지. 거짓이면 <b>저장소에 아무것도 쓰지 않는다</b> —
+        /// 추출도, 삭제된 객체의 파일 정리도 하지 않고 목록만 다시 만든다.
+        ///
+        /// 되돌리기가 이것을 쓴다. 참으로 두면 열린 로그 행이 가리키는 객체가 다시 추출되어
+        /// 같은 클릭 안에서 되돌리기가 취소되고, 되살린 파일은 cleaner가 도로 지운다.
+        /// </param>
+        private void Refresh(bool fullExtraction, bool reloadHistory = true, bool syncRepository = true)
         {
             Changes.Clear();
             SelectedChange = null;
@@ -1481,7 +1494,7 @@ namespace DBVC.Vsix.ViewModels
             ProgressText = "시작하는 중...";
 
             _scheduler.Run(
-                () => GatherRefresh(server, database, fullExtraction, includeAllAuthors, token),
+                () => GatherRefresh(server, database, fullExtraction, includeAllAuthors, syncRepository, token),
                 ApplyRefreshOutcome,
                 ex =>
                 {
@@ -1507,13 +1520,16 @@ namespace DBVC.Vsix.ViewModels
         /// 새로고침의 무거운 부분. SMO 추출·변경 로그 조회·Git 상태 읽기·작업 트리 정리를 한다.
         /// UI 스레드 밖에서 돌므로 <see cref="Changes"/>를 비롯한 바인딩 대상을 건드리지 않는다.
         /// </summary>
-        private RefreshOutcome GatherRefresh(string server, string database, bool fullExtraction, bool includeAllAuthors, CancellationToken cancellationToken)
+        private RefreshOutcome GatherRefresh(string server, string database, bool fullExtraction, bool includeAllAuthors, bool syncRepository, CancellationToken cancellationToken)
         {
             var outcome = new RefreshOutcome();
             var mapping = _configManager.TryGetMapping(server, database);
 
             // 현재 DB 상태를 파일로 추출해야 Git 상태·Diff가 최신 코드를 반영한다.
-            Extract(server, database, mapping, fullExtraction, outcome, cancellationToken);
+            if (syncRepository)
+            {
+                Extract(server, database, mapping, fullExtraction, outcome, cancellationToken);
+            }
 
             if (!_stateTracker.RefreshState(server, database, includeAllAuthors))
             {
@@ -1524,7 +1540,11 @@ namespace DBVC.Vsix.ViewModels
 
             // DROP된 객체의 파일을 지워야 Git이 삭제를 감지하고 커밋에 포함할 수 있다.
             // RefreshState가 Git 상태를 읽은 뒤이므로 이 정리가 목록 판정을 바꾸지 않는다.
-            if (mapping != null)
+            //
+            // syncRepository가 거짓이면 이 정리도 건너뛴다 - 되돌리기가 방금 되살린 파일을
+            // DROP 로그 행이 아직 열려 있다는 이유로 cleaner가 다시 지우면, 사용자가 누른
+            // 되돌리기가 같은 새로고침 안에서 스스로 취소된다.
+            if (syncRepository && mapping != null)
             {
                 var cleanup = _cleaner.RemoveDeletedObjectFiles(mapping.GitPath, outcome.Records);
                 if (cleanup.HasFailures)
@@ -1613,7 +1633,12 @@ namespace DBVC.Vsix.ViewModels
                 });
             }
 
-            WarningMessage = outcome.Warnings.Count > 0 ? string.Join(" / ", outcome.Warnings) : null;
+            // 갱신이 끝난 뒤에 남아야 하는 한 줄을 여기서 꺼낸다. 갱신을 부른 쪽에서
+            // WarningMessage에 대입하면 이 자리가 나중에 도착해 그것을 지운다.
+            WarningMessage = outcome.Warnings.Count > 0
+                ? string.Join(" / ", outcome.Warnings)
+                : _pendingStatusMessage;
+            _pendingStatusMessage = null;
 
             // 전환이 끝나면 파일이 UTF-8이 되어 배너가 스스로 내려간다. 다시 읽지 않으면 성공한
             // 뒤에도 배너가 남아 사용자가 또 누른다 — 커밋 전이라 되돌릴 화면 신호가 이것뿐이다.
