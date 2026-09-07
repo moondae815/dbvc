@@ -2067,6 +2067,32 @@ namespace DBVC.Core.Tests
         }
 
         /// <summary>
+        /// 대괄호 없는 이름에서 스테이징된 미추적 파일의 정상 경로다. 파일만 지우고
+        /// Commands.Unstage를 부르지 않으면 인덱스 항목이 남아 다음 커밋에 그대로 담긴다 -
+        /// 대괄호 있는 이름의 실패 경로만 있고 이 경로가 없으면, Unstage 호출 자체를
+        /// 지워도(예: 리팩터링 실수로) 대괄호 없는 흔한 경우는 계속 통과해 버린다.
+        /// </summary>
+        [Test]
+        public void DiscardChanges_DeletesFileAndClearsIndex_WhenUntrackedFileIsStaged()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager(Server, Database, repoPath);
+            WriteRepoFile(repoPath, "dbo/Views/vSales.sql", "CREATE VIEW vSales AS SELECT 1 AS X;");
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "dbo/Views/vSales.sql");
+            }
+
+            var result = git.DiscardChanges(Server, Database, new[] { "dbo/Views/vSales.sql" });
+
+            Assert.That(result.DeletedPaths, Is.EqualTo(new[] { "dbo/Views/vSales.sql" }));
+            using (var repo = new Repository(repoPath))
+            {
+                Assert.That(repo.Index["dbo/Views/vSales.sql"], Is.Null);
+            }
+        }
+
+        /// <summary>
         /// repo.Index[path]는 리터럴 조회지만 Commands.Unstage의 경로는 CheckoutPaths와 같은
         /// wildmatch 패스스펙이다. 스테이징된 대괄호 파일명은 인덱스에서는 찾아지는데
         /// Unstage에서는 자기 자신과 매치되지 않을 수 있어, 파일만 지우면 인덱스 항목이

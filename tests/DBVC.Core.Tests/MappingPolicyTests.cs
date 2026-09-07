@@ -84,8 +84,11 @@ namespace DBVC.Core.Tests
         }
 
         /// <summary>
-        /// 거부 문구는 사용자에게 그대로 나간다. 동작 이름이 비어 있으면
-        /// "이 대상은 '배포' 용도로 등록되어 있어 을(를) 할 수 없습니다"가 뜬다.
+        /// 거부 문구는 사용자에게 그대로 나간다. GetOperationName의 default 분기는 빈 이름이
+        /// 아니라 InvalidOperationException을 던지므로(MappingPolicy.cs), 새 DbvcOperation을
+        /// 추가하고 이 표를 고치지 않으면 여기서 빠뜨렸다는 사실이 곧바로 예외로 드러난다.
+        /// 그래서 이 테스트는 "누락 시 빈 이름"이 아니라 "누락 시 예외"라는 계약을 지키기 위한
+        /// 것이 아니라, 사용자에게 그대로 나가는 한국어 문구 자체를 고정하기 위한 것이다.
         /// </summary>
         [Test]
         public void BuildDeniedMessage_NamesDiscardInKorean()

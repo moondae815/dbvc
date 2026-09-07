@@ -347,6 +347,10 @@ namespace DBVC.Core
             var repoPath = ResolveRepoPath(serverName, databaseName);
             if (repoPath == null) return result;
 
+            // 매핑은 있는데 폴더가 깨졌거나 사라진 경우다. new Repository가 던지는 영문
+            // libgit2 메시지를 그대로 한국어 오류 상자에 흘리지 않으려면 여기서 끊는다.
+            if (!IsValidRepository(repoPath)) return result;
+
             // 배포·감사 클론이 더럽다는 것은 DBVC 밖의 무언가가 만졌다는 뜻이다.
             // 남이 만든 상태를 말없이 치우지 않는다.
             var mapping = _configManager?.TryGetMapping(serverName, databaseName);
