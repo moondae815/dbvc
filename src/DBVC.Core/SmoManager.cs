@@ -602,6 +602,10 @@ namespace DBVC.Core
 
         internal static bool ShouldInclude(ScriptTargetInfo target, HashSet<string>? filter)
         {
+            // 필터보다 먼저 본다. 필터는 DDL 로그에서 오므로 구버전이 남긴 행이 DBVC
+            // 객체를 가리킬 수 있고, 그때도 저장소에는 써지지 않아야 한다.
+            if (DbvcOwnedObjects.IsOwned(target.Name)) return false;
+
             if (filter == null) return true;
             return filter.Contains(target.QualifiedName) || filter.Contains(target.Name);
         }
@@ -619,7 +623,9 @@ namespace DBVC.Core
             foreach (Table table in db.Tables)
             {
                 if (table.IsSystemObject) continue;
-                if (string.Equals(table.Name, "DBVC_ChangeLog", StringComparison.OrdinalIgnoreCase)) continue;
+                // 테이블 자신뿐 아니라 그 밑의 DML 트리거 열거까지 건너뛴다.
+                // ShouldInclude가 뒤에서 한 번 더 거르지만 자식까지 막는 것은 여기다.
+                if (DbvcOwnedObjects.IsOwned(table.Name)) continue;
 
                 yield return NewTarget(table.Schema, table.Name, "Table", table.Urn);
 
