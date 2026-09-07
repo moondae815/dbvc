@@ -105,6 +105,12 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
   AND ISNULL(LoginName, N'') = ISNULL(@login, N'')
   AND ISNULL(HostName, N'') = ISNULL(@host, N'')";
 
+        /// <summary>
+        /// 보존 기간이 지난 로그 행을 지운다. 정책은 전부 프로시저 안에 있고 클라이언트는
+        /// 부르기만 한다 - public에 DELETE를 주지 않으려면 그래야 한다.
+        /// </summary>
+        internal const string PurgeCommand = "EXEC dbo.DBVC_PurgeChangeLog";
+
         private readonly IConfigManager _configManager;
         private readonly IGitManager _gitManager;
         private readonly SqlConnectionFactory _connectionFactory;
@@ -303,6 +309,9 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             try
             {
                 var connectionString = BuildConnectionString(serverName, databaseName);
+
+                // 읽기 전에 정리한다. 뒤에 두면 방금 지울 행이 이번 목록에 한 번 더 뜬다.
+                TryPurge(connectionString);
 
                 // 좁힐 때도 전체를 읽는다. 남이 만진 경로가 무엇인지 알아야 Git 폴백이 그것을
                 // 도로 넣지 않는다 - 추출은 작업자를 가리지 않으므로 남의 .sql도 더럽게 보인다.
@@ -716,6 +725,27 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
 
             return (reader.IsDBNull(0) ? null : reader.GetString(0),
                     reader.IsDBNull(1) ? null : reader.GetString(1));
+        }
+
+        /// <summary>
+        /// 오래된 로그를 정리한다. 실패는 삼킨다 - 구버전(v6 이전) DB에는 프로시저가 없어
+        /// 반드시 실패하고, 그 경우 화면에는 이미 업데이트 안내가 따로 떠 있다.
+        /// 정리하지 못하는 것이 새로고침을 무너뜨릴 이유는 되지 않는다(ReconcileWithDatabase와 같은 관용).
+        /// </summary>
+        private static void TryPurge(string connectionString)
+        {
+            try
+            {
+                using var conn = new SqlConnection(connectionString);
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = PurgeCommand;
+                cmd.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"StateTracker.TryPurge skipped: {ex.Message}");
+            }
         }
 
         /// <summary>

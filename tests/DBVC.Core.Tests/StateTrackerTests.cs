@@ -737,6 +737,19 @@ namespace DBVC.Core.Tests
 
         // ---------- 설치 스크립트 ----------
 
+        [Test]
+        public void PurgeCommand_CallsTheProcedureTheInstallScriptCreates()
+        {
+            // 이름이 어긋나면 정리가 영영 돌지 않는데, 실패를 삼키는 자리라 아무도 모른다.
+            var script = StateTracker.ReadInstallScript();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(StateTracker.PurgeCommand, Does.Contain("DBVC_PurgeChangeLog"));
+                Assert.That(script, Does.Contain("CREATE PROCEDURE [dbo].[DBVC_PurgeChangeLog]"));
+            });
+        }
+
         // ---------- 변경분만 추출하기 위한 대상 목록 ----------
         //
         // 새로고침이 DB 전체를 다시 스크립팅하면 객체 수에 비례해 SMO 왕복이 쌓인다.
