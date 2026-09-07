@@ -438,11 +438,27 @@ namespace DBVC.Core
                     // Diff.Compare<TreeChanges>(null, ...) + Index.Replace로 처리한다.
                     // head로 조건을 더 좁히면 그 경로에서만 인덱스 항목이 남아 다음 새로고침에
                     // "Added"로 되살아난다 - 되돌리기가 덜 끝난 것이다.
-                    if (repo.Index[path] != null)
+                    //
+                    // repo.Index[path]는 리터럴 조회지만 Commands.Unstage의 경로는 CheckoutPaths와
+                    // 같은 wildmatch 패스스펙이다. 그래서 대괄호 파일명은 인덱스에서는 찾아지고
+                    // Unstage에서는 못 찾거나 "Users1.sql" 같은 남의 항목을 대신 건드릴 수 있다.
+                    // 인덱스 항목이 있는데 패스스펙 특수문자도 있는 경우, 안전하게 내릴 방법이
+                    // 이 API로는 없으므로 파일도 지우지 않고 실패로 보고한다 - 인덱스 항목을
+                    // 남긴 채 파일만 지우면 성공으로 보이는 반쪽짜리 되돌리기가 된다.
+                    var hasIndexEntry = repo.Index[path] != null;
+                    if (hasIndexEntry && ContainsPathspecMetacharacter(path))
+                    {
+                        result.FailedPaths.Add(path);
+                        continue;
+                    }
+
+                    if (hasIndexEntry)
                     {
                         Commands.Unstage(repo, new[] { path });
                     }
 
+                    // 인덱스 항목이 없으면(순수 미추적 파일) File.Delete는 리터럴 경로이므로
+                    // 대괄호가 있어도 안전하다 - 위 가드는 Unstage에만 해당한다.
                     if (File.Exists(full)) File.Delete(full);
                     result.DeletedPaths.Add(path);
                 }

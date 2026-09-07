@@ -2066,6 +2066,52 @@ namespace DBVC.Core.Tests
             Assert.That(File.Exists(Path.Combine(repoPath, "dbo", "Views", "vSales.sql")), Is.False);
         }
 
+        /// <summary>
+        /// repo.Index[path]는 리터럴 조회지만 Commands.Unstage의 경로는 CheckoutPaths와 같은
+        /// wildmatch 패스스펙이다. 스테이징된 대괄호 파일명은 인덱스에서는 찾아지는데
+        /// Unstage에서는 자기 자신과 매치되지 않을 수 있어, 파일만 지우면 인덱스 항목이
+        /// 남는 반쪽짜리 되돌리기가 된다. 그래서 파일도 지우지 않고 실패로 보고한다.
+        /// </summary>
+        [Test]
+        public void DiscardChanges_FailsPath_WhenUntrackedFileWithPathspecMetacharactersIsStaged()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager(Server, Database, repoPath);
+            WriteRepoFile(repoPath, "dbo/Views/vSales[1].sql", "CREATE VIEW vSales1 AS SELECT 1 AS X;");
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "dbo/Views/vSales[1].sql");
+            }
+
+            var result = git.DiscardChanges(Server, Database, new[] { "dbo/Views/vSales[1].sql" });
+
+            Assert.That(result.FailedPaths, Is.EqualTo(new[] { "dbo/Views/vSales[1].sql" }));
+            Assert.That(result.DeletedPaths, Is.Empty);
+            Assert.That(File.Exists(Path.Combine(repoPath, "dbo", "Views", "vSales[1].sql")), Is.True);
+            using (var repo = new Repository(repoPath))
+            {
+                Assert.That(repo.Index["dbo/Views/vSales[1].sql"], Is.Not.Null);
+            }
+        }
+
+        /// <summary>
+        /// File.Delete는 리터럴 경로다. 대괄호 파일명이라도 인덱스 항목이 없으면(순수
+        /// 미추적) Unstage를 부를 일이 없으므로 패스스펙 가드가 과잉 차단하지 않는다는
+        /// 것을 고정한다.
+        /// </summary>
+        [Test]
+        public void DiscardChanges_DeletesFile_WhenUntrackedFileWithPathspecMetacharactersIsNotStaged()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager(Server, Database, repoPath);
+            WriteRepoFile(repoPath, "dbo/Views/vSales[1].sql", "CREATE VIEW vSales1 AS SELECT 1 AS X;");
+
+            var result = git.DiscardChanges(Server, Database, new[] { "dbo/Views/vSales[1].sql" });
+
+            Assert.That(result.DeletedPaths, Is.EqualTo(new[] { "dbo/Views/vSales[1].sql" }));
+            Assert.That(File.Exists(Path.Combine(repoPath, "dbo", "Views", "vSales[1].sql")), Is.False);
+        }
+
         [Test]
         public void DiscardChanges_RestoresFile_WhenFileWasDeleted()
         {
