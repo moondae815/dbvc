@@ -261,7 +261,7 @@ namespace DBVC.Core
 - [ ] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~DiscardPlanTests"`
-Expected: PASS (9건)
+Expected: PASS (10건 — `[TestCase]`가 붙은 둘이 각각 2건·3건으로 펼쳐진다)
 
 - [ ] **Step 5: 커밋**
 
@@ -480,25 +480,30 @@ git commit -m "feat(core): 되돌리기를 mode 허용 표에 넣는다"
 
         /// <summary>
         /// "이미 받아둔 폴더를 연결" 갈래로 커밋이 없는 저장소가 들어올 수 있다.
-        /// 조용히 건너뛰면 사용자는 되돌아간 줄 안다.
+        ///
+        /// 그런 저장소에는 추적 중인 파일이 하나도 없어 모든 변경이 "Added"로 잡히고,
+        /// 되돌림이 아니라 삭제로 간다. 삭제는 HEAD가 없어도 기준이 필요 없다 — 이 경로가
+        /// 예외를 흘리지 않는다는 것이 여기서 고정하는 것이다.
+        ///
+        /// RestoredPaths가 비는 것은 우연이 아니라 구조적이다. 구현의 head == null 가드는
+        /// 그래서 실제로는 닿지 않는 방어선이며, CheckoutPaths가 unborn HEAD에서 무엇을
+        /// 던지는지에 동작이 좌우되지 않도록 남겨 둔다.
         /// </summary>
         [Test]
-        public void DiscardChanges_ReportsFailure_WhenRepositoryHasNoCommits()
+        public void DiscardChanges_DeletesWithoutThrowing_WhenRepositoryHasNoCommits()
         {
             var repoPath = NewTempDir();
             Repository.Init(repoPath);
             SeedIdentity(repoPath);
             WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT);");
-            using (var repo = new Repository(repoPath))
-            {
-                Commands.Stage(repo, "dbo/Tables/Users.sql");
-            }
             var git = NewGitManager(Server, Database, repoPath);
 
             var result = git.DiscardChanges(Server, Database, new[] { "dbo/Tables/Users.sql" });
 
-            Assert.That(result.FailedPaths, Is.EqualTo(new[] { "dbo/Tables/Users.sql" }));
+            Assert.That(result.DeletedPaths, Is.EqualTo(new[] { "dbo/Tables/Users.sql" }));
             Assert.That(result.RestoredPaths, Is.Empty);
+            Assert.That(result.FailedPaths, Is.Empty);
+            Assert.That(File.Exists(Path.Combine(repoPath, "dbo", "Tables", "Users.sql")), Is.False);
         }
 
         [TestCase(MappingMode.Deploy)]
@@ -664,7 +669,7 @@ Expected: 컴파일 실패 — `DiscardChanges`가 없다.
 - [ ] **Step 5: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~GitManagerTests.DiscardChanges"`
-Expected: PASS (11건)
+Expected: PASS (10건 — `Throws_WhenModeIsNotWrite`가 `[TestCase]` 둘로 펼쳐진다)
 
 `DiscardChanges_ClearsStagedContent_WhenChangeWasAlreadyStaged`가 실패하면 `CheckoutPaths`가 인덱스를 갱신한다는 전제가 틀린 것이다. 그때는 `repo.Index.Replace(head, new[] { path })`를 `CheckoutPaths` **앞에** 넣고, 왜 필요했는지 주석으로 남긴다.
 
@@ -1015,9 +1020,22 @@ git commit -m "feat(vsix): 저장소에 쓰지 않는 목록 갱신 경로를 �
             Assert.That(vm.WarningMessage, Does.Contain("되돌릴 대상이 없습니다"));
         }
 
+        /// <summary>
+        /// NewViewModelWithSelectedChange를 쓰지 않는다. 차단 상태에서는 ApplyContextProbe가
+        /// Changes를 비우고 조기 반환하므로 그 헬퍼의 Changes[0]이 범위를 벗어난다 —
+        /// 비어 있는 목록 자체가 차단의 동작이다.
+        /// </summary>
         [Test]
         public void DiscardCommand_CannotExecute_WhenRepositoryIsBlocked()
         {
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                new ChangeRecord
+                {
+                    QualifiedName = "dbo.Users", ObjectType = "TABLE", State = "Modified",
+                    RelativePath = "dbo/Tables/Users.sql"
+                }
+            });
             _git.Setup(g => g.GetRepositoryState(It.IsAny<string>(), It.IsAny<string>()))
                 .Returns(new RepositoryState
                 {
@@ -1025,8 +1043,11 @@ git commit -m "feat(vsix): 저장소에 쓰지 않는 목록 갱신 경로를 �
                     BlockReason = RepositoryBlockReason.BranchMismatch,
                     BlockMessage = "브랜치가 다릅니다."
                 });
-            var vm = NewViewModelWithSelectedChange();
 
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.IsBlocked, Is.True);
+            Assert.That(vm.Changes, Is.Empty, "차단되면 목록을 비운다");
             Assert.That(vm.DiscardCommand.CanExecute(null), Is.False);
         }
 
@@ -1263,7 +1284,7 @@ Expected: 컴파일 실패 — `DiscardCommand`가 없다.
 - [ ] **Step 5: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0 --filter "FullyQualifiedName~Discard"`
-Expected: PASS (12건)
+Expected: PASS (11건 — `CannotExecute_WhenModeIsNotWrite`가 `[TestCase]` 둘로 펼쳐진다)
 
 - [ ] **Step 6: 전체 테스트를 돌린다**
 
