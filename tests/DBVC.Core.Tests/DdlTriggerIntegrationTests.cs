@@ -22,6 +22,13 @@ namespace DBVC.Core.Tests
         private static SqlServerTestDatabase? _db;
         private static string? _skipReason;
 
+        /// <summary>
+        /// 이 파일의 테스트는 로그 행이 실제로 닫히는지만 본다 - 실패 문구의 정확한 문장은
+        /// StateTrackerTests(BuildMarkProcessedFailureMessage)가 SQL Server 없이 검증한다.
+        /// 값 자체는 임의라 상수 하나로 충분하다.
+        /// </summary>
+        private const string TestFailureLead = "테스트 리드 문장.";
+
         [OneTimeSetUp]
         public void CreateDatabase()
         {
@@ -144,7 +151,7 @@ namespace DBVC.Core.Tests
                     Author = CurrentLogin(),
                     HostName = CurrentHost()
                 }
-            });
+            }, TestFailureLead);
 
             var open = _db.QueryScalar(
                 "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog " +
@@ -185,7 +192,7 @@ namespace DBVC.Core.Tests
                     Author = CurrentLogin(),
                     HostName = CurrentHost()
                 }
-            });
+            }, TestFailureLead);
 
             var indexOpen = Convert.ToInt32(_db.QueryScalar(
                 "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE IsProcessed = 0 AND ObjectName = N'IX_AuditedTable_Name'"));
@@ -230,7 +237,7 @@ namespace DBVC.Core.Tests
                     Author = CurrentLogin(),
                     HostName = CurrentHost()
                 }
-            });
+            }, TestFailureLead);
 
             var open = Convert.ToInt32(_db.QueryScalar(
                 "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE IsProcessed = 0 AND TargetObjectName = N'RenamedColumnTable'"));
@@ -252,7 +259,8 @@ namespace DBVC.Core.Tests
                 "SELECT MAX(Id) FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'QuietCloseTable'"));
 
             var reason = new StateTracker(NewConfig()).MarkProcessed(
-                SqlServerTestDatabase.ServerName, _db.Name, new[] { RecordFor("QuietCloseTable", maxId) });
+                SqlServerTestDatabase.ServerName, _db.Name,
+                new[] { RecordFor("QuietCloseTable", maxId) }, TestFailureLead);
 
             Assert.That(reason, Is.Null);
         }
@@ -263,10 +271,15 @@ namespace DBVC.Core.Tests
             // 여기가 이 수정의 요점이다. 예전에는 예외를 Debug.WriteLine으로 삼켜, 커밋은 성공했는데
             // 로그가 닫히지 않은 상태를 사용자가 알 방법이 없었다 - 그 항목이 새로고침마다 되살아나고
             // 원인은 어디에도 나타나지 않았다. 없는 데이터베이스를 가리켜 접속 자체를 실패시킨다.
+            //
+            // 리드 문장은 실제 커밋 호출부가 넘기는 것을 그대로 써서, 이 왕복이 실제 커밋 실패
+            // 안내와 같은 문구를 만드는지도 함께 확인한다.
+            const string commitFailureLead =
+                "커밋은 성공했습니다. 다만 변경 로그를 닫지 못해 이 항목이 새로고침 목록에 다시 나타납니다.";
             var reason = new StateTracker(NewConfig()).MarkProcessed(
                 SqlServerTestDatabase.ServerName,
                 SqlServerTestDatabase.Prefix + "no_such_db_" + Guid.NewGuid().ToString("N"),
-                new[] { RecordFor("Anything", 1) });
+                new[] { RecordFor("Anything", 1) }, commitFailureLead);
 
             Assert.That(reason, Is.Not.Null, "실패했는데 사유가 돌아오지 않았습니다");
             Assert.That(reason, Does.Contain("커밋은 성공"));
@@ -631,7 +644,7 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
                 .Where(c => c.ObjectName == "CloseFoldedProbe").ToList();
             Assert.That(records, Has.Count.EqualTo(1), "접힌 뒤에는 항목이 하나여야 한다");
 
-            tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name, records);
+            tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name, records, TestFailureLead);
 
             var stillOpen = _db.QueryScalar(
                 "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE IsProcessed = 0 AND ObjectName = N'Tmp_CloseFoldedProbe'");
@@ -673,7 +686,7 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
                 tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: false);
                 tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name,
                     tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name)
-                        .Where(c => c.ObjectName == "LeftoverProbe").ToList());
+                        .Where(c => c.ObjectName == "LeftoverProbe").ToList(), TestFailureLead);
 
                 // 전체 보기. 이제 남의 행만 남아 있고, 그 코드는 이미 저장소에 들어가 있다.
                 tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
@@ -686,7 +699,7 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
                 Assert.That(result, Is.EqualTo(GitCommitResult.NothingToCommit),
                     "저장소가 이미 그 코드를 갖고 있으므로 담을 것이 없어야 한다");
 
-                tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name, records);
+                tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name, records, TestFailureLead);
 
                 tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
                 Assert.That(

@@ -700,7 +700,9 @@ namespace DBVC.Core.Tests
         {
             // 이 안내가 "커밋 실패"로 읽히면 사용자가 같은 커밋을 다시 만든다.
             // 항목이 목록에 되살아나는 것도 미리 말해야 결함으로 신고되지 않는다.
-            var message = StateTracker.BuildMarkProcessedFailureMessage("SELECT 권한이 거부되었습니다");
+            var message = StateTracker.BuildMarkProcessedFailureMessage(
+                "커밋은 성공했습니다. 다만 변경 로그를 닫지 못해 이 항목이 새로고침 목록에 다시 나타납니다.",
+                "SELECT 권한이 거부되었습니다");
 
             Assert.Multiple(() =>
             {
@@ -711,11 +713,29 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void MarkProcessedFailureMessage_SaysWhateverTheCallerPassed_NotAlwaysCommit()
+        {
+            // 무시는 커밋한 적이 없다. 이 메서드가 "커밋은 성공했습니다"를 하드코딩하면
+            // 무시 사용자에게 하지도 않은 커밋이 성공했다고 거짓말하게 된다 - 리드 문장은
+            // 반드시 호출자가 준 그대로 나가야 한다.
+            var message = StateTracker.BuildMarkProcessedFailureMessage(
+                "선택한 파일은 되돌렸습니다. 다만 변경 로그를 닫지 못해 이 항목이 새로고침 목록에 다시 나타납니다.",
+                "UPDATE 권한이 거부되었습니다");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(message, Does.Contain("선택한 파일은 되돌렸습니다"));
+                Assert.That(message, Does.Not.Contain("커밋은 성공"));
+                Assert.That(message, Does.Contain("UPDATE 권한이 거부되었습니다"));
+            });
+        }
+
+        [Test]
         public void MarkProcessedFailureMessage_PointsAtThePermissionAndTheButtonThatFixesIt()
         {
             // 원인이 거의 항상 권한이고, 고치는 자리가 화면 안에 있다. 그 두 가지를 말하지 않으면
             // 사용자는 libgit2/서버 원문만 보고 무엇을 해야 할지 모른다.
-            var message = StateTracker.BuildMarkProcessedFailureMessage("무엇이든");
+            var message = StateTracker.BuildMarkProcessedFailureMessage("아무 리드 문장", "무엇이든");
 
             Assert.Multiple(() =>
             {

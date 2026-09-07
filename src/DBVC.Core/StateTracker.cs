@@ -947,13 +947,16 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
         /// <summary>
         /// 사용자가 볼 실패 안내를 만든다. 조립을 여기로 뺀 이유는 SQL Server 없이 검증하기 위해서다.
         ///
-        /// 세 가지를 반드시 말한다. (1) 커밋 자체는 성공했다 - 아니면 사용자가 같은 커밋을 다시 만든다.
+        /// 세 가지를 반드시 말한다. (1) 앞선 작업 자체는 성공했다 - 아니면 사용자가 같은 작업을 다시
+        /// 한다. 무엇이 성공했는지는 호출자마다 다르므로(커밋·무시) <paramref name="leadSentence"/>로
+        /// 받는다 - 이 메서드가 "커밋"을 하드코딩하면 무시 같은 다른 호출자에게 거짓말이 된다.
         /// (2) 그 항목이 목록에 되살아난다 - 미리 말하지 않으면 결함으로 읽힌다. (3) 원인이 거의 항상
         /// 권한이고 고치는 자리가 화면 안에 있다 - 서버 원문만 보여 주면 무엇을 해야 할지 알 수 없다.
+        /// (2)·(3)은 호출자와 무관하게 항상 참이라 여기 고정한다.
         /// </summary>
-        internal static string BuildMarkProcessedFailureMessage(string reason)
+        internal static string BuildMarkProcessedFailureMessage(string leadSentence, string reason)
         {
-            return "커밋은 성공했습니다. 다만 변경 로그를 닫지 못해 이 항목이 새로고침 목록에 다시 나타납니다."
+            return leadSentence
                 + Environment.NewLine + Environment.NewLine
                 + "dbo.DBVC_ChangeLog에 대한 UPDATE 권한 문제일 수 있습니다. "
                 + "db_owner 권한이 있는 사람이 [변경 추적기 업데이트]를 한 번 누르면 필요한 권한이 부여됩니다."
@@ -965,15 +968,20 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
         /// 커밋된 객체의 DDL 로그 행을 처리 완료로 표시해 다음 새로고침에서 제외한다.
         /// 새로고침 시점 이후에 추가된 이벤트는 건드리지 않는다.
         /// </summary>
+        /// <param name="failureLeadSentence">
+        /// 실패했을 때 보일 문구의 첫 문장. 앞선 작업이 이미 끝난 뒤라는 것과 무엇이 끝났는지를
+        /// 호출자가 말해야 한다 - 여기서는 알 수 없다.
+        /// </param>
         /// <returns>
         /// 닫는 데 성공하면 <c>null</c>, 실패하면 사용자에게 보일 한국어 사유
         /// (<see cref="TestConnection"/>과 같은 관용이다).
         ///
-        /// 삼키면 안 되는 실패다 - 커밋은 이미 만들어졌는데 로그만 열려 있으면 그 항목이 새로고침마다
-        /// 되살아나고, 다시 커밋해도 담을 차이가 없어 사용자가 목록에서 지울 방법이 없다. 공용 계정이
+        /// 삼키면 안 되는 실패다 - 앞선 작업은 이미 끝났는데 로그만 열려 있으면 그 항목이 새로고침마다
+        /// 되살아나고, 다시 시도해도 담을 차이가 없어 사용자가 목록에서 지울 방법이 없다. 공용 계정이
         /// db_owner가 아닌 환경에서 실제로 그렇게 된다.
         /// </returns>
-        public string? MarkProcessed(string serverName, string databaseName, IEnumerable<ChangeRecord> records)
+        public string? MarkProcessed(
+            string serverName, string databaseName, IEnumerable<ChangeRecord> records, string failureLeadSentence)
         {
             var targets = records?.Where(r => r.LastLogId > 0).ToList();
             if (targets == null || targets.Count == 0) return null;
@@ -1008,7 +1016,7 @@ WHERE IsProcessed = 0 AND Id <= @lastLogId
             {
                 // 반환값에는 ex.Message만 담긴다. 스택은 여기서만 볼 수 있으므로 로그는 남긴다.
                 Debug.WriteLine($"StateTracker.MarkProcessed failed for '{serverName}.{databaseName}': {ex}");
-                return BuildMarkProcessedFailureMessage(ex.Message);
+                return BuildMarkProcessedFailureMessage(failureLeadSentence, ex.Message);
             }
         }
 

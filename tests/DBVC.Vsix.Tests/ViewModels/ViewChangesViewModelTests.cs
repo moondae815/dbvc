@@ -892,7 +892,8 @@ namespace DBVC.Vsix.Tests.ViewModels
             _stateTracker.Verify(s => s.MarkProcessed(Server, Database,
                 It.Is<IEnumerable<ChangeRecord>>(records =>
                     records.All(r => r.QualifiedName != "dbo.Users") &&
-                    records.Any(r => r.QualifiedName == "dbo.Orders"))),
+                    records.Any(r => r.QualifiedName == "dbo.Orders")),
+                It.IsAny<string>()),
                 Times.Once,
                 "정리에 실패한 삭제가 처리 완료로 표시되면 파일이 남아 있는데도 다음 새로고침에서 조용히 사라집니다");
         }
@@ -1767,7 +1768,8 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             vm.CommitCommand.Execute(null);
 
-            _stateTracker.Verify(s => s.MarkProcessed(Server, Database, It.IsAny<IEnumerable<ChangeRecord>>()), Times.Once);
+            _stateTracker.Verify(s => s.MarkProcessed(
+                Server, Database, It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()), Times.Once);
             Assert.That(vm.CommitMessage, Is.Empty, "커밋 성공 후 메시지 입력창은 비워져야 합니다");
         }
 
@@ -2700,7 +2702,8 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.CommitCommand.Execute(null);
 
             _stateTracker.Verify(s => s.MarkProcessed(Server, Database,
-                It.Is<IEnumerable<ChangeRecord>>(records => records.Any(r => r.QualifiedName == "dbo.Orders"))),
+                It.Is<IEnumerable<ChangeRecord>>(records => records.Any(r => r.QualifiedName == "dbo.Orders")),
+                It.IsAny<string>()),
                 Times.Once);
         }
 
@@ -2709,7 +2712,8 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             // 커밋은 성공했는데 로그가 닫히지 않으면 그 항목이 새로고침마다 되살아난다.
             // 조용히 넘어가면 사용자는 원인을 알 길이 없고 도구가 고장 난 것으로 읽는다.
-            _stateTracker.Setup(s => s.MarkProcessed(Server, Database, It.IsAny<IEnumerable<ChangeRecord>>()))
+            _stateTracker.Setup(s => s.MarkProcessed(
+                    Server, Database, It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()))
                 .Returns("커밋은 성공했습니다. 다만 변경 로그를 닫지 못해...");
 
             var vm = NewViewModelWithOneSelectedChange("dbo.P");
@@ -2729,7 +2733,8 @@ namespace DBVC.Vsix.Tests.ViewModels
         public void Commit_SaysNothing_WhenTheLogRowsClosedCleanly()
         {
             // 정상 경로에서 상자가 뜨면 커밋마다 클릭이 하나 늘어난다.
-            _stateTracker.Setup(s => s.MarkProcessed(Server, Database, It.IsAny<IEnumerable<ChangeRecord>>()))
+            _stateTracker.Setup(s => s.MarkProcessed(
+                    Server, Database, It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()))
                 .Returns((string?)null);
 
             var vm = NewViewModelWithOneSelectedChange("dbo.P");
@@ -2758,7 +2763,8 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             vm.CommitCommand.Execute(null);
 
-            _stateTracker.Verify(s => s.MarkProcessed(Server, Database, It.IsAny<IEnumerable<ChangeRecord>>()),
+            _stateTracker.Verify(s => s.MarkProcessed(
+                Server, Database, It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()),
                 Times.Never);
         }
 
@@ -3722,7 +3728,8 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.DiscardCommand.Execute(null);
 
             _stateTracker.Verify(s => s.MarkProcessed(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()), Times.Never);
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()),
+                Times.Never);
             Assert.That(vm.Changes.Count, Is.EqualTo(1), "되돌리기만으로는 항목이 목록에서 빠지면 안 된다");
             Assert.That(vm.Changes[0].RelativePath, Is.EqualTo("dbo/Tables/Users.sql"));
         }
@@ -3923,19 +3930,30 @@ namespace DBVC.Vsix.Tests.ViewModels
             // 파일 먼저, 행 나중. 커밋 흐름과 같은 순서라 실패 문구를 그대로 쓸 수 있고,
             // 반대 순서는 행이 닫힌 채 더러운 파일이 남아 주인 없는 변경으로 떠오른다.
             var order = new List<string>();
+            IEnumerable<ChangeRecord>? closedRecords = null;
             var vm = NewViewModelWithOpenLogRow();
             _notifier.ConfirmResult = true;
 
             _git.Setup(g => g.DiscardChanges(Server, Database, It.IsAny<IEnumerable<string>>()))
                 .Callback(() => order.Add("discard"))
                 .Returns(new DiscardResult());
-            _stateTracker.Setup(s => s.MarkProcessed(Server, Database, It.IsAny<IEnumerable<ChangeRecord>>()))
-                .Callback(() => order.Add("mark"))
+            _stateTracker.Setup(s => s.MarkProcessed(
+                    Server, Database, It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()))
+                .Callback<string, string, IEnumerable<ChangeRecord>, string>((_, _, records, _) =>
+                {
+                    order.Add("mark");
+                    closedRecords = records;
+                })
                 .Returns((string?)null);
 
             vm.IgnoreCommand.Execute(null);
 
             Assert.That(order, Is.EqualTo(new[] { "discard", "mark" }));
+            // 순서만 보면 mark가 빈 목록으로 불려도 통과한다 - 대소문자·구분자가 어긋난
+            // 필터가 조용히 아무것도 닫지 않는 바로 그 실패를 이 단언이 잡는다.
+            Assert.That(closedRecords, Is.Not.Null);
+            Assert.That(closedRecords!.Any(r => r.LastLogId == 42), Is.True,
+                "열린 로그 행(LastLogId=42)이 MarkProcessed에 실제로 전달되어야 한다");
         }
 
         [Test]
@@ -3954,7 +3972,8 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.IgnoreCommand.Execute(null);
 
             _stateTracker.Verify(
-                s => s.MarkProcessed(Server, Database, It.Is<IEnumerable<ChangeRecord>>(r => r.Any())),
+                s => s.MarkProcessed(
+                    Server, Database, It.Is<IEnumerable<ChangeRecord>>(r => r.Any()), It.IsAny<string>()),
                 Times.Never);
         }
 
@@ -3969,7 +3988,8 @@ namespace DBVC.Vsix.Tests.ViewModels
             _git.Verify(g => g.DiscardChanges(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>()), Times.Never);
             _stateTracker.Verify(s => s.MarkProcessed(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()), Times.Never);
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()),
+                Times.Never);
         }
 
         [Test]

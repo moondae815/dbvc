@@ -1818,7 +1818,10 @@ namespace DBVC.Vsix.ViewModels
                     {
                         Committed = true,
                         WroteACommit = result == GitCommitResult.Committed,
-                        MarkProcessedFailure = _stateTracker.MarkProcessed(server, database, committedRecords)
+                        // 실패 문구의 첫 문장은 이 흐름의 것이다 - 여기서는 커밋이 이미 끝난 뒤라
+                        // "커밋은 성공했습니다"가 참이다. 무시 쪽은 자기 문장을 따로 넘긴다.
+                        MarkProcessedFailure = _stateTracker.MarkProcessed(server, database, committedRecords,
+                            "커밋은 성공했습니다. 다만 변경 로그를 닫지 못해 이 항목이 새로고침 목록에 다시 나타납니다.")
                     };
                 },
                 outcome =>
@@ -2110,7 +2113,10 @@ namespace DBVC.Vsix.ViewModels
                         {
                             Result = result,
                             ClosedRows = closable.Count(r => r.LastLogId > 0),
-                            MarkProcessedFailure = _stateTracker.MarkProcessed(server, database, closable)
+                            // 커밋의 "커밋은 성공했습니다"를 그대로 쓰면 커밋한 적 없는 사용자에게
+                            // 거짓말이 된다. 이 흐름에서 실제로 끝난 일은 되돌리기다.
+                            MarkProcessedFailure = _stateTracker.MarkProcessed(server, database, closable,
+                                "선택한 파일은 되돌렸습니다. 다만 변경 로그를 닫지 못해 이 항목이 새로고침 목록에 다시 나타납니다.")
                         };
                     }
 
@@ -2171,7 +2177,12 @@ namespace DBVC.Vsix.ViewModels
                         _notifier.ShowError("DBVC 무시 — 변경 로그를 닫지 못함", outcome.MarkProcessedFailure);
                     }
 
-                    _pendingStatusMessage = BuildIgnoreSummary(result, outcome.ClosedRows);
+                    // 실패했으면 닫힌 행은 0개다. outcome.ClosedRows를 그대로 쓰면 바로 위 상자가
+                    // "닫지 못했다"고 말한 직후에 상태 줄이 "N개 닫음"이라고 반대로 말해, 같은 클릭에
+                    // 대해 서로 모순된 두 문장이 남는다 - 그리고 뒤이은 Refresh가 실제로 항목을 되살려
+                    // 상태 줄 쪽이 거짓으로 판명난다.
+                    var closedRows = outcome.MarkProcessedFailure != null ? 0 : outcome.ClosedRows;
+                    _pendingStatusMessage = BuildIgnoreSummary(result, closedRows);
 
                     // 재추출하지 않는다. 하면 아직 닫지 못한 행이 가리키는 객체가 다시 추출되어
                     // 같은 클릭 안에서 되돌리기가 취소된다(되돌리기와 같은 이유).
