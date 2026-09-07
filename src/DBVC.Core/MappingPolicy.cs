@@ -18,6 +18,9 @@ namespace DBVC.Core
         /// <summary>대상 DB와 브랜치의 차이 검사. 저장소에 쓰지 않는다.</summary>
         Compare,
 
+        /// <summary>작업 트리의 변경을 저장소의 마지막 커밋 내용으로 되돌린다.</summary>
+        Discard,
+
         GenerateScript
     }
 
@@ -43,6 +46,10 @@ namespace DBVC.Core
                     // 테스트 DB에서 나온 추출물은 새 변경이 아니라 배포 결과다. 커밋하면
                     // develop에 자기 자신을 되먹이고, 배포가 덜 된 상태였다면 그 상태를
                     // 정답으로 굳혀 버린다.
+                case DbvcOperation.Discard:
+                    // 배포·감사 클론이 더럽다는 것은 DBVC 밖의 무언가가 만졌다는 뜻이다
+                    // (그쪽은 Extract가 금지되어 있고 CompareWithRepository는 아무것도 쓰지 않는다).
+                    // 남이 만든 상태를 DBVC가 말없이 치우지 않는다.
                     return mode == MappingMode.Write;
 
                 case DbvcOperation.Compare:
@@ -84,6 +91,7 @@ namespace DBVC.Core
                 case DbvcOperation.Commit: return "커밋";
                 case DbvcOperation.Push: return "Push";
                 case DbvcOperation.Compare: return "차이 검사";
+                case DbvcOperation.Discard: return "작업 트리 되돌리기";
                 case DbvcOperation.GenerateScript: return "배포 스크립트 생성";
                 default: throw new InvalidOperationException($"처리되지 않은 {nameof(DbvcOperation)}: {operation}");
             }

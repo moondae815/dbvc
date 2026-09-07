@@ -16,6 +16,7 @@ namespace DBVC.Core.Tests
         [TestCase(DbvcOperation.Extract)]
         [TestCase(DbvcOperation.Commit)]
         [TestCase(DbvcOperation.Push)]
+        [TestCase(DbvcOperation.Discard)]
         public void IsAllowed_ReturnsTrue_WhenModeIsWrite(DbvcOperation operation)
         {
             Assert.That(MappingPolicy.IsAllowed(MappingMode.Write, operation), Is.True);
@@ -25,10 +26,12 @@ namespace DBVC.Core.Tests
         [TestCase(MappingMode.Deploy, DbvcOperation.Extract)]
         [TestCase(MappingMode.Deploy, DbvcOperation.Commit)]
         [TestCase(MappingMode.Deploy, DbvcOperation.Push)]
+        [TestCase(MappingMode.Deploy, DbvcOperation.Discard)]
         [TestCase(MappingMode.Audit, DbvcOperation.InstallTracker)]
         [TestCase(MappingMode.Audit, DbvcOperation.Extract)]
         [TestCase(MappingMode.Audit, DbvcOperation.Commit)]
         [TestCase(MappingMode.Audit, DbvcOperation.Push)]
+        [TestCase(MappingMode.Audit, DbvcOperation.Discard)]
         public void IsAllowed_ReturnsFalse_WhenModeIsNotWrite(MappingMode mode, DbvcOperation operation)
         {
             Assert.That(MappingPolicy.IsAllowed(mode, operation), Is.False);
@@ -78,6 +81,18 @@ namespace DBVC.Core.Tests
             Assert.That(ex.Mode, Is.EqualTo(MappingMode.Deploy));
             Assert.That(ex.Operation, Is.EqualTo(DbvcOperation.Push));
             Assert.That(ex.Message, Is.EqualTo(MappingPolicy.BuildDeniedMessage(MappingMode.Deploy, DbvcOperation.Push)));
+        }
+
+        /// <summary>
+        /// 거부 문구는 사용자에게 그대로 나간다. 동작 이름이 비어 있으면
+        /// "이 대상은 '배포' 용도로 등록되어 있어 을(를) 할 수 없습니다"가 뜬다.
+        /// </summary>
+        [Test]
+        public void BuildDeniedMessage_NamesDiscardInKorean()
+        {
+            var message = MappingPolicy.BuildDeniedMessage(MappingMode.Deploy, DbvcOperation.Discard);
+
+            Assert.That(message, Does.Contain("작업 트리 되돌리기"));
         }
     }
 }
