@@ -69,7 +69,12 @@ namespace DBVC.Core.Tests
                 "GRANT CREATE TABLE TO dbvc_low_t1",
                 "GRANT ALTER ON SCHEMA::dbo TO dbvc_low_t1");
 
-            Assert.DoesNotThrow(() => _db.ExecuteInOneSession(
+            // 이 문장 중 하나라도 던지면(트리거 회귀가 그렇게 만든다) REVERT가 돌지 않고,
+            // 풀에 반환되는 세션으로 하면 dbvc_low_t1로 가장한 채인 연결이 다음 테스트에
+            // 다시 나가 조용히 저권한으로 실행된다 - Purge_Succeeds_WhenCallerIsNotOwner가
+            // 이미 겪은 것과 같은 결함이다. ExecuteInOneUnpooledSession은 그 연결을 풀에
+            // 돌려주지 않으므로 여기서도 이것을 쓴다.
+            Assert.DoesNotThrow(() => _db.ExecuteInOneUnpooledSession(
                 "EXECUTE AS USER = 'dbvc_low_t1'",
                 "CREATE TABLE dbo.LowPrivTable (Id int)",
                 "REVERT"));
