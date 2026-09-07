@@ -188,6 +188,8 @@
                              Width="240" Margin="0,0,10,4"
                              IsEnabled="{Binding IsMapped}"/>
                     <Button Content="Commit" Command="{Binding CommitCommand}" Width="70" Margin="0,0,10,4" />
+                    <Button Content="되돌리기" Command="{Binding DiscardCommand}" Width="70" Margin="0,0,10,4"
+                            ToolTip="선택한 파일을 저장소의 마지막 커밋 내용으로 되돌립니다. 데이터베이스의 변경은 그대로 남습니다." />
                     <Button Content="Pull" Command="{Binding PullCommand}" Width="70" Margin="0,0,10,4"
                             ToolTip="원격 저장소의 변경을 로컬 저장소로 가져옵니다. 데이터베이스에는 적용하지 않습니다." />
                     <Button Content="Push" Command="{Binding PushCommand}" Width="70" Margin="0,0,10,4"
