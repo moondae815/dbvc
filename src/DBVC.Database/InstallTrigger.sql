@@ -93,14 +93,6 @@ BEGIN
 END
 GO
 
--- 미처리 변경 조회(RefreshState)의 주 조회 경로
-IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'IX_DBVC_ChangeLog_IsProcessed')
-BEGIN
-    CREATE NONCLUSTERED INDEX [IX_DBVC_ChangeLog_IsProcessed]
-        ON [dbo].[DBVC_ChangeLog] ([IsProcessed], [PostTime] DESC);
-END
-GO
-
 -- 로그를 읽고 닫는 일은 클라이언트가 접속 계정 그대로 한다 - 트리거의 INSERT만 dbo로 돈다.
 -- 이 GRANT가 없으면 db_owner가 아닌 계정의 커밋이 로그를 닫지 못하고, 그 항목이 새로고침마다
 -- 되살아난다. 커밋은 이미 성공한 뒤라 사용자에게는 원인이 보이지 않는다.
@@ -111,6 +103,33 @@ GO
 --
 -- INSERT는 주지 않는다. 트리거가 dbo로 쓰므로 필요 없고, 주면 사용자가 로그를 직접 조작할 수 있다.
 GRANT SELECT, UPDATE ON [dbo].[DBVC_ChangeLog] TO [public];
+GO
+
+IF EXISTS (SELECT * FROM sys.triggers WHERE parent_class = 0 AND name = 'trg_DBVC_DDL_Tracker')
+BEGIN
+    DROP TRIGGER [trg_DBVC_DDL_Tracker] ON DATABASE;
+END
+GO
+
+-- 이 위치가 중요하다 - DBVC 자신이 만드는 객체(프로시저·인덱스 등)에 대한 DDL은 전부 이
+-- 구간, 즉 DROP TRIGGER와 CREATE TRIGGER 사이에서 실행한다. v5 -> v6처럼 옛 트리거가 아직
+-- 살아있는 상태로(방금 위에서 DROP했고 아래에서 다시 CREATE하기 전) 새 DBVC 객체를 만들면,
+-- 그 CREATE 이벤트의 ObjectName은 부모 테이블이 아니라 새로 만든 객체 자신의 이름
+-- (예: 인덱스면 IX_DBVC_ChangeLog_PostTime, 프로시저면 DBVC_PurgeChangeLog)이다. 옛 트리거의
+-- 자기 제외 판정은 문자열을 나열한 목록이라(DBVC_ 접두사 규칙이 없다) 이 이름들을 통과시키지
+-- 못하고, ObjectType(INDEX/PROCEDURE)은 추적 대상이라 로그에 그대로 남는다. StateTracker가
+-- 그 행을 부모(DBVC_ChangeLog)로 정규화하면 사용자에게는 DBVC 자신의 객체가 첫 새로고침에
+-- 변경 사항으로 보인다. 앞으로 DBVC 객체를 더할 때도 그 DDL을 이 구간 밖에 두지 말 것.
+-- IX_DBVC_ChangeLog_IsProcessed도 원래 이 구간 밖(GRANT 앞)에 있었다 - 지금까지는 v5 이전
+-- 설치에서 이미 만들어져 있어 IF NOT EXISTS가 매번 no-op이었을 뿐, 예외가 아니다. 같은 실수를
+-- 되풀이하지 않도록 여기로 함께 옮긴다.
+
+-- 미처리 변경 조회(RefreshState)의 주 조회 경로
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'IX_DBVC_ChangeLog_IsProcessed')
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_DBVC_ChangeLog_IsProcessed]
+        ON [dbo].[DBVC_ChangeLog] ([IsProcessed], [PostTime] DESC);
+END
 GO
 
 -- 변경 로그 정리. 나이 하나로 지우고 IsProcessed를 보지 않는다 - 커밋되지 않은 채 남는
@@ -154,20 +173,6 @@ GO
 GRANT EXECUTE ON [dbo].[DBVC_PurgeChangeLog] TO [public];
 GO
 
-IF EXISTS (SELECT * FROM sys.triggers WHERE parent_class = 0 AND name = 'trg_DBVC_DDL_Tracker')
-BEGIN
-    DROP TRIGGER [trg_DBVC_DDL_Tracker] ON DATABASE;
-END
-GO
-
--- 이 위치가 중요하다 - 정리하며 위 IX_DBVC_ChangeLog_IsProcessed 옆으로 옮기지 말 것.
--- v5 -> v6 재설치에서는 이 시점에 트리거가 아직 없다(방금 위에서 DROP했고, 아래에서 다시
--- CREATE한다). 트리거가 살아있는 동안 인덱스를 만들면 CREATE_INDEX 이벤트가 발생하는데,
--- 그 이벤트의 ObjectName은 테이블이 아니라 인덱스 이름(IX_DBVC_ChangeLog_PostTime)이라
--- 트리거의 자기 제외 판정(DBVC_ 접두사)을 통과하지 못하고, ObjectType = 'INDEX'는 추적
--- 대상이라 로그에 남는다. StateTracker가 그 행을 부모(DBVC_ChangeLog)로 정규화하면
--- 사용자에게는 DBVC 자신의 테이블이 첫 새로고침에 변경 사항으로 보인다.
---
 -- 정리(DBVC_PurgeChangeLog)의 조회 경로. PostTime 단독 조건은 위 IX_DBVC_ChangeLog_IsProcessed로
 -- seek이 되지 않아 인덱스가 없으면 정리가 매번 전체 스캔이 된다.
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'IX_DBVC_ChangeLog_PostTime')
