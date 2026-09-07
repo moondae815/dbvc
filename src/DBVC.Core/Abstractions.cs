@@ -112,6 +112,19 @@ namespace DBVC.Core
         IReadOnlyList<string> GetChangedFiles(string repoPath);
         IReadOnlyDictionary<string, string> GetChangedFileStates(string repoPath);
         GitCommitResult CommitChanges(string serverName, string databaseName, string message, IEnumerable<string>? relativePaths = null);
+
+        /// <summary>
+        /// 선택한 파일을 저장소의 마지막 커밋 내용으로 되돌린다. 추적 파일은 <c>HEAD</c>로
+        /// 되돌리고, 미추적 파일은 지운다.
+        ///
+        /// <b>DDL 로그는 건드리지 않는다.</b> DB의 변경은 그대로 남으므로, 열린 로그 행이
+        /// 가리키는 객체는 다음 새로고침의 추출로 다시 더러워진다. 그것을 화면이 문구로
+        /// 알린다 — 행을 닫는 자리는 커밋 하나뿐이다.
+        ///
+        /// <paramref name="relativePaths"/>를 그대로 믿지 않는다. 지금의 Git 상태와
+        /// 교집합만 처리한다(화면 목록은 낡을 수 있다).
+        /// </summary>
+        DiscardResult DiscardChanges(string serverName, string databaseName, IEnumerable<string> relativePaths);
         PullResult PullChanges(string serverName, string databaseName);
         PushResult PushChanges(string serverName, string databaseName);
         bool HasCommitsToPush(string serverName, string databaseName);

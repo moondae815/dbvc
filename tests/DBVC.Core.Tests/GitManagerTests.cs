@@ -1977,5 +1977,153 @@ namespace DBVC.Core.Tests
         {
             Assert.Throws<ArgumentNullException>(() => new GitManager(null!));
         }
+
+        // ---------- DiscardChanges ----------
+
+        [Test]
+        public void DiscardChanges_RestoresFileContent_WhenFileWasModified()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager(Server, Database, repoPath);
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "-- 잘못 추출된 내용");
+
+            var result = git.DiscardChanges(Server, Database, new[] { "dbo/Tables/Users.sql" });
+
+            Assert.That(result.RestoredPaths, Is.EqualTo(new[] { "dbo/Tables/Users.sql" }));
+            Assert.That(
+                File.ReadAllText(Path.Combine(repoPath, "dbo", "Tables", "Users.sql")),
+                Is.EqualTo("CREATE TABLE Users (Id INT);"));
+        }
+
+        [Test]
+        public void DiscardChanges_DeletesFile_WhenFileIsUntracked()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager(Server, Database, repoPath);
+            WriteRepoFile(repoPath, "dbo/Views/vSales.sql", "CREATE VIEW vSales AS SELECT 1 AS X;");
+
+            var result = git.DiscardChanges(Server, Database, new[] { "dbo/Views/vSales.sql" });
+
+            Assert.That(result.DeletedPaths, Is.EqualTo(new[] { "dbo/Views/vSales.sql" }));
+            Assert.That(File.Exists(Path.Combine(repoPath, "dbo", "Views", "vSales.sql")), Is.False);
+        }
+
+        [Test]
+        public void DiscardChanges_RestoresFile_WhenFileWasDeleted()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager(Server, Database, repoPath);
+            File.Delete(Path.Combine(repoPath, "dbo", "Tables", "Users.sql"));
+
+            var result = git.DiscardChanges(Server, Database, new[] { "dbo/Tables/Users.sql" });
+
+            Assert.That(result.RestoredPaths, Is.EqualTo(new[] { "dbo/Tables/Users.sql" }));
+            Assert.That(File.Exists(Path.Combine(repoPath, "dbo", "Tables", "Users.sql")), Is.True);
+        }
+
+        /// <summary>
+        /// CheckoutPaths가 인덱스까지 본다는 것이 이 설계의 근거다. 작업 트리만 되돌리면
+        /// 외부 클라이언트가 스테이징해 둔 옛 내용이 다음 커밋에 그대로 담긴다.
+        /// </summary>
+        [Test]
+        public void DiscardChanges_ClearsStagedContent_WhenChangeWasAlreadyStaged()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager(Server, Database, repoPath);
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "-- 잘못 추출된 내용");
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "dbo/Tables/Users.sql");
+            }
+
+            git.DiscardChanges(Server, Database, new[] { "dbo/Tables/Users.sql" });
+
+            using (var repo = new Repository(repoPath))
+            {
+                Assert.That(repo.RetrieveStatus("dbo/Tables/Users.sql"), Is.EqualTo(FileStatus.Unaltered));
+            }
+        }
+
+        /// <summary>
+        /// 화면이 넘긴 목록은 낡을 수 있다. 그 사이에 깨끗해진 파일을 HEAD로 덮어쓰면
+        /// 되돌리기가 아니라 손실이다.
+        /// </summary>
+        [Test]
+        public void DiscardChanges_LeavesFileAlone_WhenItIsAlreadyClean()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager(Server, Database, repoPath);
+
+            var result = git.DiscardChanges(Server, Database, new[] { "dbo/Tables/Users.sql" });
+
+            Assert.That(result.RestoredPaths, Is.Empty);
+            Assert.That(result.DeletedPaths, Is.Empty);
+            Assert.That(result.SkippedPaths, Is.EqualTo(new[] { "dbo/Tables/Users.sql" }));
+        }
+
+        [Test]
+        public void DiscardChanges_LeavesFileAlone_WhenItIsNotADbvcObjectFile()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager(Server, Database, repoPath);
+            File.WriteAllText(Path.Combine(repoPath, "README.md"), "손으로 쓴 문서");
+
+            var result = git.DiscardChanges(Server, Database, new[] { "README.md" });
+
+            Assert.That(result.SkippedPaths, Is.EqualTo(new[] { "README.md" }));
+            Assert.That(File.Exists(Path.Combine(repoPath, "README.md")), Is.True);
+        }
+
+        /// <summary>
+        /// "이미 받아둔 폴더를 연결" 갈래로 커밋이 없는 저장소가 들어올 수 있다.
+        ///
+        /// 그런 저장소에는 추적 중인 파일이 하나도 없어 모든 변경이 "Added"로 잡히고,
+        /// 되돌림이 아니라 삭제로 간다. 삭제는 HEAD가 없어도 기준이 필요 없다 — 이 경로가
+        /// 예외를 흘리지 않는다는 것이 여기서 고정하는 것이다.
+        ///
+        /// RestoredPaths가 비는 것은 우연이 아니라 구조적이다. 구현의 head == null 가드는
+        /// 그래서 실제로는 닿지 않는 방어선이며, CheckoutPaths가 unborn HEAD에서 무엇을
+        /// 던지는지에 동작이 좌우되지 않도록 남겨 둔다.
+        /// </summary>
+        [Test]
+        public void DiscardChanges_DeletesWithoutThrowing_WhenRepositoryHasNoCommits()
+        {
+            var repoPath = NewTempDir();
+            Repository.Init(repoPath);
+            SeedIdentity(repoPath);
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT);");
+            var git = NewGitManager(Server, Database, repoPath);
+
+            var result = git.DiscardChanges(Server, Database, new[] { "dbo/Tables/Users.sql" });
+
+            Assert.That(result.DeletedPaths, Is.EqualTo(new[] { "dbo/Tables/Users.sql" }));
+            Assert.That(result.RestoredPaths, Is.Empty);
+            Assert.That(result.FailedPaths, Is.Empty);
+            Assert.That(File.Exists(Path.Combine(repoPath, "dbo", "Tables", "Users.sql")), Is.False);
+        }
+
+        [TestCase(MappingMode.Deploy)]
+        [TestCase(MappingMode.Audit)]
+        public void DiscardChanges_Throws_WhenModeIsNotWrite(MappingMode mode)
+        {
+            var repoPath = NewRepositoryWithCommit(out _, out var git, mode);
+            File.WriteAllText(Path.Combine(repoPath, "seed.sql"), "-- 바뀐 내용");
+
+            Assert.Throws<OperationNotAllowedException>(
+                () => git.DiscardChanges(Server, Database, new[] { "dbo/Tables/Users.sql" }));
+        }
+
+        [Test]
+        public void DiscardChanges_ReturnsEmptyResult_WhenTargetIsNotMapped()
+        {
+            var config = new ConfigManager(Path.Combine(NewTempDir(), "mappings.json"));
+            var git = new GitManager(config);
+
+            var result = git.DiscardChanges(Server, Database, new[] { "dbo/Tables/Users.sql" });
+
+            Assert.That(result.RestoredPaths, Is.Empty);
+            Assert.That(result.DeletedPaths, Is.Empty);
+            Assert.That(result.SkippedPaths, Is.Empty);
+        }
     }
 }

@@ -338,6 +338,114 @@ namespace DBVC.Core
         }
 
         /// <summary>
+        /// 선택한 파일을 마지막 커밋 내용으로 되돌린다. 판정은 <see cref="DiscardPlan"/>이 한다.
+        /// </summary>
+        public DiscardResult DiscardChanges(string serverName, string databaseName, IEnumerable<string> relativePaths)
+        {
+            var result = new DiscardResult();
+
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null) return result;
+
+            // 배포·감사 클론이 더럽다는 것은 DBVC 밖의 무언가가 만졌다는 뜻이다.
+            // 남이 만든 상태를 말없이 치우지 않는다.
+            var mapping = _configManager?.TryGetMapping(serverName, databaseName);
+            if (mapping != null && !MappingPolicy.IsAllowed(mapping.Mode, DbvcOperation.Discard))
+            {
+                throw new OperationNotAllowedException(mapping.Mode, DbvcOperation.Discard);
+            }
+
+            using var repo = new Repository(repoPath);
+
+            // 호출자가 넘긴 목록을 그대로 믿지 않는다. 화면 목록은 사용자가 들여다본 만큼
+            // 낡으므로, 그 사이에 깨끗해진 파일을 HEAD로 덮어쓰면 되돌리기가 아니라 손실이다.
+            var states = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in repo.RetrieveStatus(UntrackedInclusiveOptions))
+            {
+                var state = MapFileStatus(entry.State);
+                if (state != null) states[entry.FilePath] = state;
+            }
+
+            var plan = DiscardPlan.Build(relativePaths, states);
+            result.SkippedPaths.AddRange(plan.SkippedPaths);
+
+            // 커밋이 하나도 없으면 되돌릴 기준이 없다("이미 받아둔 폴더를 연결" 갈래).
+            // 조용히 건너뛰면 사용자는 되돌아간 줄 안다.
+            var head = repo.Head?.Tip;
+
+            foreach (var path in plan.RestorePaths)
+            {
+                if (head == null)
+                {
+                    result.FailedPaths.Add(path);
+                    continue;
+                }
+
+                try
+                {
+                    // 경로 하나짜리로 한 번씩 부른다. 한 배치로 부르면 잠긴 파일 하나가
+                    // 전부를 무너뜨려 실패한 경로를 가려낼 수 없다 - SSMS 편집기가 .sql을
+                    // 열어 둔 잠금이 현실적인 실패다.
+                    //
+                    // RepositoryExtensions.CheckoutPaths(2-인자)는 내부적으로 CheckoutOptions를
+                    // null로 넘겨 CheckoutModifiers.None(Safe)으로 동작한다 - 이 모드는 작업
+                    // 트리에서 이미 수정된 파일을 덮어쓰지 않고 조용히 건너뛴다("index and
+                    // working directory"를 갱신한다는 문서는 파일이 깨끗할 때만 성립했다).
+                    // 되돌리기의 목적 자체가 그 수정을 지우는 것이므로 Force가 필요해,
+                    // CheckoutOptions를 받는 IRepository의 3-인자 오버로드를 직접 부른다.
+                    repo.CheckoutPaths("HEAD", new[] { path }, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
+                    result.RestoredPaths.Add(path);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"GitManager.DiscardChanges failed to restore '{path}': {ex.Message}");
+                    result.FailedPaths.Add(path);
+                }
+            }
+
+            foreach (var path in plan.DeletePaths)
+            {
+                try
+                {
+                    var full = Path.GetFullPath(
+                        Path.Combine(repoPath, path.Replace('/', Path.DirectorySeparatorChar)));
+
+                    // DiscardPlan이 이미 걸렀지만 마지막 방어선은 실제 경로로 한 번 더 본다.
+                    // (WorkingTreeCleaner가 같은 자리에 같은 검사를 둔 이유와 같다.)
+                    if (!IsUnderRepositoryRoot(repoPath, full))
+                    {
+                        result.SkippedPaths.Add(path);
+                        continue;
+                    }
+
+                    // 스테이징된 미추적 파일은 인덱스 항목을 먼저 내린다. 파일만 지우면
+                    // 인덱스에 남은 항목이 다음 커밋에 그대로 담긴다.
+                    if (head != null && repo.Index[path] != null)
+                    {
+                        Commands.Unstage(repo, new[] { path });
+                    }
+
+                    if (File.Exists(full)) File.Delete(full);
+                    result.DeletedPaths.Add(path);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"GitManager.DiscardChanges failed to delete '{path}': {ex.Message}");
+                    result.FailedPaths.Add(path);
+                }
+            }
+
+            return result;
+        }
+
+        private static bool IsUnderRepositoryRoot(string repoPath, string candidate)
+        {
+            var root = Path.GetFullPath(repoPath).TrimEnd(Path.DirectorySeparatorChar)
+                       + Path.DirectorySeparatorChar;
+            return candidate.StartsWith(root, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         /// 원격 저장소의 변경을 병합한다.
         /// 병합 중 충돌하면 병합을 되돌리고 <see cref="MergeConflictException"/>을,
         /// 겹치는 미커밋 변경으로 병합이 시작조차 못 하면 <see cref="WorkingTreeConflictException"/>을,
