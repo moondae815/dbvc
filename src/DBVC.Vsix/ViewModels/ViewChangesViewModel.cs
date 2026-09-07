@@ -2010,7 +2010,9 @@ namespace DBVC.Vsix.ViewModels
                         _notifier.ShowError(
                             "DBVC 되돌리기 — 일부 실패",
                             "다음 파일을 되돌리지 못했습니다. 다른 프로그램이 파일을 열고 있는지 확인하세요."
-                            + " 파일 이름에 대괄호(`[` `]`)가 들어 있으면 되돌릴 수 없습니다."
+                            // 백틱을 쓰지 않는다. 이 문구는 MessageBox로 그대로 나가므로
+                            // 마크다운이 렌더링되지 않고 백틱이 문자 그대로 보인다.
+                            + " 파일 이름에 대괄호([ ])가 들어 있으면 되돌릴 수 없습니다."
                             + Environment.NewLine + Environment.NewLine
                             + string.Join(Environment.NewLine, result.FailedPaths.Select(p => "  · " + p)));
                     }
