@@ -518,6 +518,48 @@ namespace DBVC.Core.Tests
             Assert.That(tracker.BuildChangeSet(System.Array.Empty<ChangeLogRow>(), null), Is.Empty);
         }
 
+        [Test]
+        public void BuildChangeSet_SurfacesForeignFile_WhenLogRowIsGone()
+        {
+            // 30일 정리가 남의 열린 행을 지우면 그 경로는 PartitionByAuthor의 foreignPaths에서도
+            // 빠진다. 그때부터 Git 폴백이 그 더러운 파일을 주인 없는 변경으로 올린다.
+            //
+            // 이것이 미채택자의 변경을 결국 git에 담기게 하는 유일한 길이다(설계 2.2).
+            // LastLogId가 0이라 되돌리기가 자기 취소되지도 않는다. 우연에 기대지 않도록 여기서 고정한다.
+            var tracker = NewTracker();
+            var gitStates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["dbo/Tables/Foo.sql"] = "Modified"
+            };
+
+            var changes = tracker.BuildChangeSet(
+                new List<ChangeLogRow>(), gitStates, foreignPaths: null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(changes.Count, Is.EqualTo(1));
+                Assert.That(changes[0].RelativePath, Is.EqualTo("dbo/Tables/Foo.sql"));
+                Assert.That(changes[0].LastLogId, Is.EqualTo(0));
+            });
+        }
+
+        [Test]
+        public void BuildChangeSet_HidesForeignFile_WhileTheLogRowIsStillOpen()
+        {
+            // 정리 전에는 가려져 있어야 한다. 이 짝이 없으면 위 테스트가 "언제나 뜬다"로 읽힌다.
+            var tracker = NewTracker();
+            var gitStates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["dbo/Tables/Foo.sql"] = "Modified"
+            };
+
+            var changes = tracker.BuildChangeSet(
+                new List<ChangeLogRow>(), gitStates,
+                foreignPaths: new[] { "dbo/Tables/Foo.sql" });
+
+            Assert.That(changes, Is.Empty);
+        }
+
         // ---------- 캐시 ----------
 
         [Test]
