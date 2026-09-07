@@ -1207,6 +1207,21 @@ namespace DBVC.Vsix.ViewModels
                 Branch = branch
             });
 
+            // 이 파일을 받지 못한 클론에서는 core.autocrlf가 CRLF를 LF로 바꿔 커밋해, 그
+            // 파일만 블롭이 LF가 되고 MR에서 파일 전체가 변경으로 보인다. 지금까지는 인코딩
+            // 전환을 겪은 저장소에만 생겨서, 새로 연결한 저장소는 디스크에도 받지 못했다.
+            // 커밋에 담는 것은 CommitChanges가 한다 - 변경 목록에는 뜨지 않는 파일이다.
+            //
+            // 배포·감사 클론에는 쓰지 않는다. 저장소에 쓰면 작업 트리가 더러워지고
+            // DeniesDirtyWorkingTree가 그 클론을 연결하자마자 차단하는데, 그 화면에는 변경
+            // 목록이 없어 도구 안에서 빠져나갈 방법이 없다(백로그 8번).
+            if (mode == MappingMode.Write && RepositoryEncoding.EnsureGitAttributes(localPath))
+            {
+                _notifier.ShowInfo(
+                    "DBVC 저장소 연결",
+                    "줄바꿈 설정 파일(.gitattributes)을 만들었습니다. 다음 커밋에 함께 담깁니다.");
+            }
+
             // 매핑이 생겼으므로 상태를 다시 판정한다. 인증 정보는 이미 저장소에 있다.
             InvalidateActiveContext();
             ApplyContext();

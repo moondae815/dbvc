@@ -2256,6 +2256,74 @@ namespace DBVC.Core.Tests
             Assert.That(result.SkippedPaths, Is.Empty);
         }
 
+        // ---------- .gitattributes 동반 커밋 ----------
+
+        /// <summary>
+        /// 이 파일은 사용자가 고르는 대상이 아니다. 변경 목록은 경로 규약을 통과하는 .sql만
+        /// 담으므로(BuildChangeSet) 체크할 방법이 없고, 스스로 담지 않으면 영영 커밋되지 않는다.
+        /// 그러면 이 파일이 없는 클론에서 core.autocrlf가 CRLF를 LF로 바꿔 커밋해, 그 파일만
+        /// 블롭이 LF가 되고 MR에서 파일 전체가 변경으로 보인다.
+        /// </summary>
+        [Test]
+        public void CommitChanges_StagesGitAttributes_WhenOnlySqlPathsAreSelected()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager(Server, Database, repoPath);
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "-- 바뀐 내용");
+            RepositoryEncoding.EnsureGitAttributes(repoPath);
+
+            var result = git.CommitChanges(Server, Database, "테스트", new[] { "dbo/Tables/Users.sql" });
+
+            Assert.That(result, Is.EqualTo(GitCommitResult.Committed));
+            using var repo = new Repository(repoPath);
+            Assert.That(repo.RetrieveStatus(".gitattributes"), Is.EqualTo(FileStatus.Unaltered),
+                "선택 경로만 넘겨도 .gitattributes가 함께 담겨야 한다");
+        }
+
+        /// <summary>
+        /// 이미 커밋되어 깨끗하면 아무 일도 일어나지 않아야 한다 - 빈 커밋을 만들거나
+        /// 매 커밋마다 이 파일이 다시 나타나면 안 된다.
+        /// </summary>
+        [Test]
+        public void CommitChanges_LeavesGitAttributesAlone_WhenItIsAlreadyCommitted()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager(Server, Database, repoPath);
+            RepositoryEncoding.EnsureGitAttributes(repoPath);
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, ".gitattributes");
+                repo.Commit("attributes", TestSignature, TestSignature);
+            }
+
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "-- 바뀐 내용");
+            var result = git.CommitChanges(Server, Database, "테스트", new[] { "dbo/Tables/Users.sql" });
+
+            Assert.That(result, Is.EqualTo(GitCommitResult.Committed));
+            using (var repo = new Repository(repoPath))
+            {
+                Assert.That(repo.Head.Tip.Parents.Single().Tree[".gitattributes"], Is.Not.Null);
+                Assert.That(repo.RetrieveStatus(".gitattributes"), Is.EqualTo(FileStatus.Unaltered));
+            }
+        }
+
+        /// <summary>
+        /// 고른 .sql이 저장소와 이미 같고 .gitattributes만 새로 생긴 경우다.
+        /// NothingToCommit으로 돌려주면 화면이 "커밋할 것이 없었습니다"라고 말하는데
+        /// 실제로는 담을 것이 있다 - 검사보다 먼저 스테이징해야 하는 이유다.
+        /// </summary>
+        [Test]
+        public void CommitChanges_Commits_WhenOnlyGitAttributesChanged()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager(Server, Database, repoPath);
+            RepositoryEncoding.EnsureGitAttributes(repoPath);
+
+            var result = git.CommitChanges(Server, Database, "테스트", new[] { "dbo/Tables/Users.sql" });
+
+            Assert.That(result, Is.EqualTo(GitCommitResult.Committed));
+        }
+
         /// <summary>
         /// 잠긴 파일은 되돌아가지 않았는데 성공으로 보고되면 안 된다.
         /// SSMS 21 수동 검증에서 실제로 나온 증상이다 - 파일은 옛 내용 그대로인데

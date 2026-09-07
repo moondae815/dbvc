@@ -324,6 +324,19 @@ namespace DBVC.Core
                 Commands.Stage(repo, paths);
             }
 
+            // .gitattributes는 사용자가 고르는 대상이 아니라 DBVC가 소유하는 저장소 배관이다.
+            // 변경 목록은 경로 규약을 통과하는 .sql만 담으므로(BuildChangeSet) 이 파일은 체크할
+            // 수 없고, 여기서 담지 않으면 영영 커밋되지 않는다. 그러면 이 파일을 받지 못한
+            // 클론에서 core.autocrlf가 CRLF를 LF로 바꿔 커밋해 그 파일만 블롭이 LF가 되고,
+            // MR에서 파일 전체가 변경으로 보인다.
+            //
+            // HasStagedChanges보다 앞에 둔다. 뒤에 두면 이 파일만 새로 생긴 경우가
+            // NothingToCommit으로 나가 화면이 "커밋할 것이 없었습니다"라고 거짓을 말한다.
+            if (File.Exists(Path.Combine(repoPath, RepositoryEncoding.GitAttributesFileName)))
+            {
+                Commands.Stage(repo, RepositoryEncoding.GitAttributesFileName);
+            }
+
             if (!HasStagedChanges(repo))
             {
                 // 빈 커밋은 LibGit2Sharp에서 EmptyCommitException을 던진다. 예외로 노출할 일이

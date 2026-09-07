@@ -33,6 +33,12 @@ namespace DBVC.Core
         /// 오므로, 변환이 끼면 DiffPlex가 모든 줄을 변경으로 판정한다. 양쪽을 정규화하는 코드는 없다.
         /// 텍스트 diff와 3-way 병합은 -text와 무관하게 그대로 동작한다(실측 확인).
         /// </summary>
+        /// <summary>
+        /// 저장소 루트에 두는 파일 이름. Core의 두 곳(여기와 <see cref="GitManager"/>의 커밋
+        /// 스테이징)이 같은 파일을 가리켜야 하므로 문자열을 한 자리에 둔다.
+        /// </summary>
+        public const string GitAttributesFileName = ".gitattributes";
+
         public const string GitAttributesContent =
             "# DBVC가 추출하는 .sql은 SMO가 CRLF로 쓴다. 줄바꿈 변환을 끄면 작업 트리와 블롭의\r\n" +
             "# 바이트가 같아진다 — Diff의 Old는 블롭에서, New는 작업 트리에서 오므로 변환이 끼면\r\n" +
@@ -121,7 +127,7 @@ namespace DBVC.Core
 
             try
             {
-                var path = Path.Combine(repoPath, ".gitattributes");
+                var path = Path.Combine(repoPath, GitAttributesFileName);
                 if (File.Exists(path)) return false;
 
                 // BOM 없이 쓴다. 저장소 .sql에 BOM을 붙이는 것과 목적이 다르다 - 이쪽은 Git이

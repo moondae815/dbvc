@@ -926,6 +926,56 @@ namespace DBVC.Vsix.Tests.ViewModels
                 && m.Mode == MappingMode.Write && m.Branch == null)), Times.Once);
         }
 
+        /// <summary>실제 폴더 하나를 만들어 연결 대상으로 쓴다. TearDown이 지운다.</summary>
+        private string NewConnectTargetFolder()
+        {
+            var path = Path.Combine(Path.GetTempPath(), "dbvc_vmattr_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(path);
+            _tempDirs.Add(path);
+            return path;
+        }
+
+        /// <summary>
+        /// 지금까지 이 파일은 인코딩 전환을 겪은 저장소에만 생겼다. 새로 연결한 저장소는
+        /// 디스크에도 받지 못해, 그 클론에서 커밋하면 core.autocrlf가 CRLF를 LF로 바꿔
+        /// 그 파일만 블롭이 LF가 된다.
+        /// </summary>
+        [Test]
+        public void ConnectRepositoryCommand_CreatesGitAttributes_WhenModeIsWrite()
+        {
+            var folder = NewConnectTargetFolder();
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _git.Setup(g => g.IsRepository(folder)).Returns(true);
+            _connectDialog.RequestToReturn =
+                RepositoryConnectRequest.ForExistingFolder(folder, MappingMode.Write, null);
+            var vm = NewConnectedViewModel();
+
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            Assert.That(File.Exists(Path.Combine(folder, ".gitattributes")), Is.True);
+        }
+
+        /// <summary>
+        /// 배포·감사 클론에 파일을 쓰면 작업 트리가 더러워지고, DeniesDirtyWorkingTree가
+        /// 그 클론을 연결하자마자 차단한다 - 그 화면에는 변경 목록이 없어 도구 안에서
+        /// 빠져나갈 방법도 없다(백로그 8번).
+        /// </summary>
+        [TestCase(MappingMode.Deploy)]
+        [TestCase(MappingMode.Audit)]
+        public void ConnectRepositoryCommand_DoesNotCreateGitAttributes_WhenModeIsNotWrite(MappingMode mode)
+        {
+            var folder = NewConnectTargetFolder();
+            _config.Setup(c => c.TryGetMapping(Server, Database)).Returns((MappingConfig?)null);
+            _git.Setup(g => g.IsRepository(folder)).Returns(true);
+            _connectDialog.RequestToReturn =
+                RepositoryConnectRequest.ForExistingFolder(folder, mode, null);
+            var vm = NewConnectedViewModel();
+
+            vm.ConnectRepositoryCommand.Execute(null);
+
+            Assert.That(File.Exists(Path.Combine(folder, ".gitattributes")), Is.False);
+        }
+
         [Test]
         public void ConnectRepositoryCommand_DoesNothing_WhenTheUserCancels()
         {
