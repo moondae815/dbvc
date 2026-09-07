@@ -19,7 +19,15 @@ namespace DBVC.Core
     public class StateTracker : IStateTracker
     {
         /// <summary>설치 스크립트가 심는 스키마 버전. 이 값보다 낮으면 도구 창이 업데이트를 안내한다.</summary>
-        public const int RequiredSchemaVersion = 5;
+        public const int RequiredSchemaVersion = 6;
+
+        /// <summary>
+        /// 변경 로그 보존 기간. 설치 스크립트의 DBVC_RETENTION_DAYS 표식과 같아야 한다.
+        ///
+        /// 설정으로 빼지 않는다 - DB마다 값이 달라지면 그 이유를 아무도 기억하지 못하고,
+        /// 화면에 드러나지 않아 "이 DB는 왜 다르게 동작하지"를 진단할 길이 없다.
+        /// </summary>
+        public const int RetentionDays = 30;
 
         /// <summary>
         /// 설치 상태를 한 번의 왕복으로 판정한다.

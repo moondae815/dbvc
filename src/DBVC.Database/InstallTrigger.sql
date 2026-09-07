@@ -101,6 +101,15 @@ BEGIN
 END
 GO
 
+-- 정리(DBVC_PurgeChangeLog)의 조회 경로. PostTime 단독 조건은 위 인덱스로 seek이 되지 않아
+-- 인덱스가 없으면 정리가 매번 전체 스캔이 된다.
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'IX_DBVC_ChangeLog_PostTime')
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_DBVC_ChangeLog_PostTime]
+        ON [dbo].[DBVC_ChangeLog] ([PostTime]);
+END
+GO
+
 -- 로그를 읽고 닫는 일은 클라이언트가 접속 계정 그대로 한다 - 트리거의 INSERT만 dbo로 돈다.
 -- 이 GRANT가 없으면 db_owner가 아닌 계정의 커밋이 로그를 닫지 못하고, 그 항목이 새로고침마다
 -- 되살아난다. 커밋은 이미 성공한 뒤라 사용자에게는 원인이 보이지 않는다.
@@ -111,6 +120,47 @@ GO
 --
 -- INSERT는 주지 않는다. 트리거가 dbo로 쓰므로 필요 없고, 주면 사용자가 로그를 직접 조작할 수 있다.
 GRANT SELECT, UPDATE ON [dbo].[DBVC_ChangeLog] TO [public];
+GO
+
+-- 변경 로그 정리. 나이 하나로 지우고 IsProcessed를 보지 않는다 - 커밋되지 않은 채 남는
+-- 미채택자의 행이 정확히 IsProcessed = 0이라, 처리된 행만 지우는 정책은 그 행에 영영 닿지 않는다.
+--
+-- EXECUTE AS OWNER인 이유는 public에 DELETE를 주지 않기 위해서다. DELETE를 주면 사용자가
+-- 로그를 직접 조작할 수 있게 되고, 그것은 위 GRANT에서 INSERT를 뺀 이유와 같은 문제다.
+--
+-- 배치로 나누는 이유는 첫 실행 때문이다. 몇 달 쌓인 DB에서 한 트랜잭션으로 수백만 행을
+-- 지우면 그동안 모든 DDL이 트리거의 INSERT에서 막히고 트랜잭션 로그가 부풀어 오른다.
+--
+-- CREATE OR ALTER를 쓰지 않는 것은 그것이 SQL Server 2016 SP1+를 요구해 최소 버전을
+-- 새로 못 박기 때문이다. 트리거와 같은 DROP -> CREATE 형태를 쓴다.
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_PurgeChangeLog]') AND type = N'P')
+BEGIN
+    DROP PROCEDURE [dbo].[DBVC_PurgeChangeLog];
+END
+GO
+
+CREATE PROCEDURE [dbo].[DBVC_PurgeChangeLog]
+WITH EXECUTE AS OWNER
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- DBVC_RETENTION_DAYS: Core의 StateTracker.RetentionDays와 같아야 한다.
+    -- InstallScriptSyncTests가 두 값을 대조한다.
+    DECLARE @cutoff DATETIME = DATEADD(day, -30, GETDATE());
+    DECLARE @deleted INT = 1;
+
+    WHILE @deleted > 0
+    BEGIN
+        DELETE TOP (5000) FROM [dbo].[DBVC_ChangeLog] WHERE [PostTime] < @cutoff;
+        SET @deleted = @@ROWCOUNT;
+    END
+END
+GO
+
+-- 클라이언트는 접속 계정 그대로 이것을 부른다. EXECUTE만 주므로 사용자가 지울 수 있는 것은
+-- 프로시저가 허용하는 것뿐이다.
+GRANT EXECUTE ON [dbo].[DBVC_PurgeChangeLog] TO [public];
 GO
 
 IF EXISTS (SELECT * FROM sys.triggers WHERE parent_class = 0 AND name = 'trg_DBVC_DDL_Tracker')
@@ -202,13 +252,13 @@ IF NOT EXISTS (SELECT 1 FROM sys.extended_properties
                WHERE class = 1 AND major_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]')
                  AND minor_id = 0 AND name = N'DBVC_SchemaVersion')
 BEGIN
-    EXEC sp_addextendedproperty @name = N'DBVC_SchemaVersion', @value = N'5',
+    EXEC sp_addextendedproperty @name = N'DBVC_SchemaVersion', @value = N'6',
          @level0type = N'SCHEMA', @level0name = N'dbo',
          @level1type = N'TABLE',  @level1name = N'DBVC_ChangeLog';
 END
 ELSE
 BEGIN
-    EXEC sp_updateextendedproperty @name = N'DBVC_SchemaVersion', @value = N'5',
+    EXEC sp_updateextendedproperty @name = N'DBVC_SchemaVersion', @value = N'6',
          @level0type = N'SCHEMA', @level0name = N'dbo',
          @level1type = N'TABLE',  @level1name = N'DBVC_ChangeLog';
 END

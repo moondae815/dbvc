@@ -88,6 +88,17 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void InstallScript_PurgesAfterTheRetentionCoreDeclares()
+        {
+            // 두 값이 갈라지면 문서와 실제 동작이 달라진다 - 30일이라 적어 놓고 90일에 지운다.
+            var script = StateTracker.ReadInstallScript();
+            var match = Regex.Match(script, @"DATEADD\(day,\s*-(\d+),\s*GETDATE\(\)\)");
+
+            Assert.That(match.Success, Is.True, "설치 스크립트에서 보존 기간을 찾지 못했습니다");
+            Assert.That(int.Parse(match.Groups[1].Value), Is.EqualTo(StateTracker.RetentionDays));
+        }
+
+        [Test]
         public void InstallScript_ExcludesTheSameObjectsCoreCallsItsOwn()
         {
             // 트리거는 SQL이라 DbvcOwnedObjects를 부를 수 없다. 두 판정이 갈라지면
