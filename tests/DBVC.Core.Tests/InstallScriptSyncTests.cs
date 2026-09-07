@@ -36,6 +36,24 @@ namespace DBVC.Core.Tests
         private static string[] ParseTypes(string block)
             => Regex.Matches(block, @"N'([^']+)'").Cast<Match>().Select(m => m.Groups[1].Value).ToArray();
 
+        /// <summary>
+        /// "--"부터 줄 끝까지를 지운다. 배치 순서를 문자열 위치로 검사할 때, 그 규칙을 설명하는
+        /// 주석 산문이 같은 키워드(예: "CREATE PROCEDURE [dbo].[DBVC_...]")를 우연히 언급하면
+        /// 실제로는 안전한 구간의 주석이 위반으로 잘못 잡히거나, 반대로 진짜 위반을 감싼 주석이
+        /// 검사를 가려 결함을 숨길 수 있다. 이 스크립트에는 문자열 리터럴 안에 "--"가 없음을
+        /// 확인했다 - 있었다면 이 방식은 안전하지 않다.
+        /// </summary>
+        private static string StripSqlLineComments(string sql)
+        {
+            var lines = sql.Replace("\r\n", "\n").Split('\n');
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var idx = lines[i].IndexOf("--", StringComparison.Ordinal);
+                if (idx >= 0) lines[i] = lines[i].Substring(0, idx);
+            }
+            return string.Join("\n", lines);
+        }
+
         [Test]
         public void InstallScript_TracksExactlyTheObjectTypesTheConventionKnows_PlusTheParentPointingTypes()
         {
@@ -119,7 +137,11 @@ namespace DBVC.Core.Tests
             // 그 객체 자신의 이름이라 옛 트리거의 자기 제외 판정(문자열 나열, DBVC_ 접두사 규칙
             // 없음)을 피해 가고, ObjectType(INDEX/PROCEDURE)은 추적 대상이라 로그에 남는다.
             // 안전한 자리는 DROP TRIGGER와 CREATE TRIGGER 사이뿐이다 - 벗어나면 여기서 잡는다.
-            var script = StateTracker.ReadInstallScript();
+            //
+            // 주석부터 지우고 본다 - 그러지 않으면 이 규칙을 설명하는 주석 문장 자체가 검사
+            // 대상 키워드를 언급한다는 이유만으로 오탐하거나(실제로 FIX 1 리뷰 도중 이런
+            // 이유로 깨진 적이 있다), 반대로 위반을 감싼 주석이 검사를 가릴 수 있다.
+            var script = StripSqlLineComments(StateTracker.ReadInstallScript());
 
             var dropTrigger = script.IndexOf(
                 "DROP TRIGGER [trg_DBVC_DDL_Tracker] ON DATABASE", StringComparison.Ordinal);

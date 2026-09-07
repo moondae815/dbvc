@@ -905,11 +905,33 @@ namespace DBVC.Core.Tests
             Assert.That(batches, Has.All.Matches<string>(b => !string.IsNullOrWhiteSpace(b)));
         }
 
+        /// <summary>
+        /// "--"부터 줄 끝까지를 지운다. 배치의 실제 시작 구문을 문자열로 찾을 때, 그 구문을
+        /// 설명하는 주석 산문(예: "...CREATE TRIGGER 사이에서 실행한다")이 같은 키워드를
+        /// 우연히 포함해 배치 자체가 그 키워드로 시작한다고 오탐하는 것을 막는다. 이 스크립트에는
+        /// 문자열 리터럴 안에 "--"가 없음을 확인했다 - 있었다면 이 방식은 안전하지 않다.
+        /// </summary>
+        private static string StripSqlLineComments(string sql)
+        {
+            var lines = sql.Replace("\r\n", "\n").Split('\n');
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var idx = lines[i].IndexOf("--", System.StringComparison.Ordinal);
+                if (idx >= 0) lines[i] = lines[i].Substring(0, idx);
+            }
+            return string.Join("\n", lines);
+        }
+
         [Test]
         public void InstallScript_PutsCreateTriggerFirstInItsBatch()
         {
-            // SQL Server는 CREATE TRIGGER가 배치의 첫 구문일 것을 요구한다.
-            var batches = StateTracker.SplitSqlBatches(StateTracker.ReadInstallScript());
+            // SQL Server는 CREATE TRIGGER가 배치의 첫 구문일 것을 요구한다. 주석을 먼저 지운다 -
+            // 그러지 않으면 이 배치 순서를 설명하는 주석 자체가 "CREATE TRIGGER"를 언급하는 것만으로
+            // 그 앞의 주석 블록이 CREATE TRIGGER 배치로 오인되거나, 반대로 실제로는 다른 문장으로
+            // 시작하는 배치가 주석 속 우연한 일치 때문에 통과해 진짜 결함을 가릴 수 있다.
+            var batches = StateTracker.SplitSqlBatches(StateTracker.ReadInstallScript())
+                .Select(StripSqlLineComments)
+                .ToList();
 
             var triggerBatches = batches
                 .Where(b => b.IndexOf("CREATE TRIGGER", System.StringComparison.OrdinalIgnoreCase) >= 0)
