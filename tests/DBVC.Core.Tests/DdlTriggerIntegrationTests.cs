@@ -876,9 +876,12 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
                 "INSERT INTO dbo.DBVC_ChangeLog (EventType, SchemaName, ObjectName, ObjectType, PostTime, LoginName, IsProcessed) " +
                 "VALUES (N'ALTER_TABLE', N'dbo', N'PurgeLowPriv', N'TABLE', DATEADD(day, -400, GETDATE()), N'nobody', 0)");
 
-            // 저권한 사용자 만들기·되돌리기는 이 파일의
-            // Trigger_LogsTheChange_WhenAnUnprivilegedUserRunsDdl이 쓰는 관용을 그대로 따른다.
-            _db.ExecuteInOneSession(
+            // 이 테스트가 잡아야 할 바로 그 회귀(EXECUTE AS OWNER가 빠짐)가 나면 EXEC가 던지고
+            // 뒤의 REVERT가 돌지 않는다. 풀에 반환되는 세션으로 이걸 하면 LowPrivPurge로 가장한
+            // 채인 연결이 다음 테스트에 다시 나가 저권한으로 조용히 실행된다 - 회귀를 잡다가
+            // 다른 테스트를 깨뜨린다. ExecuteInOneUnpooledSession은 그 연결을 풀에 돌려주지
+            // 않으므로 여기서는 이것을 쓴다.
+            _db.ExecuteInOneUnpooledSession(
                 "CREATE USER LowPrivPurge WITHOUT LOGIN;",
                 "EXECUTE AS USER = N'LowPrivPurge';",
                 "EXEC dbo.DBVC_PurgeChangeLog;",
