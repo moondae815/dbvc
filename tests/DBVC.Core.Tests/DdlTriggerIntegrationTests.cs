@@ -821,5 +821,99 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
             Assert.That(changes.Select(c => c.ObjectName), Does.Not.Contain("RenameProbeOld"),
                 "옛 이름은 DB에도 저장소에도 없으므로 걷혀야 한다");
         }
+
+        [Test]
+        public void Purge_DeletesUnprocessedRows_WhenOlderThanRetention()
+        {
+            // 이 규칙이 이 설계의 핵심이다. IsProcessed를 보면 미채택자의 행에 영영 닿지 못한다.
+            _db!.Execute(
+                "INSERT INTO dbo.DBVC_ChangeLog (EventType, SchemaName, ObjectName, ObjectType, PostTime, LoginName, IsProcessed) " +
+                "VALUES (N'ALTER_TABLE', N'dbo', N'PurgeOldOpen', N'TABLE', DATEADD(day, -400, GETDATE()), N'nobody', 0)");
+
+            _db.Execute("EXEC dbo.DBVC_PurgeChangeLog");
+
+            var left = Convert.ToInt32(_db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'PurgeOldOpen'"));
+            Assert.That(left, Is.Zero);
+        }
+
+        [Test]
+        public void Purge_KeepsRows_WhenWithinRetention()
+        {
+            _db!.Execute(
+                "INSERT INTO dbo.DBVC_ChangeLog (EventType, SchemaName, ObjectName, ObjectType, PostTime, LoginName, IsProcessed) " +
+                "VALUES (N'ALTER_TABLE', N'dbo', N'PurgeRecent', N'TABLE', DATEADD(day, -1, GETDATE()), N'nobody', 0)");
+
+            _db.Execute("EXEC dbo.DBVC_PurgeChangeLog");
+
+            var left = Convert.ToInt32(_db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'PurgeRecent'"));
+            Assert.That(left, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Purge_DeletesAllRows_WhenCountExceedsBatchSize()
+        {
+            // 배치 루프가 한 번만 돌고 멈추면 5000개만 지워진다. 5001개로 그것을 태운다.
+            _db!.Execute(
+                "INSERT INTO dbo.DBVC_ChangeLog (EventType, SchemaName, ObjectName, ObjectType, PostTime, LoginName, IsProcessed) " +
+                "SELECT TOP (5001) N'ALTER_TABLE', N'dbo', N'PurgeBulk', N'TABLE', DATEADD(day, -400, GETDATE()), N'nobody', 0 " +
+                "FROM sys.all_columns a CROSS JOIN sys.all_columns b");
+
+            _db.Execute("EXEC dbo.DBVC_PurgeChangeLog");
+
+            var left = Convert.ToInt32(_db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'PurgeBulk'"));
+            Assert.That(left, Is.Zero);
+        }
+
+        [Test]
+        public void Purge_Succeeds_WhenCallerIsNotOwner()
+        {
+            // public에 DELETE를 주지 않았으므로 EXECUTE AS OWNER가 아니면 여기서 죽는다.
+            // 공용 계정이 db_owner가 아닌 환경이 실제로 그렇다.
+            _db!.Execute(
+                "INSERT INTO dbo.DBVC_ChangeLog (EventType, SchemaName, ObjectName, ObjectType, PostTime, LoginName, IsProcessed) " +
+                "VALUES (N'ALTER_TABLE', N'dbo', N'PurgeLowPriv', N'TABLE', DATEADD(day, -400, GETDATE()), N'nobody', 0)");
+
+            // 저권한 사용자 만들기·되돌리기는 이 파일의
+            // Trigger_LogsTheChange_WhenAnUnprivilegedUserRunsDdl이 쓰는 관용을 그대로 따른다.
+            _db.ExecuteInOneSession(
+                "CREATE USER LowPrivPurge WITHOUT LOGIN;",
+                "EXECUTE AS USER = N'LowPrivPurge';",
+                "EXEC dbo.DBVC_PurgeChangeLog;",
+                "REVERT;",
+                "DROP USER LowPrivPurge;");
+
+            var left = Convert.ToInt32(_db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'PurgeLowPriv'"));
+            Assert.That(left, Is.Zero);
+        }
+
+        [Test]
+        public void Trigger_DoesNotLog_WhenDbvcOwnedObjectIsCreated()
+        {
+            // 설치가 자기 자신을 사용자 변경으로 기록하면 그것이 저장소에 커밋된다.
+            var before = Convert.ToInt32(_db!.QueryScalar("SELECT COUNT(*) FROM dbo.DBVC_ChangeLog"));
+
+            _db.Execute("CREATE TABLE dbo.DBVC_ScratchTable (Id INT NULL);");
+            _db.Execute("DROP TABLE dbo.DBVC_ScratchTable;");
+
+            var after = Convert.ToInt32(_db.QueryScalar("SELECT COUNT(*) FROM dbo.DBVC_ChangeLog"));
+            Assert.That(after, Is.EqualTo(before));
+        }
+
+        [Test]
+        public void Trigger_Logs_WhenNameOnlyResemblesTheDbvcPrefix()
+        {
+            // LIKE의 [_] 이스케이프가 빠지면 이 테이블이 조용히 추적에서 빠진다.
+            _db!.Execute("CREATE TABLE dbo.DBVCxResemble (Id INT NULL);");
+
+            var logged = Convert.ToInt32(_db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'DBVCxResemble'"));
+
+            _db.Execute("DROP TABLE dbo.DBVCxResemble;");
+            Assert.That(logged, Is.GreaterThan(0));
+        }
     }
 }
