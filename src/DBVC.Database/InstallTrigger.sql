@@ -203,7 +203,11 @@ BEGIN
     -- 함께 고쳐야 하고, 한쪽을 빠뜨리면 도구가 자기 자신을 저장소에 커밋하기 때문이다.
     -- DbvcOwnedObjects와 같은 판정이어야 하며 InstallScriptSyncTests가 대조한다.
     -- LIKE의 [_]는 밑줄이 와일드카드이기 때문이다 - 빼면 DBVCx로 시작하는 사용자 객체까지 빠진다.
-    IF @ObjectName IS NULL OR @ObjectName LIKE N'DBVC[_]%' OR @ObjectName = N'trg_DBVC_DDL_Tracker'
+    -- COLLATE를 명시하는 이유는 이 LIKE가 기본으로는 데이터베이스 collation을 따르기 때문이다.
+    -- C# 쪽 판정(DbvcOwnedObjects.IsOwned)은 항상 OrdinalIgnoreCase라 대소문자를 구분하지 않는데,
+    -- 대소문자를 구분하는 collation의 DB에서 이 LIKE가 그대로 두면 dbvc_x 같은 사용자 객체를
+    -- 트리거는 로그에 남기고 SMO는 영영 추출하지 않는 유령 항목이 생긴다. 두 판정은 항상 같아야 한다.
+    IF @ObjectName IS NULL OR @ObjectName COLLATE Latin1_General_CI_AS LIKE N'DBVC[_]%' OR @ObjectName = N'trg_DBVC_DDL_Tracker'
         RETURN;
 
     DECLARE @ObjectType NVARCHAR(100) = @EventData.value('(/EVENT_INSTANCE/ObjectType)[1]', 'NVARCHAR(100)');

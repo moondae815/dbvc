@@ -100,30 +100,49 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
-        public void InstallScript_CreatesThePostTimeIndexOnlyWhileNoTriggerIsLive()
+        public void InstallScript_CreatesEveryDbvcOwnedObjectOnlyWhileNoTriggerIsLive()
         {
-            // v5 -> v6 재설치에서는 트리거가 이 인덱스 생성 전에 이미 살아있을 수 있다.
-            // 살아있는 동안 만들면 CREATE_INDEX 이벤트의 ObjectName이 인덱스 이름이라
-            // 트리거의 자기 제외 판정(DBVC_ 접두사)을 피해 가고, ObjectType = 'INDEX'는
-            // 추적 대상이라 DBVC 자신의 테이블이 사용자 변경으로 로그에 남는다.
-            // 안전한 자리는 DROP TRIGGER와 CREATE TRIGGER 사이뿐이다 - 옮기면 여기서 잡는다.
+            // 인덱스 하나(IX_DBVC_ChangeLog_PostTime)만 이름으로 박아 두면, 다음에 추가되는
+            // DBVC 소유 객체(프로시저·인덱스·GRANT)가 같은 자리를 벗어나도 이 테스트는 통과한다.
+            // 실제로 DBVC_PurgeChangeLog 프로시저가 그렇게 놓쳤다 - 규칙 자체를 검사해야 한다.
+            //
+            // v5 -> v6 같은 재설치에서는 옛 트리거가 이 시점에 아직 살아있을 수 있다(DROP 후
+            // CREATE 전). 살아있는 동안 DBVC 객체를 만들면 CREATE/GRANT 이벤트의 ObjectName이
+            // 그 객체 자신의 이름이라 옛 트리거의 자기 제외 판정(문자열 나열, DBVC_ 접두사 규칙
+            // 없음)을 피해 가고, ObjectType(INDEX/PROCEDURE)은 추적 대상이라 로그에 남는다.
+            // 안전한 자리는 DROP TRIGGER와 CREATE TRIGGER 사이뿐이다 - 벗어나면 여기서 잡는다.
             var script = StateTracker.ReadInstallScript();
 
             var dropTrigger = script.IndexOf(
                 "DROP TRIGGER [trg_DBVC_DDL_Tracker] ON DATABASE", StringComparison.Ordinal);
-            var createIndex = script.IndexOf(
-                "CREATE NONCLUSTERED INDEX [IX_DBVC_ChangeLog_PostTime]", StringComparison.Ordinal);
             var createTrigger = script.IndexOf(
                 "CREATE TRIGGER [trg_DBVC_DDL_Tracker]", StringComparison.Ordinal);
 
             Assert.That(dropTrigger, Is.GreaterThan(-1), "DROP TRIGGER 문을 찾지 못했습니다");
-            Assert.That(createIndex, Is.GreaterThan(-1), "IX_DBVC_ChangeLog_PostTime 생성문을 찾지 못했습니다");
             Assert.That(createTrigger, Is.GreaterThan(-1), "CREATE TRIGGER 문을 찾지 못했습니다");
 
-            Assert.That(createIndex, Is.GreaterThan(dropTrigger),
-                "IX_DBVC_ChangeLog_PostTime은 트리거를 DROP한 뒤에 만들어져야 한다");
-            Assert.That(createIndex, Is.LessThan(createTrigger),
-                "IX_DBVC_ChangeLog_PostTime은 트리거를 다시 CREATE하기 전에 만들어져야 한다");
+            var ownedObjectPatterns = new[]
+            {
+                @"CREATE PROCEDURE \[dbo\]\.\[DBVC_\w+\]",
+                @"CREATE NONCLUSTERED INDEX \[IX_DBVC_\w+\]",
+                @"GRANT\s+[A-Z]+\s+ON\s+\[dbo\]\.\[DBVC_Purge\w*\]",
+            };
+
+            var matches = ownedObjectPatterns
+                .SelectMany(pattern => Regex.Matches(script, pattern).Cast<Match>())
+                .ToArray();
+
+            // 검사 대상을 하나도 못 찾으면 아래 검사가 공허하게 통과한다 - 그것도 실패로 본다.
+            Assert.That(matches, Is.Not.Empty, "DBVC 소유 객체 생성문을 하나도 찾지 못했습니다");
+
+            var offenders = matches
+                .Where(m => m.Index <= dropTrigger || m.Index >= createTrigger)
+                .Select(m => $"'{m.Value}' (위치 {m.Index})")
+                .ToArray();
+
+            Assert.That(offenders, Is.Empty,
+                "DBVC 소유 객체는 DROP TRIGGER와 CREATE TRIGGER 사이에서만 만들어야 합니다. " +
+                "자리를 벗어난 문장: " + string.Join(", ", offenders));
         }
 
         [Test]
