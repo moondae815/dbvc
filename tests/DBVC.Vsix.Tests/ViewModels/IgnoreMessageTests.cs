@@ -35,7 +35,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.Multiple(() =>
             {
                 Assert.That(text, Does.Contain("함께 쓰는 모두에게"));
-                Assert.That(text, Does.Contain("git"));
+                Assert.That(text, Does.Contain("git에 담기지 않습니다"));
                 // DDL을 취소하는 것으로 읽히면 안 된다.
                 Assert.That(text, Does.Contain("데이터베이스의 변경은 그대로 남습니다"));
             });
