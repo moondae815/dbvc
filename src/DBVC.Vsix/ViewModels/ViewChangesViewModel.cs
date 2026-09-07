@@ -5,6 +5,7 @@ using System.IO;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading;
 using System.Windows.Input;
 using DBVC.Core;
@@ -117,6 +118,7 @@ namespace DBVC.Vsix.ViewModels
                 () => IsRepositoryEncodingLegacy && !IsBusy && MappingPolicy.IsAllowed(Mode, DbvcOperation.Extract));
             SetCommitIdentityCommand = new RelayCommand(SetCommitIdentity, () => !IsBusy);
             CommitCommand = new RelayCommand(Commit, CanCommit);
+            DiscardCommand = new RelayCommand(Discard, CanDiscard);
             ConnectCommand = new RelayCommand(Connect, () => _ssmsConnectionSource != null && !IsBusy);
             ConnectRepositoryCommand = new RelayCommand(ConnectRepository, CanConnectRepository);
             PullCommand = new RelayCommand(Pull, CanPull);
@@ -864,6 +866,12 @@ namespace DBVC.Vsix.ViewModels
         public ICommand SetCommitIdentityCommand { get; }
 
         public ICommand CommitCommand { get; }
+
+        /// <summary>
+        /// 선택한 파일을 마지막 커밋 내용으로 되돌린다. DDL 로그는 건드리지 않으므로
+        /// DB의 변경은 그대로 남는다 - 확인 문구가 그 사실을 말한다.
+        /// </summary>
+        public ICommand DiscardCommand { get; }
 
         /// <summary>
         /// 개체 탐색기의 현재 선택을 대상으로 채택하고 접속한다.
@@ -1894,6 +1902,177 @@ namespace DBVC.Vsix.ViewModels
                 + Environment.NewLine + Environment.NewLine + "그대로 커밋할까요?");
         }
 
+        // ---------- 되돌리기 ----------
+
+        /// <summary>확인 문구에 이름을 적는 삭제 파일의 상한.</summary>
+        internal const int MaxListedDeletePaths = 20;
+
+        private bool CanDiscard()
+        {
+            // 병합 중에 경로별로 되돌리면 병합 상태가 더 헝클리고, 브랜치가 틀린 트리에서
+            // 되돌리는 것은 틀린 기준으로 덮어쓰는 일이다. CanCommit과 같은 판단이다.
+            if (IsBlocked) return false;
+
+            return HasContext
+                && IsMapped
+                && IsInitialized
+                && !IsBusy
+                && Changes.Any(c => c.IsSelected)
+                && MappingPolicy.IsAllowed(Mode, DbvcOperation.Discard);
+        }
+
+        private void Discard() => Discard(confirmed: false);
+
+        /// <param name="confirmed">
+        /// 사용자가 이미 확인했는지. 판정은 저장소를 여는 일이라 백그라운드에서 해야 하고
+        /// 확인은 UI 스레드에서만 띄울 수 있어, 판정을 마치고 확인을 받은 뒤 이 값을 참으로
+        /// 해서 같은 경로를 다시 탄다(Commit의 coAuthorConfirmed와 같은 패턴).
+        ///
+        /// 무한 반복 가드는 필요 없다 - 참인 경로는 대화상자를 띄우지 않으므로 세 번째
+        /// 왕복이 없다.
+        /// </param>
+        private void Discard(bool confirmed)
+        {
+            if (!CanDiscard()) return;
+
+            // 화면 객체를 읽는 일은 전부 여기서 끝낸다. 백그라운드로 넘어가는 것은 값뿐이다.
+            var selectedPaths = Changes
+                .Where(c => c.IsSelected)
+                .Select(c => c.RelativePath)
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(p => p!)
+                .ToList();
+            if (selectedPaths.Count == 0) return;
+
+            var server = ServerName!;
+            var database = DatabaseName!;
+            var gitPath = _configManager.TryGetMapping(server, database)?.GitPath;
+            if (gitPath == null) return;
+
+            IsBusy = true;
+            _scheduler.Run<DiscardOutcome>(
+                () =>
+                {
+                    if (confirmed)
+                    {
+                        return new DiscardOutcome
+                        {
+                            Result = _gitManager.DiscardChanges(server, database, selectedPaths)
+                        };
+                    }
+
+                    // 저장소를 여는 일이라 UI 스레드에서 하지 않는다(인코딩·신원 판정과 같은 이유).
+                    var states = _gitManager.GetChangedFileStates(gitPath);
+                    return new DiscardOutcome { Plan = DiscardPlan.Build(selectedPaths, states) };
+                },
+                outcome =>
+                {
+                    IsBusy = false;
+
+                    if (outcome.Plan != null)
+                    {
+                        if (outcome.Plan.IsEmpty)
+                        {
+                            WarningMessage = "되돌릴 대상이 없습니다.";
+                            return;
+                        }
+
+                        if (_notifier.Confirm("DBVC 되돌리기 확인", BuildDiscardConfirmation(outcome.Plan)))
+                        {
+                            Discard(confirmed: true);
+                        }
+
+                        return;
+                    }
+
+                    var result = outcome.Result!;
+
+                    // 실패는 상자로 알린다. WarningMessage에 담으면 뒤이은 갱신의
+                    // ApplyRefreshOutcome이 덮어써 사라진다.
+                    if (result.HasFailures)
+                    {
+                        _notifier.ShowError(
+                            "DBVC 되돌리기 — 일부 실패",
+                            "다음 파일을 되돌리지 못했습니다. 다른 프로그램이 파일을 열고 있는지 확인하세요."
+                            + Environment.NewLine + Environment.NewLine
+                            + string.Join(Environment.NewLine, result.FailedPaths.Select(p => "  · " + p)));
+                    }
+
+                    // 갱신보다 먼저 담는다. ApplyRefreshOutcome이 이것을 꺼내 쓴다.
+                    _pendingStatusMessage = BuildDiscardSummary(result);
+
+                    // 재추출하지 않는다. 하면 열린 로그 행이 가리키는 객체가 다시 추출되어
+                    // 같은 클릭 안에서 되돌리기가 취소된다.
+                    Refresh(fullExtraction: false, reloadHistory: false, syncRepository: false);
+                },
+                ex =>
+                {
+                    IsBusy = false;
+                    _notifier.ShowError("DBVC 되돌리기 실패", ex.Message);
+                });
+        }
+
+        /// <summary>
+        /// 되돌리기의 결과. Plan은 "아직 되돌리지 않았고 확인이 필요하다",
+        /// Result는 "되돌렸다"를 뜻한다.
+        /// </summary>
+        private sealed class DiscardOutcome
+        {
+            public DiscardPlan? Plan { get; set; }
+            public DiscardResult? Result { get; set; }
+        }
+
+        /// <summary>
+        /// 지울 파일만 이름을 나열한다. 되돌릴 파일은 git이 갖고 있으므로 셈만으로 충분하고,
+        /// 사람이 읽어야 하는 것은 복구되지 않는 쪽이다.
+        /// </summary>
+        private static string BuildDiscardConfirmation(DiscardPlan plan)
+        {
+            var nl = Environment.NewLine;
+            var builder = new StringBuilder();
+            builder.Append("선택한 변경을 저장소의 마지막 커밋 내용으로 되돌립니다.").Append(nl).Append(nl);
+
+            if (plan.RestorePaths.Count > 0)
+            {
+                builder.Append($"  되돌릴 파일 {plan.RestorePaths.Count}개").Append(nl);
+            }
+
+            if (plan.DeletePaths.Count > 0)
+            {
+                builder.Append($"  지울 파일 {plan.DeletePaths.Count}개 — 복구되지 않습니다").Append(nl);
+                foreach (var path in plan.DeletePaths.Take(MaxListedDeletePaths))
+                {
+                    builder.Append("    · ").Append(path).Append(nl);
+                }
+
+                // 전체 다시 추출 뒤라면 수백 개가 될 수 있다. 화면 밖으로 넘친 목록은
+                // 확인이 아니라 장애물이다.
+                var rest = plan.DeletePaths.Count - MaxListedDeletePaths;
+                if (rest > 0) builder.Append($"    외 {rest}개").Append(nl);
+            }
+
+            builder.Append(nl)
+                .Append("데이터베이스의 변경은 그대로 남습니다. 다음 새로고침에서 다시 추출됩니다.")
+                .Append(nl).Append(nl)
+                .Append("계속할까요?");
+
+            return builder.ToString();
+        }
+
+        private static string BuildDiscardSummary(DiscardResult result)
+        {
+            var parts = new List<string>();
+            if (result.RestoredPaths.Count > 0) parts.Add($"되돌림 {result.RestoredPaths.Count}개");
+            if (result.DeletedPaths.Count > 0) parts.Add($"삭제 {result.DeletedPaths.Count}개");
+            // 사용자가 체크한 것이 조용히 빠지면 안 된다.
+            if (result.SkippedPaths.Count > 0) parts.Add($"제외 {result.SkippedPaths.Count}개");
+            if (result.FailedPaths.Count > 0) parts.Add($"실패 {result.FailedPaths.Count}개");
+
+            return parts.Count == 0
+                ? "되돌릴 대상이 없습니다."
+                : "되돌렸습니다 — " + string.Join(", ", parts) + ".";
+        }
+
         // ---------- 외부에서 객체 선택 (SQL 에디터 컨텍스트 메뉴) ----------
 
         /// <summary>
@@ -2014,6 +2193,7 @@ namespace DBVC.Vsix.ViewModels
             (SetCommitIdentityCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (ConnectCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CommitCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (DiscardCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GenerateDeploymentScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GenerateRollbackScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (ConnectRepositoryCommand as RelayCommand)?.RaiseCanExecuteChanged();

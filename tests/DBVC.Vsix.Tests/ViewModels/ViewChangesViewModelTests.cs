@@ -3581,5 +3581,206 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(method, Is.Not.Null, "Refresh(bool, bool, bool)이 없다");
             method!.Invoke(vm, new object[] { false, false, syncRepository });
         }
+
+        // ---------- 되돌리기 ----------
+
+        /// <summary>변경 하나가 선택된 상태의 뷰모델. 되돌리기 테스트가 공통으로 쓴다.</summary>
+        private ViewChangesViewModel NewViewModelWithSelectedChange(
+            string relativePath = "dbo/Tables/Users.sql", string state = "Modified")
+        {
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                new ChangeRecord
+                {
+                    QualifiedName = "dbo.Users", ObjectType = "TABLE", State = state,
+                    RelativePath = relativePath
+                }
+            });
+            _git.Setup(g => g.GetChangedFileStates(It.IsAny<string>()))
+                .Returns(new Dictionary<string, string> { [relativePath] = state });
+            _git.Setup(g => g.DiscardChanges(Server, Database, It.IsAny<IEnumerable<string>>()))
+                .Returns(new DiscardResult());
+
+            var vm = NewConnectedViewModel();
+            vm.Changes[0].IsSelected = true;
+            return vm;
+        }
+
+        [Test]
+        public void Discard_DoesNotTouchRepository_WhenUserCancelsConfirmation()
+        {
+            var vm = NewViewModelWithSelectedChange();
+            _notifier.ConfirmResult = false;
+
+            vm.DiscardCommand.Execute(null);
+
+            _git.Verify(g => g.DiscardChanges(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>()), Times.Never);
+        }
+
+        [Test]
+        public void Discard_DiscardsSelectedPaths_WhenUserConfirms()
+        {
+            var vm = NewViewModelWithSelectedChange();
+            _notifier.ConfirmResult = true;
+
+            vm.DiscardCommand.Execute(null);
+
+            _git.Verify(g => g.DiscardChanges(
+                Server, Database,
+                It.Is<IEnumerable<string>>(p => p.Single() == "dbo/Tables/Users.sql")), Times.Once);
+        }
+
+        /// <summary>
+        /// 되돌린 뒤 재추출하면 열린 로그 행이 가리키는 객체가 다시 추출되어, 같은 클릭
+        /// 안에서 되돌리기가 취소된다. 이 단언이 없으면 다음 사람이 Refresh()로 되돌려
+        /// 버튼은 그대로인데 눌러도 아무 일이 없어진다.
+        /// </summary>
+        [Test]
+        public void Discard_DoesNotReExtract_AfterDiscarding()
+        {
+            var vm = NewViewModelWithSelectedChange();
+            _notifier.ConfirmResult = true;
+            _smo.Invocations.Clear();
+            _cleaner.Invocations.Clear();
+
+            vm.DiscardCommand.Execute(null);
+
+            _smo.Verify(s => s.ScriptObjectsDetailed(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>(),
+                It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.Never);
+            _cleaner.Verify(c => c.RemoveDeletedObjectFiles(
+                It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()), Times.Never);
+        }
+
+        /// <summary>복구되지 않는 쪽은 사람이 이름으로 읽어야 한다.</summary>
+        [Test]
+        public void Discard_NamesFilesToDelete_InTheConfirmation()
+        {
+            var vm = NewViewModelWithSelectedChange("dbo/Views/vSales.sql", "Added");
+
+            vm.DiscardCommand.Execute(null);
+
+            var message = _notifier.ConfirmCalls.Single().Message;
+            Assert.That(message, Does.Contain("dbo/Views/vSales.sql"));
+            Assert.That(message, Does.Contain("복구되지 않습니다"));
+        }
+
+        /// <summary>
+        /// 되돌리기는 DB의 변경을 취소하지 않는다. 이 문장이 없으면 사람들이 그렇게 읽는다.
+        /// </summary>
+        [Test]
+        public void Discard_SaysTheDatabaseChangeRemains_InTheConfirmation()
+        {
+            var vm = NewViewModelWithSelectedChange();
+
+            vm.DiscardCommand.Execute(null);
+
+            Assert.That(_notifier.ConfirmCalls.Single().Message,
+                Does.Contain("데이터베이스의 변경은 그대로 남습니다"));
+        }
+
+        [Test]
+        public void Discard_ShowsErrorBox_WhenSomePathsFail()
+        {
+            var vm = NewViewModelWithSelectedChange();
+            _notifier.ConfirmResult = true;
+            var failed = new DiscardResult();
+            failed.FailedPaths.Add("dbo/Tables/Users.sql");
+            _git.Setup(g => g.DiscardChanges(Server, Database, It.IsAny<IEnumerable<string>>()))
+                .Returns(failed);
+
+            vm.DiscardCommand.Execute(null);
+
+            Assert.That(_notifier.ErrorCalls.Any(c => c.Title.Contains("되돌리기")), Is.True);
+            Assert.That(_notifier.Errors.Single(), Does.Contain("dbo/Tables/Users.sql"));
+        }
+
+        /// <summary>
+        /// 갱신이 WarningMessage를 무조건 덮어쓴다. 요약을 그 뒤에 대입하면 실제
+        /// 스케줄러에서는 갱신 콜백이 나중에 도착해 지워 버린다.
+        /// </summary>
+        [Test]
+        public void Discard_KeepsSummary_AfterTheListRefreshCompletes()
+        {
+            var vm = NewViewModelWithSelectedChange();
+            _notifier.ConfirmResult = true;
+            var done = new DiscardResult();
+            done.RestoredPaths.Add("dbo/Tables/Users.sql");
+            _git.Setup(g => g.DiscardChanges(Server, Database, It.IsAny<IEnumerable<string>>()))
+                .Returns(done);
+
+            vm.DiscardCommand.Execute(null);
+
+            Assert.That(vm.WarningMessage, Does.Contain("되돌림 1개"));
+        }
+
+        [Test]
+        public void Discard_WarnsWithoutTouchingRepository_WhenNothingIsEligible()
+        {
+            var vm = NewViewModelWithSelectedChange();
+            // 목록을 만든 뒤 파일이 깨끗해졌다.
+            _git.Setup(g => g.GetChangedFileStates(It.IsAny<string>()))
+                .Returns(new Dictionary<string, string>());
+
+            vm.DiscardCommand.Execute(null);
+
+            Assert.That(_notifier.ConfirmCallCount, Is.EqualTo(0));
+            _git.Verify(g => g.DiscardChanges(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>()), Times.Never);
+            Assert.That(vm.WarningMessage, Does.Contain("되돌릴 대상이 없습니다"));
+        }
+
+        /// <summary>
+        /// NewViewModelWithSelectedChange를 쓰지 않는다. 차단 상태에서는 ApplyContextProbe가
+        /// Changes를 비우고 조기 반환하므로 그 헬퍼의 Changes[0]이 범위를 벗어난다 —
+        /// 비어 있는 목록 자체가 차단의 동작이다.
+        /// </summary>
+        [Test]
+        public void DiscardCommand_CannotExecute_WhenRepositoryIsBlocked()
+        {
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                new ChangeRecord
+                {
+                    QualifiedName = "dbo.Users", ObjectType = "TABLE", State = "Modified",
+                    RelativePath = "dbo/Tables/Users.sql"
+                }
+            });
+            _git.Setup(g => g.GetRepositoryState(It.IsAny<string>(), It.IsAny<string>()))
+                .Returns(new RepositoryState
+                {
+                    CurrentBranch = "feature/x",
+                    BlockReason = RepositoryBlockReason.BranchMismatch,
+                    BlockMessage = "브랜치가 다릅니다."
+                });
+
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.IsBlocked, Is.True);
+            Assert.That(vm.Changes, Is.Empty, "차단되면 목록을 비운다");
+            Assert.That(vm.DiscardCommand.CanExecute(null), Is.False);
+        }
+
+        /// <summary>
+        /// 배포·감사 클론에서는 변경 목록 패널 자체가 뜨지 않으므로 버튼도 렌더링되지 않는다.
+        /// 두 가지를 함께 단언하는 이유: CanExecute만 보면 "선택된 항목이 없어서" 거짓인
+        /// 것과 구분되지 않아, 정책 게이트를 지워도 테스트가 통과한다.
+        /// </summary>
+        [TestCase(MappingMode.Deploy)]
+        [TestCase(MappingMode.Audit)]
+        public void DiscardCommand_CannotExecute_WhenModeIsNotWrite(MappingMode mode)
+        {
+            _config.Setup(c => c.TryGetMapping(Server, Database))
+                .Returns(new MappingConfig
+                {
+                    ServerName = Server, DatabaseName = Database, GitPath = @"C:\repo", Mode = mode
+                });
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.ShowChangeList, Is.False, "배포·감사에는 변경 목록 패널이 없다");
+            Assert.That(MappingPolicy.IsAllowed(vm.Mode, DbvcOperation.Discard), Is.False);
+            Assert.That(vm.DiscardCommand.CanExecute(null), Is.False);
+        }
     }
 }
