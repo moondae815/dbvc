@@ -82,6 +82,9 @@
 
   strong { color: var(--ink); font-weight: 600; }
 
+  /* 한글에는 기울임이 없다 — 합성 이탤릭 대신 무게와 색으로 강조한다. */
+  em { font-style: normal; color: var(--ink); font-weight: 500; }
+
   code, .mono {
     font-family: var(--mono);
     font-size: 0.88em;
@@ -408,6 +411,14 @@
     height: auto;
     color: var(--ink-2);
   }
+  .subhead { margin-top: 58px; }
+  .subhead h3 {
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: 21px;
+    margin-bottom: 12px;
+  }
+
   figcaption {
     margin-top: 16px;
     font-size: 13.5px;
@@ -419,8 +430,12 @@
   svg .box { fill: var(--surface); stroke: var(--rule-strong); stroke-width: 1.2; }
   svg .box-repo { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.2; }
   svg .zone { fill: none; stroke: var(--rule-strong); stroke-width: 1.2; stroke-dasharray: 5 4; }
+  svg .zone-repo { fill: none; stroke: var(--accent); stroke-width: 1.2; stroke-dasharray: 5 4; }
   svg .flow { stroke: var(--ink-2); stroke-width: 1.4; fill: none; }
   svg .flow-accent { stroke: var(--accent); stroke-width: 1.4; fill: none; }
+  svg .flow-dash { stroke: var(--ink-2); stroke-width: 1.3; fill: none; stroke-dasharray: 5 4; }
+  svg .arrow-plain { fill: var(--ink-2); }
+  svg .arrow-accent { fill: var(--accent); }
   svg text { fill: currentColor; font-family: var(--sans); }
   svg .t-title { font-size: 12px; font-weight: 600; fill: var(--ink); }
   svg .t-body { font-size: 11px; }
@@ -813,7 +828,7 @@
           <ul>
             <li>하루에 [새로고침] · [커밋] 두 번의 클릭</li>
             <li>커밋 메시지 한 줄</li>
-            <li>개발 클론을 <code>develop</code>에 두는 규칙 하나</li>
+            <li>[새로고침]·[커밋]을 누를 때 <code>develop</code>에 있는 규칙 하나</li>
             <li>5영업일 안에 <code>.vsix</code>를 갱신하는 규칙 하나</li>
           </ul>
         </div>
@@ -849,11 +864,11 @@
             <defs>
               <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5"
                       markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                <path d="M 0 1 L 10 5 L 0 9 z" fill="currentColor"></path>
+                <path class="arrow-plain" d="M 0 1 L 10 5 L 0 9 z"></path>
               </marker>
               <marker id="ah-a" viewBox="0 0 10 10" refX="9" refY="5"
                       markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                <path d="M 0 1 L 10 5 L 0 9 z" fill="currentColor"></path>
+                <path class="arrow-accent" d="M 0 1 L 10 5 L 0 9 z"></path>
               </marker>
             </defs>
 
@@ -902,9 +917,7 @@
             <text class="t-mono" x="657" y="311" text-anchor="middle">[스키마]/[종류]/[이름].sql</text>
 
             <!-- 작업 폴더 → GitLab -->
-            <g class="t-accent">
-              <line class="flow-accent" x1="770" y1="299" x2="866" y2="299" marker-end="url(#ah-a)"></line>
-            </g>
+            <line class="flow-accent" x1="770" y1="299" x2="866" y2="299" marker-end="url(#ah-a)"></line>
             <text class="t-edge t-accent" x="818" y="290" text-anchor="middle">[커밋] · [Push]</text>
 
             <!-- GitLab -->
@@ -927,6 +940,127 @@
           파일 경로가 곧 객체 이름이므로, 병합 요청에서 <strong>파일 목록만 봐도 무엇이
           바뀌었는지 읽힌다.</strong> 인덱스와 컬럼은 부모 테이블 파일 안에 담겨 따로
           파일이 생기지 않는다.
+        </p>
+      </div>
+
+      <div class="prose subhead">
+        <h3>세 개의 DB, 세 개의 클론, 두 개의 브랜치</h3>
+        <p>
+          여기서 한 번은 걸리는 질문이 있다 — <strong>개발도 <code>develop</code>,
+          테스트도 <code>develop</code>이면 겹치는 것 아닌가.</strong> 겹쳐도 된다.
+          브랜치는 클론이 소유하는 것이 아니라 각 클론이 체크아웃해 둔 상태일 뿐이고,
+          <strong>같은 브랜치를 보는 것이 오히려 이 구조의 요점</strong>이다.
+        </p>
+      </div>
+
+      <figure>
+        <div class="scroller">
+          <svg viewBox="0 0 1000 430" role="img"
+               aria-label="개발 클론은 개발 DB에서 변경된 객체를 추출해 develop 브랜치로 커밋하고 푸시한다. 테스트 클론은 같은 develop을 Pull해 테스트 DB와 차이를 검사하고 배포 스크립트를 만들며, 그 스크립트는 사람이 실행한다. 운영 클론은 master를 Pull해 운영 DB와 비교한다. develop은 릴리스 병합으로 master가 된다.">
+            <defs>
+              <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path class="arrow-plain" d="M 0 1 L 10 5 L 0 9 z"></path>
+              </marker>
+              <marker id="ah2-a" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path class="arrow-accent" d="M 0 1 L 10 5 L 0 9 z"></path>
+              </marker>
+            </defs>
+
+            <!-- 데이터베이스 -->
+            <rect class="box" x="8" y="62" width="170" height="74" rx="3"></rect>
+            <text class="t-title" x="93" y="94" text-anchor="middle">개발 DB</text>
+            <text class="t-mono" x="93" y="113" text-anchor="middle">공용 · 23명이 쓴다</text>
+
+            <rect class="box" x="8" y="186" width="170" height="74" rx="3"></rect>
+            <text class="t-title" x="93" y="218" text-anchor="middle">테스트 DB</text>
+            <text class="t-mono" x="93" y="237" text-anchor="middle">배포 대상</text>
+
+            <rect class="box" x="8" y="310" width="170" height="74" rx="3"></rect>
+            <text class="t-title" x="93" y="342" text-anchor="middle">운영 DB</text>
+            <text class="t-mono" x="93" y="361" text-anchor="middle">감사 대상</text>
+
+            <!-- 클론 -->
+            <rect class="box-repo" x="326" y="62" width="248" height="74" rx="3"></rect>
+            <text class="t-title" x="450" y="88" text-anchor="middle">개발 클론</text>
+            <text class="t-mono" x="450" y="108" text-anchor="middle">dbvc\dev · 용도: 개발</text>
+            <text class="t-mono" x="450" y="125" text-anchor="middle">브랜치: develop (비워 둘 수 있음)</text>
+
+            <rect class="box-repo" x="326" y="186" width="248" height="74" rx="3"></rect>
+            <text class="t-title" x="450" y="212" text-anchor="middle">테스트 클론</text>
+            <text class="t-mono" x="450" y="232" text-anchor="middle">dbvc\test · 용도: 배포</text>
+            <text class="t-mono" x="450" y="249" text-anchor="middle">고정 브랜치: develop (필수)</text>
+
+            <rect class="box-repo" x="326" y="310" width="248" height="74" rx="3"></rect>
+            <text class="t-title" x="450" y="336" text-anchor="middle">운영 클론</text>
+            <text class="t-mono" x="450" y="356" text-anchor="middle">dbvc\prod · 용도: 감사</text>
+            <text class="t-mono" x="450" y="373" text-anchor="middle">고정 브랜치: master (필수)</text>
+
+            <!-- DB ↔ 클론 -->
+            <line class="flow" x1="178" y1="99" x2="322" y2="99" marker-end="url(#ah2)"></line>
+            <text class="t-edge" x="250" y="90" text-anchor="middle">변경된 객체를 추출</text>
+
+            <line class="flow" x1="178" y1="208" x2="322" y2="208" marker-end="url(#ah2)"></line>
+            <text class="t-edge" x="250" y="199" text-anchor="middle">차이 검사 (읽기만)</text>
+            <line class="flow-dash" x1="322" y1="242" x2="182" y2="242" marker-end="url(#ah2)"></line>
+            <text class="t-edge" x="250" y="259" text-anchor="middle">배포 스크립트를 사람이 실행</text>
+
+            <line class="flow" x1="178" y1="332" x2="322" y2="332" marker-end="url(#ah2)"></line>
+            <text class="t-edge" x="250" y="323" text-anchor="middle">차이 검사 (읽기만)</text>
+
+            <!-- 저장소 -->
+            <rect class="zone-repo" x="724" y="40" width="268" height="364" rx="4"></rect>
+            <text class="t-title" x="858" y="66" text-anchor="middle">폐쇄망 GitLab</text>
+
+            <rect class="box-repo" x="746" y="96" width="224" height="88" rx="3"></rect>
+            <text class="t-title" x="858" y="134" text-anchor="middle" style="font-size:14px">develop</text>
+            <text class="t-mono" x="858" y="156" text-anchor="middle">테스트 DB가 있어야 할 상태</text>
+
+            <rect class="box-repo" x="746" y="296" width="224" height="88" rx="3"></rect>
+            <text class="t-title" x="858" y="334" text-anchor="middle" style="font-size:14px">master</text>
+            <text class="t-mono" x="858" y="356" text-anchor="middle">운영 DB가 있어야 할 상태</text>
+
+            <line class="flow-accent" x1="858" y1="184" x2="858" y2="292" marker-end="url(#ah2-a)"></line>
+            <text class="t-edge t-accent" x="868" y="242">릴리스 병합</text>
+
+            <!-- 클론 ↔ 저장소 -->
+            <line class="flow-accent" x1="574" y1="110" x2="742" y2="110" marker-end="url(#ah2-a)"></line>
+            <text class="t-edge t-accent" x="658" y="101" text-anchor="middle">[커밋] · [Push]</text>
+
+            <polyline class="flow-accent" points="742,170 450,170 450,182" marker-end="url(#ah2-a)"></polyline>
+            <text class="t-edge t-accent" x="648" y="162" text-anchor="middle">Pull</text>
+
+            <line class="flow-accent" x1="742" y1="340" x2="578" y2="340" marker-end="url(#ah2-a)"></line>
+            <text class="t-edge t-accent" x="660" y="331" text-anchor="middle">Pull</text>
+
+            <text class="t-mono" x="8" y="402">운영 DB에는 트리거를 설치하지 않아 차이가 전부 &#39;확인 필요&#39;로만 뜬다 — 어느 쪽인지는 DBA가 판단한다.</text>
+          </svg>
+        </div>
+        <figcaption>
+          <strong>저장소에 쓰는 것은 개발 클론 하나뿐이다.</strong> 나머지 둘은 Pull해서
+          비교할 뿐 커밋하지 않는다. 파선은 도구 밖이다 — 배포 스크립트를 실제로 실행하는
+          것은 언제나 사람이다. 폴더는 반드시 셋으로 나눈다: 한 폴더를 같이 쓰면 검사할
+          때마다 브랜치를 갈아타야 하고, 미커밋 변경이 있으면 그 전환 자체가 막힌다.
+        </figcaption>
+      </figure>
+
+      <div class="prose after">
+        <p>
+          <strong><code>develop</code>에 담긴 것 = 테스트 DB에 있어야 할 것,
+          <code>master</code>에 담긴 것 = 운영 DB에 있어야 할 것.</strong>
+          배포란 그 등식을 다시 참으로 만드는 일이고, [차이 검사]가 내놓는 목록이 곧
+          "아직 참이 아닌 것"이다. 개발 클론과 테스트 클론이 서로 다른 브랜치를 보고
+          있었다면 이 비교는 애초에 성립하지 않는다.
+        </p>
+        <p>
+          개발 클론이 <code>develop</code>에 있어야 하는 이유도 같다. 비교 기준은
+          <em>체크아웃된 브랜치의 파일</em>이고 대상은 언제나 <em>그 하나의 공용 개발
+          DB</em>다. <code>feature/x</code>에 있는 채로 새로고침하면 남이
+          <code>develop</code>에 넣은 변경이 내 것처럼 목록에 오르고, 거기서 커밋하면 그
+          변경이 내 브랜치로 딸려 간다. 그래서 규칙은 <strong>브랜치 이름은 자유롭게
+          만들되, [새로고침]과 [커밋]은 <code>develop</code>으로 돌아와서 누른다</strong>
+          — 도구가 막아 주지 않는 유일한 자리라 사람이 지킨다.
         </p>
       </div>
     </div>
@@ -1039,10 +1173,12 @@
           <em>모두의</em> 목록에 쌓인다. 전원이 쓰거나, 안 쓰거나 둘 중 하나다.
         </li>
         <li>
-          <strong>브랜치를 갈아탄 채 쓰면 비교 결과가 조용히 거짓이 된다.</strong>
-          비교 기준은 체크아웃된 브랜치의 파일이고 대상은 언제나 그 하나의 공용 DB라,
-          둘이 어긋나면 남의 변경이 내가 지운 것처럼 보인다. 그래서
-          "개발 클론은 <code>develop</code> 고정"이 규칙이다.
+          <strong>개발 클론의 브랜치는 도구가 검사하지 않는다.</strong>
+          테스트·운영 클론은 고정 브랜치가 필수이고 어긋나면 화면이 막히지만, 개발
+          클론은 그 칸을 비워 둘 수 있다. <code>feature/x</code>에 있는 채로 [새로고침]을
+          누르면 남이 <code>develop</code>에 넣은 변경이 내 것처럼 목록에 오르고, 거기서
+          커밋하면 그 변경이 내 브랜치로 딸려 간다. 도구가 막아 주지 않는 유일한 자리라
+          <strong>사람이 지켜야 하는 규칙</strong>으로 남아 있다.
         </li>
         <li>
           <strong>개체 탐색기 아이콘에 변경 표시는 뜨지 않는다.</strong>
@@ -1081,8 +1217,16 @@
               숫자를 적는다.
             </li>
             <li>
-              <b>개발 클론은 <code>develop</code> 고정</b>
-              브랜치 전환·병합은 외부 Git 클라이언트에서 하고, 돌아온 뒤에 DBVC를 쓴다.
+              <b>DBVC를 누를 때는 <code>develop</code>에 있는다</b>
+              <code>feature/*</code> 이름은 자유롭게 만들고 코드 작업도 거기서 한다.
+              다만 [새로고침]·[커밋]은 <code>develop</code>으로 돌아와서 누른다.
+              브랜치 전환·병합은 외부 Git 클라이언트의 몫이다.
+            </li>
+            <li>
+              <b>클론은 DB마다 따로, 폴더도 따로</b>
+              개발 <code>dev</code>·테스트 <code>test</code>·운영 <code>prod</code> 셋을
+              다른 폴더에 둔다. 테스트는 <code>develop</code>, 운영은 <code>master</code>에
+              고정되며 이 둘은 도구가 강제한다.
             </li>
             <li>
               <b>DB 변경은 짧게 산다</b>
