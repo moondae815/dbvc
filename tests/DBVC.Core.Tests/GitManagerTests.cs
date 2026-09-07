@@ -1995,6 +1995,64 @@ namespace DBVC.Core.Tests
                 Is.EqualTo("CREATE TABLE Users (Id INT);"));
         }
 
+        /// <summary>
+        /// CheckoutPaths는 경로 하나씩 부르지만, 그 경로가 요청하지 않은 다른 파일까지
+        /// 건드리면 "선택한 파일만" 되돌린다는 계약이 깨진다. 대괄호 파일명 케이스
+        /// (와일드매치 오검출)의 일반화된 회귀 시험대다.
+        /// </summary>
+        [Test]
+        public void DiscardChanges_LeavesOtherDirtyFileUntouched_WhenOnlyOneFileIsDiscarded()
+        {
+            var repoPath = NewTempDir();
+            Repository.Init(repoPath);
+            SeedIdentity(repoPath);
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT);");
+            WriteRepoFile(repoPath, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);");
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "*");
+                repo.Commit("initial", TestSignature, TestSignature);
+            }
+            var git = NewGitManager(Server, Database, repoPath);
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "-- A 잘못 추출된 내용");
+            WriteRepoFile(repoPath, "dbo/Tables/Orders.sql", "-- B 잘못 추출된 내용");
+
+            var result = git.DiscardChanges(Server, Database, new[] { "dbo/Tables/Users.sql" });
+
+            Assert.That(result.RestoredPaths, Is.EqualTo(new[] { "dbo/Tables/Users.sql" }));
+            Assert.That(
+                File.ReadAllText(Path.Combine(repoPath, "dbo", "Tables", "Users.sql")),
+                Is.EqualTo("CREATE TABLE Users (Id INT);"));
+            Assert.That(
+                File.ReadAllText(Path.Combine(repoPath, "dbo", "Tables", "Orders.sql")),
+                Is.EqualTo("-- B 잘못 추출된 내용"));
+            using (var repo = new Repository(repoPath))
+            {
+                Assert.That(repo.RetrieveStatus("dbo/Tables/Orders.sql"), Is.EqualTo(FileStatus.ModifiedInWorkdir));
+            }
+        }
+
+        /// <summary>
+        /// CheckoutPaths의 경로는 libgit2에서 리터럴이 아니라 wildmatch 패턴이다. SQL 구분
+        /// 식별자가 만드는 대괄호 파일명은 자기 자신과 매치되지 않으면서 다른 파일을
+        /// 대신 덮어쓸 수 있어, 실패로 보고하는 것이 정직한 결과다.
+        /// </summary>
+        [Test]
+        public void DiscardChanges_FailsPath_WhenFileNameContainsPathspecMetacharacters()
+        {
+            var repoPath = NewRepoWithCommit("dbo/Tables/Users[1].sql", "CREATE TABLE [Users[1]] (Id INT);");
+            var git = NewGitManager(Server, Database, repoPath);
+            WriteRepoFile(repoPath, "dbo/Tables/Users[1].sql", "-- 잘못 추출된 내용");
+
+            var result = git.DiscardChanges(Server, Database, new[] { "dbo/Tables/Users[1].sql" });
+
+            Assert.That(result.FailedPaths, Is.EqualTo(new[] { "dbo/Tables/Users[1].sql" }));
+            Assert.That(result.RestoredPaths, Is.Empty);
+            Assert.That(
+                File.ReadAllText(Path.Combine(repoPath, "dbo", "Tables", "Users[1].sql")),
+                Is.EqualTo("-- 잘못 추출된 내용"));
+        }
+
         [Test]
         public void DiscardChanges_DeletesFile_WhenFileIsUntracked()
         {

@@ -381,6 +381,20 @@ namespace DBVC.Core
                     continue;
                 }
 
+                // CheckoutPaths의 paths는 libgit2에서 리터럴 경로가 아니라 wildmatch 패턴이다
+                // (GIT_CHECKOUT_DISABLE_PATHSPEC_MATCH를 세우지 않는 한). LibGit2Sharp의
+                // CheckoutModifiers는 None/Force뿐이라 이 옵션을 켤 방법이 없다. SQL 구분
+                // 식별자는 대괄호를 허용하고 그대로 Windows 파일명이 될 수 있어(예: "Users[1]"
+                // -> dbo/Tables/Users[1].sql), 그런 경로는 자기 자신과 매치되지 않으면서
+                // "Users1.sql" 같은 요청하지 않은 파일을 대신 덮어쓸 수 있다 - 되돌리기가
+                // 막으려는 바로 그 데이터 손실이다. *·?는 Windows 파일명에 올 수 없으므로
+                // 이 검사는 실제 파일명에 비용이 없다.
+                if (ContainsPathspecMetacharacter(path))
+                {
+                    result.FailedPaths.Add(path);
+                    continue;
+                }
+
                 try
                 {
                     // 경로 하나짜리로 한 번씩 부른다. 한 배치로 부르면 잠긴 파일 하나가
@@ -419,8 +433,12 @@ namespace DBVC.Core
                     }
 
                     // 스테이징된 미추적 파일은 인덱스 항목을 먼저 내린다. 파일만 지우면
-                    // 인덱스에 남은 항목이 다음 커밋에 그대로 담긴다.
-                    if (head != null && repo.Index[path] != null)
+                    // 인덱스에 남은 항목이 다음 커밋에 그대로 담긴다. head가 없어도(unborn
+                    // HEAD) 안전하다 - Commands.Unstage은 내부에서 IsHeadUnborn을 보고
+                    // Diff.Compare<TreeChanges>(null, ...) + Index.Replace로 처리한다.
+                    // head로 조건을 더 좁히면 그 경로에서만 인덱스 항목이 남아 다음 새로고침에
+                    // "Added"로 되살아난다 - 되돌리기가 덜 끝난 것이다.
+                    if (repo.Index[path] != null)
                     {
                         Commands.Unstage(repo, new[] { path });
                     }
@@ -443,6 +461,16 @@ namespace DBVC.Core
             var root = Path.GetFullPath(repoPath).TrimEnd(Path.DirectorySeparatorChar)
                        + Path.DirectorySeparatorChar;
             return candidate.StartsWith(root, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// CheckoutPaths에 넘기는 문자열은 libgit2에서 리터럴이 아니라 wildmatch 패턴이다.
+        /// '['·']'는 문자 클래스, '*'·'?'는 와일드카드다 - SQL 구분 식별자가 만든 실제
+        /// 파일명이 여기 걸리면 자기 자신과도 매치되지 않고 남의 파일을 덮어쓸 수 있다.
+        /// </summary>
+        private static bool ContainsPathspecMetacharacter(string path)
+        {
+            return path.IndexOfAny(new[] { '[', ']', '*', '?' }) >= 0;
         }
 
         /// <summary>
