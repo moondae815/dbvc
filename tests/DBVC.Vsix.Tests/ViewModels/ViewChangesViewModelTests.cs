@@ -3931,6 +3931,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             // 반대 순서는 행이 닫힌 채 더러운 파일이 남아 주인 없는 변경으로 떠오른다.
             var order = new List<string>();
             IEnumerable<ChangeRecord>? closedRecords = null;
+            string? leadSentence = null;
             var vm = NewViewModelWithOpenLogRow();
             _notifier.ConfirmResult = true;
 
@@ -3939,10 +3940,11 @@ namespace DBVC.Vsix.Tests.ViewModels
                 .Returns(new DiscardResult());
             _stateTracker.Setup(s => s.MarkProcessed(
                     Server, Database, It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()))
-                .Callback<string, string, IEnumerable<ChangeRecord>, string>((_, _, records, _) =>
+                .Callback<string, string, IEnumerable<ChangeRecord>, string>((_, _, records, sentence) =>
                 {
                     order.Add("mark");
                     closedRecords = records;
+                    leadSentence = sentence;
                 })
                 .Returns((string?)null);
 
@@ -3954,6 +3956,51 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(closedRecords, Is.Not.Null);
             Assert.That(closedRecords!.Any(r => r.LastLogId == 42), Is.True,
                 "열린 로그 행(LastLogId=42)이 MarkProcessed에 실제로 전달되어야 한다");
+            // Core는 주어진 첫 문장을 그대로 실을 뿐이다 - 무시 호출부가 커밋 문구를
+            // 잘못 복사해 붙여도 Core 테스트는 못 잡는다. 여기서 호출부 자체를 고정한다.
+            Assert.That(leadSentence, Does.Not.Contain("커밋"),
+                "무시의 첫 문장에 커밋 성공 문구가 들어가면 안 된다");
+            Assert.That(leadSentence, Does.Contain("되돌렸습니다"),
+                "무시의 첫 문장은 되돌렸다는 사실을 말해야 한다");
+        }
+
+        [Test]
+        public void Ignore_ReportsSuccess_WhenOnlyTheLogRowCloses()
+        {
+            // 되돌리거나 지운 파일이 하나도 없어도(파일이 이미 저장소와 같아 DiscardChanges가
+            // 빈 결과를 돌려주는 경우) 닫은 로그 행만으로 성공이다. 기존 테스트는 전부 되돌림·
+            // 삭제와 닫힌 행이 함께였고, closedRows 혼자 succeeded 판정에 기여하는 조합이 없었다.
+            var vm = NewViewModelWithOpenLogRow();
+            _notifier.ConfirmResult = true;
+            // DiscardChanges는 헬퍼 기본값(빈 DiscardResult - 되돌림도 삭제도 0개)을 그대로 쓴다.
+            _stateTracker.Setup(s => s.MarkProcessed(
+                    Server, Database, It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()))
+                .Returns((string?)null);
+
+            vm.IgnoreCommand.Execute(null);
+
+            Assert.That(vm.WarningMessage, Does.StartWith("무시했습니다"),
+                "닫은 로그 행만 있어도 성공 어투여야 한다");
+            Assert.That(vm.WarningMessage, Does.Contain("로그 1개 닫음"));
+        }
+
+        [Test]
+        public void Ignore_OmitsClosedCountFromStatus_WhenMarkProcessedFails()
+        {
+            // MarkProcessed가 실패하면 닫힌 행은 실제로는 0개다. outcome.ClosedRows를 그대로
+            // 상태 줄에 쓰면 바로 위에서 "로그를 닫지 못했습니다" 오류 상자를 띄운 직후에
+            // 상태 줄이 "닫음"이라 반대로 말해, 같은 클릭에 대해 모순된 두 문장이 남는다.
+            var vm = NewViewModelWithOpenLogRow();
+            _notifier.ConfirmResult = true;
+            _stateTracker.Setup(s => s.MarkProcessed(
+                    Server, Database, It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()))
+                .Returns("변경 로그를 닫지 못했습니다.");
+
+            vm.IgnoreCommand.Execute(null);
+
+            Assert.That(_notifier.ErrorCalls.Any(c => c.Title.Contains("변경 로그를 닫지 못함")), Is.True);
+            Assert.That(vm.WarningMessage, Does.Not.Contain("닫음"),
+                "로그를 닫지 못했다는 오류 상자 직후에 상태 줄이 반대로 말하면 안 된다");
         }
 
         [Test]

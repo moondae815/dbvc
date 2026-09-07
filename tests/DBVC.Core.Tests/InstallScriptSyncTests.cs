@@ -69,23 +69,31 @@ namespace DBVC.Core.Tests
             // 트리거의 INSERT는 EXECUTE AS 'dbo'로 돌지만, 목록 조회와 커밋 후 로그 닫기는
             // 클라이언트가 접속 계정 그대로 한다. 이 GRANT가 없으면 db_owner가 아닌 사용자의
             // 커밋이 로그를 닫지 못해 같은 항목이 새로고침마다 되살아난다.
+            //
+            // Regex.Match(첫 번째만)가 아니라 Matches를 쓴다 - public이 DBVC_ChangeLog에
+            // DELETE를 받는 일이 절대 없다는 것이 이 브랜치의 핵심 보안 주장인데, 첫 번째
+            // GRANT 뒤에 같은 테이블에 대한 두 번째 GRANT가 추가되어도 Match만으로는 못 잡는다.
             var script = StateTracker.ReadInstallScript();
 
-            var match = Regex.Match(
+            var matches = Regex.Matches(
                 script,
                 @"GRANT\s+([A-Z,\s]+?)\s+ON\s+\[dbo\]\.\[DBVC_ChangeLog\]\s+TO\s+\[public\]",
                 RegexOptions.IgnoreCase);
 
-            Assert.That(match.Success, Is.True, "DBVC_ChangeLog에 대한 public GRANT를 찾지 못했습니다");
+            Assert.That(matches, Is.Not.Empty, "DBVC_ChangeLog에 대한 public GRANT를 찾지 못했습니다");
 
-            var verbs = match.Groups[1].Value
-                .Split(',')
-                .Select(v => v.Trim().ToUpperInvariant())
-                .ToArray();
+            foreach (Match match in matches)
+            {
+                var verbs = match.Groups[1].Value
+                    .Split(',')
+                    .Select(v => v.Trim().ToUpperInvariant())
+                    .ToArray();
 
-            // INSERT는 일부러 빼 둔다 - 트리거가 dbo로 쓰므로 필요 없고, 주면 사용자가
-            // 로그를 직접 조작할 수 있게 된다.
-            Assert.That(verbs, Is.EquivalentTo(new[] { "SELECT", "UPDATE" }));
+                // INSERT는 일부러 빼 둔다 - 트리거가 dbo로 쓰므로 필요 없고, 주면 사용자가
+                // 로그를 직접 조작할 수 있게 된다.
+                Assert.That(verbs, Is.EquivalentTo(new[] { "SELECT", "UPDATE" }),
+                    $"'{match.Value}'가 SELECT, UPDATE 외의 권한을 준다");
+            }
         }
 
         [Test]
