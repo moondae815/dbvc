@@ -372,9 +372,28 @@ git commit -m "feat(core): 되돌리기를 mode 허용 표에 넣는다"
 - Consumes: `DiscardPlan.Build`, `DiscardResult` (Task 1), `DbvcOperation.Discard` (Task 2)
 - Produces: `DiscardResult IGitManager.DiscardChanges(string serverName, string databaseName, IEnumerable<string> relativePaths)`
 
-**API 근거 (LibGit2Sharp 0.32.0에서 확인함):**
-- `RepositoryExtensions.CheckoutPaths(IRepository, string committishOrBranchSpec, IEnumerable<string> paths)` — 문서에 "Updates specified paths in the **index and working directory**"라고 적혀 있다. 그래서 `Index.Replace`를 따로 부르지 않는다.
-- `Repository.RemoveUntrackedFiles()`는 경로 인자가 없다(저장소 전체). 미추적 파일 삭제는 `File.Delete`로 한다.
+**API 근거 (LibGit2Sharp 0.32.0에서 확인함 — 아래는 최초 조사가 틀렸던 자리를 구현 뒤 바로잡은 것이다):**
+- `RepositoryExtensions.CheckoutPaths(IRepository, string committishOrBranchSpec, IEnumerable<string> paths)`는
+  **확장 메서드일 뿐이다.** 문서의 "Updates specified paths in the index and working directory"는
+  파일이 깨끗할 때만 맞는 말이다 — 이 2-인자 형태는 내부에서 `CheckoutOptions`에 `null`을 넘겨
+  `CheckoutModifiers.None`(Safe 모드)으로 동작하고, Safe 모드는 작업 트리에서 **이미 수정된
+  파일을 조용히 건너뛴다.** 되돌리기의 대상은 정확히 그 수정된 파일이므로 이 형태로는 아무
+  일도 일어나지 않는다(구현 중 실측으로 걸렸다 — Task 3 초안은 이 API 근거를 믿고 2-인자
+  형태로 썼다가 "되돌렸는데 파일이 그대로"인 실패를 만났다). `IRepository.CheckoutPaths(string,
+  IEnumerable<string>, CheckoutOptions)` **3-인자 오버로드가 따로 존재하며**, 여기에
+  `new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force }`를 넘겨야 실제로
+  덮어써진다. 이 오버로드로도 `Index.Replace`는 따로 부르지 않는다 — Force로 불러도 인덱스는
+  함께 갱신된다.
+- **`paths`는 리터럴 경로가 아니라 libgit2의 wildmatch 패스스펙이다.** `[`·`]`는 문자 클래스,
+  `*`·`?`는 와일드카드다. SQL 구분 식별자가 허용하는 대괄호가 그대로 Windows 파일명이 될 수
+  있어(`Users[1]` → `dbo/Tables/Users[1].sql`), 그런 경로는 자기 자신과 매치되지 않으면서
+  `Users1.sql` 같은 요청하지 않은 파일을 대신 덮어쓸 수 있다 — 되돌리기가 막으려는 바로 그
+  데이터 손실이다. `LibGit2Sharp`의 `CheckoutModifiers`는 `None`/`Force`뿐이라 이 매칭을 끄는
+  libgit2의 `GIT_CHECKOUT_DISABLE_PATHSPEC_MATCH`를 세울 방법이 없으므로, 이런 문자가 섞인
+  경로는 되돌리기 대상에서 제외하고 실패로 보고해야 한다. `Commands.Unstage`의 경로도 같은
+  패스스펙이라 같은 제한이 적용된다.
+- `Repository.RemoveUntrackedFiles()`는 경로 인자가 없다(저장소 전체). 미추적 파일 삭제는
+  `File.Delete`로 한다(리터럴 경로라 대괄호가 있어도 안전하다).
 - `Commands.Unstage(IRepository, IEnumerable<string>)`, `Index.Item(string)` 인덱서, `Repository.Head`, `Branch.Tip` 모두 존재한다.
 
 - [ ] **Step 1: 실패하는 테스트를 쓴다**
@@ -606,12 +625,32 @@ Expected: 컴파일 실패 — `DiscardChanges`가 없다.
                     continue;
                 }
 
+                // CheckoutPaths의 paths는 libgit2에서 리터럴 경로가 아니라 wildmatch 패턴이다
+                // (GIT_CHECKOUT_DISABLE_PATHSPEC_MATCH를 세우지 않는 한). LibGit2Sharp의
+                // CheckoutModifiers는 None/Force뿐이라 이 옵션을 켤 방법이 없다. SQL 구분
+                // 식별자는 대괄호를 허용하고 그대로 Windows 파일명이 될 수 있어(예: "Users[1]"
+                // -> dbo/Tables/Users[1].sql), 그런 경로는 자기 자신과 매치되지 않으면서
+                // "Users1.sql" 같은 요청하지 않은 파일을 대신 덮어쓸 수 있다 - 되돌리기가
+                // 막으려는 바로 그 데이터 손실이다.
+                if (ContainsPathspecMetacharacter(path))
+                {
+                    result.FailedPaths.Add(path);
+                    continue;
+                }
+
                 try
                 {
                     // 경로 하나짜리로 한 번씩 부른다. 한 배치로 부르면 잠긴 파일 하나가
                     // 전부를 무너뜨려 실패한 경로를 가려낼 수 없다 - SSMS 편집기가 .sql을
                     // 열어 둔 잠금이 현실적인 실패다.
-                    repo.CheckoutPaths("HEAD", new[] { path });
+                    //
+                    // RepositoryExtensions.CheckoutPaths(2-인자)는 내부적으로 CheckoutOptions를
+                    // null로 넘겨 CheckoutModifiers.None(Safe)으로 동작한다 - 이 모드는 작업
+                    // 트리에서 이미 수정된 파일을 덮어쓰지 않고 조용히 건너뛴다("index and
+                    // working directory"를 갱신한다는 문서는 파일이 깨끗할 때만 성립했다).
+                    // 되돌리기의 목적 자체가 그 수정을 지우는 것이므로 Force가 필요해,
+                    // CheckoutOptions를 받는 IRepository의 3-인자 오버로드를 직접 부른다.
+                    repo.CheckoutPaths("HEAD", new[] { path }, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
                     result.RestoredPaths.Add(path);
                 }
                 catch (Exception ex)
@@ -638,11 +677,26 @@ Expected: 컴파일 실패 — `DiscardChanges`가 없다.
 
                     // 스테이징된 미추적 파일은 인덱스 항목을 먼저 내린다. 파일만 지우면
                     // 인덱스에 남은 항목이 다음 커밋에 그대로 담긴다.
-                    if (head != null && repo.Index[path] != null)
+                    //
+                    // repo.Index[path]는 리터럴 조회지만 Commands.Unstage의 경로는 CheckoutPaths와
+                    // 같은 wildmatch 패스스펙이다. 그래서 대괄호 파일명은 인덱스에서는 찾아지고
+                    // Unstage에서는 못 찾거나 남의 항목을 대신 건드릴 수 있다. 인덱스 항목이
+                    // 있는데 패스스펙 특수문자도 있으면 안전하게 내릴 방법이 이 API로는 없으므로
+                    // 파일도 지우지 않고 실패로 보고한다.
+                    var hasIndexEntry = repo.Index[path] != null;
+                    if (hasIndexEntry && ContainsPathspecMetacharacter(path))
+                    {
+                        result.FailedPaths.Add(path);
+                        continue;
+                    }
+
+                    if (hasIndexEntry)
                     {
                         Commands.Unstage(repo, new[] { path });
                     }
 
+                    // 인덱스 항목이 없으면(순수 미추적 파일) File.Delete는 리터럴 경로이므로
+                    // 대괄호가 있어도 안전하다 - 위 가드는 Unstage에만 해당한다.
                     if (File.Exists(full)) File.Delete(full);
                     result.DeletedPaths.Add(path);
                 }
@@ -662,6 +716,16 @@ Expected: 컴파일 실패 — `DiscardChanges`가 없다.
                        + Path.DirectorySeparatorChar;
             return candidate.StartsWith(root, StringComparison.OrdinalIgnoreCase);
         }
+
+        /// <summary>
+        /// CheckoutPaths에 넘기는 문자열은 libgit2에서 리터럴이 아니라 wildmatch 패턴이다.
+        /// '['·']'는 문자 클래스, '*'·'?'는 와일드카드다 - SQL 구분 식별자가 만든 실제
+        /// 파일명이 여기 걸리면 자기 자신과도 매치되지 않고 남의 파일을 덮어쓸 수 있다.
+        /// </summary>
+        private static bool ContainsPathspecMetacharacter(string path)
+        {
+            return path.IndexOfAny(new[] { '[', ']', '*', '?' }) >= 0;
+        }
 ```
 
 `GitManager.cs` 위쪽 `using`에 `System.Collections.Generic`·`System.IO`·`System.Diagnostics`가 이미 있는지 확인하고, 없으면 더한다.
@@ -671,7 +735,7 @@ Expected: 컴파일 실패 — `DiscardChanges`가 없다.
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0 --filter "FullyQualifiedName~GitManagerTests.DiscardChanges"`
 Expected: PASS (10건 — `Throws_WhenModeIsNotWrite`가 `[TestCase]` 둘로 펼쳐진다)
 
-`DiscardChanges_ClearsStagedContent_WhenChangeWasAlreadyStaged`가 실패하면 `CheckoutPaths`가 인덱스를 갱신한다는 전제가 틀린 것이다. 그때는 `repo.Index.Replace(head, new[] { path })`를 `CheckoutPaths` **앞에** 넣고, 왜 필요했는지 주석으로 남긴다.
+`DiscardChanges_RestoresFileContent_WhenFileWasModified`가 "되돌렸는데 파일이 그대로"로 실패하면 2-인자 `CheckoutPaths`를 그대로 쓴 것이다 — 위 API 근거에 적었듯 그 형태는 Safe 모드라 수정된 파일을 건너뛴다. `CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force }`를 넘기는 3-인자 오버로드로 바꾼다. `DiscardChanges_ClearsStagedContent_WhenChangeWasAlreadyStaged`는 이 3-인자 형태로도 인덱스가 함께 갱신되므로 별도의 `Index.Replace`는 필요 없다 — 그래도 실패하면 그때 가서 근거를 다시 확인한다.
 
 - [ ] **Step 6: 전체 Core 테스트가 깨지지 않았는지 본다**
 

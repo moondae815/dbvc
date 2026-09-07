@@ -144,12 +144,30 @@ DiscardResult DiscardChanges(string serverName, string databaseName, IEnumerable
 
 실행은 둘로 갈린다.
 
-- **되돌림:** `RepositoryExtensions.CheckoutPaths(repo, "HEAD", paths)`.
-  이 API는 **인덱스와 작업 트리를 함께** 갱신한다(LibGit2Sharp 0.32.0 문서). 그래서 별도의
-  `Index.Replace`가 필요 없고, 외부 클라이언트가 스테이징해 둔 상태도 함께 풀린다. 작업 트리만
-  되돌리면 되돌린 뒤에도 커밋에 옛 내용이 담긴다.
-- **삭제:** `File.Delete`. `Repository.RemoveUntrackedFiles()`는 경로 필터가 없어(저장소 전체)
-  쓸 수 없다. 인덱스에 올라간 미추적 파일은 `Commands.Unstage`로 먼저 내린다.
+- **되돌림:** `IRepository.CheckoutPaths("HEAD", paths, options)` — `CheckoutOptions`를 받는
+  3-인자 오버로드를 직접 부른다. **`RepositoryExtensions.CheckoutPaths(repo, "HEAD", paths)`의
+  2-인자 형태는 확장 메서드일 뿐이고, 내부에서 `options`에 `null`을 넘겨
+  `CheckoutModifiers.None`(Safe 모드)으로 동작한다.** Safe 모드는 작업 트리에서 이미 수정된
+  파일을 덮어쓰지 않고 조용히 건너뛴다 — "인덱스와 작업 트리를 함께 갱신한다"는 API 문서의
+  설명은 파일이 깨끗할 때만 성립했다. 되돌리기의 목적 자체가 그 수정을 지우는 것이므로 2-인자
+  형태로는 아무 일도 일어나지 않는다(구현 중 실측으로 걸렸다). 그래서
+  `CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force }`를 명시적으로 넘기는
+  3-인자 오버로드를 쓴다. 이 오버로드로도 별도의 `Index.Replace`는 필요 없다 — Force로 불러도
+  인덱스는 함께 갱신되므로, 외부 클라이언트가 스테이징해 둔 상태도 같이 풀린다.
+
+  **`paths`는 리터럴 경로가 아니라 libgit2의 wildmatch 패스스펙이다.** `[`·`]`는 문자 클래스,
+  `*`·`?`는 와일드카드로 해석된다. SQL 구분 식별자는 대괄호를 허용하고 그대로 Windows 파일명이
+  될 수 있어(`Users[1]` → `dbo/Tables/Users[1].sql`), 그런 경로는 자기 자신과 매치되지 않으면서
+  `Users1.sql` 같은 요청하지 않은 파일을 대신 덮어쓸 수 있다 — 되돌리기가 막으려는 바로 그
+  데이터 손실이다. `LibGit2Sharp`의 `CheckoutModifiers`는 `None`/`Force`뿐이라 이 매칭을 끄는
+  libgit2의 `GIT_CHECKOUT_DISABLE_PATHSPEC_MATCH`를 세울 방법이 없다. 그래서 이런 문자가 섞인
+  경로는 되돌리기 대상에서 제외하고 실패로 보고한다. `*`·`?`는 Windows 파일명에 올 수 없으므로
+  이 검사는 실제 파일명에 비용이 없다.
+- **삭제:** `File.Delete`(리터럴 경로라 대괄호가 있어도 안전하다). `Repository.RemoveUntrackedFiles()`는
+  경로 필터가 없어(저장소 전체) 쓸 수 없다. 인덱스에 올라간 미추적 파일은 `Commands.Unstage`로
+  먼저 내리는데, 이 API의 경로도 `CheckoutPaths`와 같은 wildmatch 패스스펙이라 같은 문자 제한이
+  적용된다 — 대괄호가 섞인 경로는 인덱스 항목이 있어도 안전하게 내릴 방법이 없으므로 파일을
+  지우지 않고 실패로 보고한다.
 
 **파일 하나씩 `try/catch` 한다.** SSMS 편집기가 `.sql`을 열어 둔 잠금이 현실적인 실패이고,
 하나가 막혔다고 나머지가 멈추면 안 된다(`WorkingTreeCleaner`·`SmoManager.ScriptAll`과 같은 방침).
