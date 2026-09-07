@@ -412,7 +412,24 @@ namespace DBVC.Core
                     // 되돌리기의 목적 자체가 그 수정을 지우는 것이므로 Force가 필요해,
                     // CheckoutOptions를 받는 IRepository의 3-인자 오버로드를 직접 부른다.
                     repo.CheckoutPaths("HEAD", new[] { path }, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
-                    result.RestoredPaths.Add(path);
+
+                    // 부르고 나서 결과를 확인한다. CheckoutPaths는 파일 하나를 쓰지 못해도
+                    // 예외를 던지지 않는다 - 잠긴 파일을 조용히 건너뛰고 정상 반환한다.
+                    // 그래서 호출이 돌아온 것만으로 성공을 세면, 되돌아가지 않은 파일을
+                    // 되돌렸다고 말하게 된다(SSMS 실기 검증에서 실제로 나온 증상이다:
+                    // 파일은 옛 내용 그대로인데 화면은 "되돌림 2개"라고 했다).
+                    //
+                    // libgit2의 신호(OnCheckoutNotify)가 아니라 상태를 보는 이유는, 사용자가
+                    // 묻는 것이 "libgit2가 뭐라고 했나"가 아니라 "파일이 돌아왔나"이기 때문이다.
+                    // 이 검사는 조용히 건너뛰는 다른 경로가 생겨도 그대로 성립한다.
+                    if (repo.RetrieveStatus(path) == FileStatus.Unaltered)
+                    {
+                        result.RestoredPaths.Add(path);
+                    }
+                    else
+                    {
+                        result.FailedPaths.Add(path);
+                    }
                 }
                 catch (Exception ex)
                 {

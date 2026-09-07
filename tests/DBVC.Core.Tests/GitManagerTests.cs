@@ -2255,5 +2255,34 @@ namespace DBVC.Core.Tests
             Assert.That(result.DeletedPaths, Is.Empty);
             Assert.That(result.SkippedPaths, Is.Empty);
         }
+
+        /// <summary>
+        /// 잠긴 파일은 되돌아가지 않았는데 성공으로 보고되면 안 된다.
+        /// SSMS 21 수동 검증에서 실제로 나온 증상이다 - 파일은 옛 내용 그대로인데
+        /// 화면은 "되돌림 2개"라고 말했다.
+        /// </summary>
+        [Test]
+        public void DiscardChanges_ReportsFailure_WhenFileIsLockedByAnotherProcess()
+        {
+            var repoPath = NewRepoWithCommit();
+            var git = NewGitManager(Server, Database, repoPath);
+            WriteRepoFile(repoPath, "dbo/Tables/Users.sql", "-- 잘못 추출된 내용");
+            var full = Path.Combine(repoPath, "dbo", "Tables", "Users.sql");
+
+            using (File.Open(full, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                var result = git.DiscardChanges(Server, Database, new[] { "dbo/Tables/Users.sql" });
+
+                TestContext.WriteLine($"Restored={string.Join(",", result.RestoredPaths)}");
+                TestContext.WriteLine($"Failed={string.Join(",", result.FailedPaths)}");
+                TestContext.WriteLine($"Skipped={string.Join(",", result.SkippedPaths)}");
+
+                Assert.That(result.RestoredPaths, Is.Empty, "되돌아가지 않은 파일을 성공으로 세면 안 된다");
+                Assert.That(result.FailedPaths, Is.EqualTo(new[] { "dbo/Tables/Users.sql" }));
+            }
+
+            Assert.That(File.ReadAllText(full), Is.EqualTo("-- 잘못 추출된 내용"),
+                "잠금이 걸린 동안에는 파일이 바뀌지 않았어야 한다");
+        }
     }
 }
