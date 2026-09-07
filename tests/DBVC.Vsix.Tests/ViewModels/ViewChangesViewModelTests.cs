@@ -3889,5 +3889,117 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(MappingPolicy.IsAllowed(vm.Mode, DbvcOperation.Discard), Is.False);
             Assert.That(vm.DiscardCommand.CanExecute(null), Is.False);
         }
+
+        // ---------- 무시 ----------
+
+        /// <summary>
+        /// 열린 로그 행이 있는 변경 하나가 선택된 뷰모델. 되돌리기 쪽 헬퍼는 LastLogId가 0이라
+        /// MarkProcessed가 스스로 건너뛴다 - 무시는 그 반대 경우를 봐야 한다.
+        /// </summary>
+        private ViewChangesViewModel NewViewModelWithOpenLogRow(
+            string relativePath = "dbo/Tables/Users.sql", string state = "Modified")
+        {
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                new ChangeRecord
+                {
+                    QualifiedName = "dbo.Users", ObjectType = "TABLE", State = state,
+                    RelativePath = relativePath, LastLogId = 42, Author = "sa", HostName = "PC-A"
+                }
+            });
+            _git.Setup(g => g.GetChangedFileStates(It.IsAny<string>()))
+                .Returns(new Dictionary<string, string> { [relativePath] = state });
+            _git.Setup(g => g.DiscardChanges(Server, Database, It.IsAny<IEnumerable<string>>()))
+                .Returns(new DiscardResult());
+
+            var vm = NewConnectedViewModel();
+            vm.Changes[0].IsSelected = true;
+            return vm;
+        }
+
+        [Test]
+        public void Ignore_ClosesLogRows_AfterDiscardSucceeds()
+        {
+            // 파일 먼저, 행 나중. 커밋 흐름과 같은 순서라 실패 문구를 그대로 쓸 수 있고,
+            // 반대 순서는 행이 닫힌 채 더러운 파일이 남아 주인 없는 변경으로 떠오른다.
+            var order = new List<string>();
+            var vm = NewViewModelWithOpenLogRow();
+            _notifier.ConfirmResult = true;
+
+            _git.Setup(g => g.DiscardChanges(Server, Database, It.IsAny<IEnumerable<string>>()))
+                .Callback(() => order.Add("discard"))
+                .Returns(new DiscardResult());
+            _stateTracker.Setup(s => s.MarkProcessed(Server, Database, It.IsAny<IEnumerable<ChangeRecord>>()))
+                .Callback(() => order.Add("mark"))
+                .Returns((string?)null);
+
+            vm.IgnoreCommand.Execute(null);
+
+            Assert.That(order, Is.EqualTo(new[] { "discard", "mark" }));
+        }
+
+        [Test]
+        public void Ignore_DoesNotCloseRow_WhenDiscardFailedForThatPath()
+        {
+            // 되돌리지 못한 파일의 행을 닫으면 그 더러운 파일이 다음 새로고침에서
+            // 주인 없는 변경으로 떠올라 사용자가 이해할 수 없는 상태가 된다.
+            var vm = NewViewModelWithOpenLogRow();
+            _notifier.ConfirmResult = true;
+
+            var failed = new DiscardResult();
+            failed.FailedPaths.Add("dbo/Tables/Users.sql");
+            _git.Setup(g => g.DiscardChanges(Server, Database, It.IsAny<IEnumerable<string>>()))
+                .Returns(failed);
+
+            vm.IgnoreCommand.Execute(null);
+
+            _stateTracker.Verify(
+                s => s.MarkProcessed(Server, Database, It.Is<IEnumerable<ChangeRecord>>(r => r.Any())),
+                Times.Never);
+        }
+
+        [Test]
+        public void Ignore_DoesNotTouchRepository_WhenUserCancelsConfirmation()
+        {
+            var vm = NewViewModelWithOpenLogRow();
+            _notifier.ConfirmResult = false;
+
+            vm.IgnoreCommand.Execute(null);
+
+            _git.Verify(g => g.DiscardChanges(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>()), Times.Never);
+            _stateTracker.Verify(s => s.MarkProcessed(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()), Times.Never);
+        }
+
+        [Test]
+        public void Ignore_WarnsAboutTheGlobalEffect_InTheConfirmation()
+        {
+            // 이 문장이 빠지면 사용자는 무시를 되돌리기의 다른 이름으로 읽는다.
+            var vm = NewViewModelWithOpenLogRow();
+            _notifier.ConfirmResult = false;
+
+            vm.IgnoreCommand.Execute(null);
+
+            // Single()이 아니라 Last()다. 연결 경로가 확인 대화상자를 띄우면 Single()은
+            // 검증 대상과 무관한 이유로 깨진다.
+            Assert.That(_notifier.ConfirmCalls.Last().Message, Does.Contain("함께 쓰는 모두에게"));
+        }
+
+        [Test]
+        public void Ignore_DoesNotReExtract_AfterIgnoring()
+        {
+            // 되돌리기와 같은 이유다. 재추출하면 아직 닫지 못한 행이 가리키는 객체가
+            // 다시 추출되어 같은 클릭 안에서 되돌리기가 취소된다.
+            var vm = NewViewModelWithOpenLogRow();
+            _notifier.ConfirmResult = true;
+            _smo.Invocations.Clear();
+
+            vm.IgnoreCommand.Execute(null);
+
+            _smo.Verify(s => s.ScriptObjectsDetailed(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>(),
+                It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
     }
 }
