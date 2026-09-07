@@ -135,8 +135,12 @@ BEGIN
 
     DECLARE @ObjectName NVARCHAR(256) = @EventData.value('(/EVENT_INSTANCE/ObjectName)[1]', 'NVARCHAR(256)');
 
-    -- DBVC 자체 테이블/트리거에 대한 DDL은 사용자 변경이 아니므로 기록하지 않는다.
-    IF @ObjectName IS NULL OR @ObjectName IN (N'DBVC_ChangeLog', N'trg_DBVC_DDL_Tracker')
+    -- DBVC 자체 객체에 대한 DDL은 사용자 변경이 아니므로 기록하지 않는다.
+    -- 이름을 하나씩 나열하지 않는 이유는 객체가 늘 때마다 여기와 SmoManager 두 곳을
+    -- 함께 고쳐야 하고, 한쪽을 빠뜨리면 도구가 자기 자신을 저장소에 커밋하기 때문이다.
+    -- DbvcOwnedObjects와 같은 판정이어야 하며 InstallScriptSyncTests가 대조한다.
+    -- LIKE의 [_]는 밑줄이 와일드카드이기 때문이다 - 빼면 DBVCx로 시작하는 사용자 객체까지 빠진다.
+    IF @ObjectName IS NULL OR @ObjectName LIKE N'DBVC[_]%' OR @ObjectName = N'trg_DBVC_DDL_Tracker'
         RETURN;
 
     DECLARE @ObjectType NVARCHAR(100) = @EventData.value('(/EVENT_INSTANCE/ObjectType)[1]', 'NVARCHAR(100)');

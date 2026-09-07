@@ -86,5 +86,24 @@ namespace DBVC.Core.Tests
             // 로그를 직접 조작할 수 있게 된다.
             Assert.That(verbs, Is.EquivalentTo(new[] { "SELECT", "UPDATE" }));
         }
+
+        [Test]
+        public void InstallScript_ExcludesTheSameObjectsCoreCallsItsOwn()
+        {
+            // 트리거는 SQL이라 DbvcOwnedObjects를 부를 수 없다. 두 판정이 갈라지면
+            // 도구가 자기 DDL을 사용자 변경으로 기록하고, 그것이 저장소에 커밋된다.
+            var script = StateTracker.ReadInstallScript();
+
+            // "DBVC_" → "DBVC[_]" → N'DBVC[_]%'. 밑줄은 LIKE의 와일드카드라 이스케이프한다.
+            var expectedPattern = "N'" + DbvcOwnedObjects.Prefix.Replace("_", "[_]") + "%'";
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(script, Does.Contain(expectedPattern),
+                    "설치 스크립트의 접두사 패턴이 DbvcOwnedObjects.Prefix와 다릅니다");
+                Assert.That(script, Does.Contain("N'" + DbvcOwnedObjects.TriggerName + "'"),
+                    "설치 스크립트가 DDL 트리거 이름을 제외 목록에 두지 않았습니다");
+            });
+        }
     }
 }
