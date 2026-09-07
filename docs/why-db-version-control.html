@@ -411,6 +411,20 @@
     height: auto;
     color: var(--ink-2);
   }
+  pre {
+    margin: 24px 0 0;
+    padding: 14px 18px;
+    background: var(--sunk);
+    border-left: 2px solid var(--accent);
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--ink);
+    max-width: var(--measure);
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
   .subhead { margin-top: 58px; }
   .subhead h3 {
     font-family: var(--serif);
@@ -1067,6 +1081,145 @@
   </section>
 
   <!-- ─────────────────────────────────────────── -->
+  <section id="drift">
+    <div class="wrap">
+      <p class="eyebrow">도입</p>
+      <div class="prose">
+        <h2>"지금 세 DB가 서로 다른데, 그대로 시작해도 되나"</h2>
+        <p>
+          된다. <strong>싱크가 맞지 않는다는 것은 도입의 장애물이 아니라 도입의
+          이유다.</strong> 셋이 얼마나 어긋나 있는지 지금 아무도 답할 수 없다는 사실이
+          이 문서 전체의 요지이기도 하다.
+        </p>
+        <p>
+          첫 커밋은 <strong>"지금 개발 DB에 있는 것"을 그대로 찍은 사진</strong>이다.
+          그 사진이 옳을 필요는 없다 — 기준점을 하나 만드는 것이 목적이고, 그 순간부터
+          <em>변경</em>이 기록되기 시작한다. 지금 상태가 어떻든 이 단계는 그대로 성공한다.
+        </p>
+        <p>
+          그리고 테스트·운영 클론의 첫 [차이 검사]는 <strong>아주 긴 목록</strong>을 낼
+          것이다. 그게 정상이고, 사실 그게 첫 성과다. 지금까지 아무도 그 목록을 본 적이
+          없다. 목록은 세 가지로 갈라져 나온다.
+        </p>
+      </div>
+
+      <div class="scroller">
+        <table class="compare">
+          <thead>
+            <tr>
+              <th class="q">판정</th>
+              <th>무슨 뜻인가</th>
+              <th>배포 스크립트에</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="q">수정됨</td>
+              <td>양쪽에 있는데 내용이 다르다</td>
+              <td>담긴다. <code>CREATE OR ALTER</code>가 안 되는 타입은 제외하고 사유를 머리말에 남긴다</td>
+            </tr>
+            <tr>
+              <td class="q">브랜치에만 있음</td>
+              <td>아직 그 DB에 배포되지 않았다</td>
+              <td>담긴다 (<code>CREATE</code>)</td>
+            </tr>
+            <tr>
+              <td class="q db">DB에만 있음</td>
+              <td class="db">커밋되지 않았거나 <strong>저장소를 거치지 않고 들어갔다</strong></td>
+              <td class="db">안 담긴다 — 담을 재료가 없다</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose after">
+        <p>
+          <strong>세 번째 줄이 지금 상황에서 제일 값진 정보다.</strong> "운영에만 있는
+          객체"가 목록으로 나온다. 지금은 그 질문에 답할 방법이 아예 없다.
+        </p>
+      </div>
+
+      <div class="prose subhead">
+        <h3>순서: 싱크를 맞추고 도입하는 게 아니라, 도입해서 맞춘다</h3>
+        <p>
+          순서를 반대로 잡으면 영원히 시작하지 못한다. 셋을 먼저 맞추려면 무엇이 어긋나
+          있는지 알아야 하는데, 그것을 알려 주는 것이 바로 이 도구이기 때문이다.
+        </p>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <span class="n">1</span>
+          <h4>개발 DB → <code>develop</code></h4>
+          <p>
+            기준선이 없으면 전체 추출이 자동으로 돈다. 오늘 할 수 있고, 지금 상태가
+            어떻든 성공한다.
+          </p>
+        </div>
+        <div class="step">
+          <span class="n">2</span>
+          <h4>그날부터 커밋을 시작한다</h4>
+          <p>
+            <strong>여기서부터 이미 이득이다.</strong> 과거는 못 되찾아도 앞으로의 모든
+            변경은 누가·언제·무엇을이 남는다.
+          </p>
+        </div>
+        <div class="step">
+          <span class="n">3</span>
+          <h4><code>master</code> 기준선을 만든다</h4>
+          <p>
+            운영이 있어야 할 상태를 저장소에 세운다. <strong>절차가 아직 정해지지
+            않았다</strong> — 아래 함정 2.
+          </p>
+        </div>
+        <div class="step">
+          <span class="n">4</span>
+          <h4>첫 [차이 검사]를 사람이 읽는다</h4>
+          <p>
+            나온 목록을 사고 목록이 아니라 <strong>정리 계획</strong>으로 쓴다. 한 번에
+            다 없앨 필요는 없다.
+          </p>
+        </div>
+      </div>
+
+      <div class="prose after">
+        <p>
+          3단계가 끝나면 <strong>DB에 손 대지 않고</strong> 드리프트 전체를 볼 수 있다.
+          개발에는 있고 운영에는 없는 것이 파일 목록으로 나온다.
+        </p>
+        <pre><code>git diff --stat master..develop</code></pre>
+      </div>
+
+      <div class="prose subhead">
+        <h3>미리 알아야 하는 함정 셋</h3>
+      </div>
+
+      <ul class="limits">
+        <li>
+          <strong>첫 배포 스크립트를 그대로 실행하면 안 된다.</strong>
+          개발 DB는 정의상 <code>master + 진행 중인 모든 feature</code> 상태라, 첫 목록에는
+          아직 나가면 안 되는 변경이 섞여 있다. 도구도 이것을 알고 있어서 개발 클론에서는
+          [차이 검사] 자체를 막아 뒀다. <strong>첫 배포는 사람이 항목을 골라야 한다.</strong>
+        </li>
+        <li>
+          <strong><code>master</code>를 무엇으로 채울지가 아직 정해지지 않았다.</strong>
+          감사 클론은 추출·커밋이 잠겨 있어 스스로 채우지 못한다 — 운영 DB에 트리거를
+          설치하는 사고를 막는 것이 그 모드의 존재 이유라 옳은 설계지만, 그래서 채울 경로가
+          도구 안에 없다. 길은 둘이다: <strong>운영 백업을 복원한 임시 DB에서 뽑아
+          커밋</strong>하거나, <strong>첫 정규 배포 시점의 <code>develop</code> 커밋을
+          <code>master</code>로 삼는다.</strong> 뒤쪽은 준비가 필요 없는 대신 그때까지 운영
+          드리프트가 보이지 않는다.
+        </li>
+        <li>
+          <strong>운영 쪽 차이는 원인을 구분해 주지 않는다.</strong>
+          운영 DB에는 트리거를 설치하지 않으므로 "아직 배포 안 됨"과 "누군가 운영을 직접
+          고쳤다"가 같은 문구로 뜬다. 어느 쪽인지는 DBA가 판단한다.
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────────────────── -->
   <section id="dba">
     <div class="wrap">
       <p class="eyebrow">점검</p>
@@ -1242,6 +1395,11 @@
             <li>
               <b>GitLab 배포 프로젝트 경로 · 릴리스 담당자 · 공지 채널</b>
               세 값이 비어 있는 동안은 규칙만 있고 공지를 보낼 곳이 없다.
+            </li>
+            <li>
+              <b><code>master</code> 기준선을 어떻게 만들지</b>
+              운영 백업을 복원해 뽑을 것인가, 첫 정규 배포 시점의 <code>develop</code>을
+              <code>master</code>로 삼을 것인가. 앞쪽은 DBA 시간과 공간이 필요하다.
             </li>
             <li>
               <b>[차이 검사] 주기와 책임자</b>
