@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -96,6 +97,33 @@ namespace DBVC.Core.Tests
 
             Assert.That(match.Success, Is.True, "설치 스크립트에서 보존 기간을 찾지 못했습니다");
             Assert.That(int.Parse(match.Groups[1].Value), Is.EqualTo(StateTracker.RetentionDays));
+        }
+
+        [Test]
+        public void InstallScript_CreatesThePostTimeIndexOnlyWhileNoTriggerIsLive()
+        {
+            // v5 -> v6 재설치에서는 트리거가 이 인덱스 생성 전에 이미 살아있을 수 있다.
+            // 살아있는 동안 만들면 CREATE_INDEX 이벤트의 ObjectName이 인덱스 이름이라
+            // 트리거의 자기 제외 판정(DBVC_ 접두사)을 피해 가고, ObjectType = 'INDEX'는
+            // 추적 대상이라 DBVC 자신의 테이블이 사용자 변경으로 로그에 남는다.
+            // 안전한 자리는 DROP TRIGGER와 CREATE TRIGGER 사이뿐이다 - 옮기면 여기서 잡는다.
+            var script = StateTracker.ReadInstallScript();
+
+            var dropTrigger = script.IndexOf(
+                "DROP TRIGGER [trg_DBVC_DDL_Tracker] ON DATABASE", StringComparison.Ordinal);
+            var createIndex = script.IndexOf(
+                "CREATE NONCLUSTERED INDEX [IX_DBVC_ChangeLog_PostTime]", StringComparison.Ordinal);
+            var createTrigger = script.IndexOf(
+                "CREATE TRIGGER [trg_DBVC_DDL_Tracker]", StringComparison.Ordinal);
+
+            Assert.That(dropTrigger, Is.GreaterThan(-1), "DROP TRIGGER 문을 찾지 못했습니다");
+            Assert.That(createIndex, Is.GreaterThan(-1), "IX_DBVC_ChangeLog_PostTime 생성문을 찾지 못했습니다");
+            Assert.That(createTrigger, Is.GreaterThan(-1), "CREATE TRIGGER 문을 찾지 못했습니다");
+
+            Assert.That(createIndex, Is.GreaterThan(dropTrigger),
+                "IX_DBVC_ChangeLog_PostTime은 트리거를 DROP한 뒤에 만들어져야 한다");
+            Assert.That(createIndex, Is.LessThan(createTrigger),
+                "IX_DBVC_ChangeLog_PostTime은 트리거를 다시 CREATE하기 전에 만들어져야 한다");
         }
 
         [Test]

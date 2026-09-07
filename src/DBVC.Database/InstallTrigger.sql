@@ -101,15 +101,6 @@ BEGIN
 END
 GO
 
--- 정리(DBVC_PurgeChangeLog)의 조회 경로. PostTime 단독 조건은 위 인덱스로 seek이 되지 않아
--- 인덱스가 없으면 정리가 매번 전체 스캔이 된다.
-IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'IX_DBVC_ChangeLog_PostTime')
-BEGIN
-    CREATE NONCLUSTERED INDEX [IX_DBVC_ChangeLog_PostTime]
-        ON [dbo].[DBVC_ChangeLog] ([PostTime]);
-END
-GO
-
 -- 로그를 읽고 닫는 일은 클라이언트가 접속 계정 그대로 한다 - 트리거의 INSERT만 dbo로 돈다.
 -- 이 GRANT가 없으면 db_owner가 아닌 계정의 커밋이 로그를 닫지 못하고, 그 항목이 새로고침마다
 -- 되살아난다. 커밋은 이미 성공한 뒤라 사용자에게는 원인이 보이지 않는다.
@@ -166,6 +157,23 @@ GO
 IF EXISTS (SELECT * FROM sys.triggers WHERE parent_class = 0 AND name = 'trg_DBVC_DDL_Tracker')
 BEGIN
     DROP TRIGGER [trg_DBVC_DDL_Tracker] ON DATABASE;
+END
+GO
+
+-- 이 위치가 중요하다 - 정리하며 위 IX_DBVC_ChangeLog_IsProcessed 옆으로 옮기지 말 것.
+-- v5 -> v6 재설치에서는 이 시점에 트리거가 아직 없다(방금 위에서 DROP했고, 아래에서 다시
+-- CREATE한다). 트리거가 살아있는 동안 인덱스를 만들면 CREATE_INDEX 이벤트가 발생하는데,
+-- 그 이벤트의 ObjectName은 테이블이 아니라 인덱스 이름(IX_DBVC_ChangeLog_PostTime)이라
+-- 트리거의 자기 제외 판정(DBVC_ 접두사)을 통과하지 못하고, ObjectType = 'INDEX'는 추적
+-- 대상이라 로그에 남는다. StateTracker가 그 행을 부모(DBVC_ChangeLog)로 정규화하면
+-- 사용자에게는 DBVC 자신의 테이블이 첫 새로고침에 변경 사항으로 보인다.
+--
+-- 정리(DBVC_PurgeChangeLog)의 조회 경로. PostTime 단독 조건은 위 IX_DBVC_ChangeLog_IsProcessed로
+-- seek이 되지 않아 인덱스가 없으면 정리가 매번 전체 스캔이 된다.
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'IX_DBVC_ChangeLog_PostTime')
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_DBVC_ChangeLog_PostTime]
+        ON [dbo].[DBVC_ChangeLog] ([PostTime]);
 END
 GO
 
