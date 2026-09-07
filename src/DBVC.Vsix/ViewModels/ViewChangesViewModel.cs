@@ -2111,6 +2111,87 @@ namespace DBVC.Vsix.ViewModels
             return lead + string.Join(", ", parts) + ".";
         }
 
+        /// <summary>
+        /// 무시의 확인 문구. 되돌리기보다 한 문단 무겁다 - 로그 행을 닫는 것은 공유 DB에서
+        /// 전역이고, 닫힌 변경은 git에 영영 담기지 않기 때문이다.
+        ///
+        /// 순수 함수로 둔 이유는 SQL Server와 WPF 없이 검증하기 위해서다
+        /// (BuildMarkProcessedFailureMessage를 Core로 뺀 것과 같은 이유).
+        /// </summary>
+        /// <param name="rowsToClose">닫을 로그 행이 있는 항목 수. 0이면 전역 경고를 넣지 않는다.</param>
+        /// <param name="foreignAuthors">선택 항목의 작업자 중 현재 사용자가 아닌 사람들. 중복 없이 온다.</param>
+        internal static string BuildIgnoreConfirmation(
+            DiscardPlan plan, int rowsToClose, IReadOnlyList<string> foreignAuthors)
+        {
+            var nl = Environment.NewLine;
+            var builder = new StringBuilder();
+            builder.Append("선택한 변경을 무시합니다.").Append(nl).Append(nl);
+
+            if (plan.RestorePaths.Count > 0)
+            {
+                builder.Append($"  되돌릴 파일 {plan.RestorePaths.Count}개").Append(nl);
+            }
+
+            if (plan.DeletePaths.Count > 0)
+            {
+                builder.Append($"  지울 파일 {plan.DeletePaths.Count}개 — git으로는 복구되지 않습니다").Append(nl);
+                foreach (var path in plan.DeletePaths.Take(MaxListedDeletePaths))
+                {
+                    builder.Append("    · ").Append(path).Append(nl);
+                }
+
+                var rest = plan.DeletePaths.Count - MaxListedDeletePaths;
+                if (rest > 0) builder.Append($"    외 {rest}개").Append(nl);
+            }
+
+            if (rowsToClose > 0)
+            {
+                builder.Append($"  닫을 변경 로그 {rowsToClose}개").Append(nl);
+            }
+
+            if (foreignAuthors.Count > 0)
+            {
+                builder.Append(nl)
+                    .Append($"선택한 항목에는 다른 사람({string.Join(", ", foreignAuthors)})의 변경이 들어 있습니다.")
+                    .Append(nl);
+            }
+
+            // 닫을 행이 없으면 되돌리기와 같은 무게다. 없는 위험을 경고하면 문구가 값을 잃는다.
+            if (rowsToClose > 0)
+            {
+                builder.Append(nl)
+                    .Append("변경 로그를 닫는 것은 이 데이터베이스를 함께 쓰는 모두에게 적용됩니다.").Append(nl)
+                    .Append("닫힌 변경은 앞으로 어떤 새로고침에도 다시 나타나지 않고, git에 담기지 않습니다.").Append(nl);
+            }
+
+            builder.Append(nl)
+                .Append("데이터베이스의 변경은 그대로 남습니다 — 무시는 DDL을 취소하지 않습니다.")
+                .Append(nl).Append(nl)
+                .Append("계속할까요?");
+
+            return builder.ToString();
+        }
+
+        /// <summary>
+        /// 무시의 결과 요약. 되돌리거나 지우거나 닫은 것이 하나도 없으면 성공 어투를 쓰지 않는다 —
+        /// 제외·실패뿐인 결과가 성공처럼 읽히면 사용자는 치워진 줄 안다.
+        /// </summary>
+        internal static string BuildIgnoreSummary(DiscardResult result, int closedRows)
+        {
+            var parts = new List<string>();
+            if (result.RestoredPaths.Count > 0) parts.Add($"되돌림 {result.RestoredPaths.Count}개");
+            if (result.DeletedPaths.Count > 0) parts.Add($"삭제 {result.DeletedPaths.Count}개");
+            if (closedRows > 0) parts.Add($"로그 {closedRows}개 닫음");
+            if (result.SkippedPaths.Count > 0) parts.Add($"제외 {result.SkippedPaths.Count}개");
+            if (result.FailedPaths.Count > 0) parts.Add($"실패 {result.FailedPaths.Count}개");
+
+            if (parts.Count == 0) return "무시할 대상이 없습니다.";
+
+            var succeeded = result.RestoredPaths.Count + result.DeletedPaths.Count + closedRows > 0;
+            var lead = succeeded ? "무시했습니다 — " : "무시하지 못했습니다 — ";
+            return lead + string.Join(", ", parts) + ".";
+        }
+
         // ---------- 외부에서 객체 선택 (SQL 에디터 컨텍스트 메뉴) ----------
 
         /// <summary>
