@@ -112,17 +112,19 @@ END
 GO
 
 -- 이 위치가 중요하다 - DBVC 자신이 만드는 객체(프로시저·인덱스 등)에 대한 DDL은 전부 이
--- 구간, 즉 DROP TRIGGER와 CREATE TRIGGER 사이에서 실행한다. v5 -> v6처럼 옛 트리거가 아직
--- 살아있는 상태로(방금 위에서 DROP했고 아래에서 다시 CREATE하기 전) 새 DBVC 객체를 만들면,
--- 그 CREATE 이벤트의 ObjectName은 부모 테이블이 아니라 새로 만든 객체 자신의 이름
--- (예: 인덱스면 IX_DBVC_ChangeLog_PostTime, 프로시저면 DBVC_PurgeChangeLog)이다. 옛 트리거의
--- 자기 제외 판정은 문자열을 나열한 목록이라(DBVC_ 접두사 규칙이 없다) 이 이름들을 통과시키지
--- 못하고, ObjectType(INDEX/PROCEDURE)은 추적 대상이라 로그에 그대로 남는다. StateTracker가
--- 그 행을 부모(DBVC_ChangeLog)로 정규화하면 사용자에게는 DBVC 자신의 객체가 첫 새로고침에
--- 변경 사항으로 보인다. 앞으로 DBVC 객체를 더할 때도 그 DDL을 이 구간 밖에 두지 말 것.
--- IX_DBVC_ChangeLog_IsProcessed도 원래 이 구간 밖(GRANT 앞)에 있었다 - 지금까지는 v5 이전
--- 설치에서 이미 만들어져 있어 IF NOT EXISTS가 매번 no-op이었을 뿐, 예외가 아니다. 같은 실수를
--- 되풀이하지 않도록 여기로 함께 옮긴다.
+-- 구간, 즉 바로 위에서 트리거를 지운 뒤부터 아래에서 트리거를 다시 세우기 전까지의 사이에서
+-- 실행한다("트리거 재생성 문"을 이 주석에 그대로 옮겨 적지 않는 이유는 그러면 그 문자열을
+-- 찾아 배치를 검사하는 테스트가 이 주석 블록까지 하나의 배치로 걸리기 때문이다).
+-- v5 -> v6처럼 옛 트리거가 아직 살아있는 상태로(방금 위에서 지웠고 아래에서 다시 세우기 전)
+-- 새 DBVC 객체를 만들면, 그 생성 이벤트의 ObjectName은 부모 테이블이 아니라 새로 만든 객체
+-- 자신의 이름(예: 인덱스면 IX_DBVC_ChangeLog_PostTime, 프로시저면 DBVC_PurgeChangeLog)이다.
+-- 옛 트리거의 자기 제외 판정은 문자열을 나열한 목록이라(DBVC_ 접두사 규칙이 없다) 이 이름들을
+-- 통과시키지 못하고, ObjectType(INDEX/PROCEDURE)은 추적 대상이라 로그에 그대로 남는다.
+-- StateTracker가 그 행을 부모(DBVC_ChangeLog)로 정규화하면 사용자에게는 DBVC 자신의 객체가
+-- 첫 새로고침에 변경 사항으로 보인다. 앞으로 DBVC 객체를 더할 때도 그 DDL을 이 구간 밖에
+-- 두지 말 것. IX_DBVC_ChangeLog_IsProcessed도 원래 이 구간 밖(GRANT 앞)에 있었다 - 지금까지는
+-- v5 이전 설치에서 이미 만들어져 있어 IF NOT EXISTS가 매번 no-op이었을 뿐, 예외가 아니다.
+-- 같은 실수를 되풀이하지 않도록 여기로 함께 옮긴다.
 
 -- 미처리 변경 조회(RefreshState)의 주 조회 경로
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'IX_DBVC_ChangeLog_IsProcessed')
