@@ -3653,6 +3653,30 @@ namespace DBVC.Vsix.Tests.ViewModels
                 It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()), Times.Never);
         }
 
+        /// <summary>
+        /// 되돌리기는 설계상 DDL 로그 행을 닫지 않는다(설계 4번). DBVC_ChangeLog는 개발자
+        /// 20명·DBA 3명이 공유하는 표 하나다 - 여기서 행을 닫으면 데이터베이스는 그대로인데
+        /// 다른 모두의 목록에서 그 변경이 사라진다. 항목을 완전히 지우는 유일한 방법은
+        /// 되돌린 뒤 커밋해서(커밋할 것이 없으므로) 그 경로로 로그를 닫는 것이다(Commit 참고).
+        /// 이 테스트가 없으면 "되돌렸는데 목록에 그대로 있다"는 눈에 보이는 증상만 보고
+        /// 다음 사람이 여기서 MarkProcessed를 불러 버릴 수 있다 - 그러면 공유 로그가 거짓말을
+        /// 하게 된다.
+        /// </summary>
+        [Test]
+        public void Discard_LeavesTheChangeLogRowOpen_SoTheItemStaysInTheList()
+        {
+            var vm = NewViewModelWithSelectedChange();
+            _notifier.ConfirmResult = true;
+            _stateTracker.Invocations.Clear();
+
+            vm.DiscardCommand.Execute(null);
+
+            _stateTracker.Verify(s => s.MarkProcessed(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()), Times.Never);
+            Assert.That(vm.Changes.Count, Is.EqualTo(1), "되돌리기만으로는 항목이 목록에서 빠지면 안 된다");
+            Assert.That(vm.Changes[0].RelativePath, Is.EqualTo("dbo/Tables/Users.sql"));
+        }
+
         /// <summary>복구되지 않는 쪽은 사람이 이름으로 읽어야 한다.</summary>
         [Test]
         public void Discard_NamesFilesToDelete_InTheConfirmation()
@@ -3663,7 +3687,7 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             var message = _notifier.ConfirmCalls.Single().Message;
             Assert.That(message, Does.Contain("dbo/Views/vSales.sql"));
-            Assert.That(message, Does.Contain("복구되지 않습니다"));
+            Assert.That(message, Does.Contain("git으로는 복구되지 않습니다"));
         }
 
         /// <summary>
@@ -3699,19 +3723,52 @@ namespace DBVC.Vsix.Tests.ViewModels
         /// <summary>
         /// 갱신이 WarningMessage를 무조건 덮어쓴다. 요약을 그 뒤에 대입하면 실제
         /// 스케줄러에서는 갱신 콜백이 나중에 도착해 지워 버린다.
+        ///
+        /// InlineBackgroundScheduler로는 이 규칙을 못 지킨다: 인라인에서는 Refresh()가
+        /// 그 자리에서 끝까지 돌아 버려서, "Refresh()를 먼저 부르고 그 다음 줄에서
+        /// WarningMessage에 대입"하는 잘못된 순서를 써도 그 대입이 ApplyRefreshOutcome
+        /// 뒤에 실행되어 결과적으로 남는다 - 진짜 비동기 간극이 없으면 순서 버그가
+        /// 가려진다. DeferredBackgroundScheduler로 GatherRefresh의 완료 콜백
+        /// (ApplyRefreshOutcome)이 도착하는 시점을 떼어 놓아야, 그 콜백이 나중에 도착해
+        /// WarningMessage를 지우는 실제 증상을 재현할 수 있다.
         /// </summary>
         [Test]
         public void Discard_KeepsSummary_AfterTheListRefreshCompletes()
         {
-            var vm = NewViewModelWithSelectedChange();
-            _notifier.ConfirmResult = true;
+            var scheduler = new DeferredBackgroundScheduler();
+            const string relativePath = "dbo/Tables/Users.sql";
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                new ChangeRecord
+                {
+                    QualifiedName = "dbo.Users", ObjectType = "TABLE", State = "Modified",
+                    RelativePath = relativePath
+                }
+            });
+            _git.Setup(g => g.GetChangedFileStates(It.IsAny<string>()))
+                .Returns(new Dictionary<string, string> { [relativePath] = "Modified" });
             var done = new DiscardResult();
-            done.RestoredPaths.Add("dbo/Tables/Users.sql");
+            done.RestoredPaths.Add(relativePath);
             _git.Setup(g => g.DiscardChanges(Server, Database, It.IsAny<IEnumerable<string>>()))
                 .Returns(done);
 
-            vm.DiscardCommand.Execute(null);
+            _ssms.Setup(s => s.TryGetCurrent()).Returns(Info());
+            var vm = NewViewModel(scheduler);
+            vm.ConnectCommand.Execute(null);
+            while (scheduler.PendingCount > 0) scheduler.FlushAll();
 
+            Assert.That(vm.Changes.Count, Is.EqualTo(1), "사전 조건: 연결 직후 목록에 항목이 하나 있어야 한다");
+            vm.Changes[0].IsSelected = true;
+            _notifier.ConfirmResult = true;
+
+            vm.DiscardCommand.Execute(null);
+            // 되돌리기 확인·실행·뒤이은 새로고침까지 여러 단계로 스케줄러를 탄다 -
+            // 콜백 하나를 흘리면 다음 단계가 새 콜백을 또 등록하므로 끝까지 비운다.
+            while (scheduler.PendingCount > 0) scheduler.FlushAll();
+
+            // 이 시점은 ApplyRefreshOutcome까지 모두 지난 뒤다. Discard가 WarningMessage에
+            // 직접 대입하고 그 뒤에 Refresh()를 불렀다면, 나중에 도착한 ApplyRefreshOutcome이
+            // _pendingStatusMessage(비어 있음)로 이 값을 덮어써 여기서 사라진다.
             Assert.That(vm.WarningMessage, Does.Contain("되돌림 1개"));
         }
 

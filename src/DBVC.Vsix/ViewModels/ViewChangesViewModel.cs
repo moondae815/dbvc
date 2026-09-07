@@ -1480,10 +1480,17 @@ namespace DBVC.Vsix.ViewModels
                 History.Load(ServerName, DatabaseName, null);
             }
 
-            if (!HasContext) return;
+            // 아래 이른 반환들은 ApplyRefreshOutcome을 타지 않는다. 되돌리기가 남겨 둔
+            // 메시지를 여기서 비우지 않으면 다음번 무관한 새로고침 끝에 불쑥 나타난다.
+            if (!HasContext)
+            {
+                _pendingStatusMessage = null;
+                return;
+            }
 
             if (!IsMapped)
             {
+                _pendingStatusMessage = null;
                 WarningMessage = NotMappedWarning;
                 return;
             }
@@ -1497,7 +1504,9 @@ namespace DBVC.Vsix.ViewModels
             _cancellableOperation = new CancellationTokenSource();
             var token = _cancellableOperation.Token;
 
-            Busy.IsCancellable = true;
+            // 취소 토큰은 Extract에만 닿는다. syncRepository가 거짓이면 취소할 것이 없으므로
+            // 버튼을 누를 수 있게 두면 안 된다 - 아무 일도 안 하는 취소 버튼은 없느니만 못하다.
+            Busy.IsCancellable = syncRepository;
             IsBusy = true;
             ProgressText = "시작하는 중...";
 
@@ -1510,6 +1519,10 @@ namespace DBVC.Vsix.ViewModels
                     IsBusy = false;
                     ProgressText = null;
                     RaiseActionCanExecuteChanged();
+
+                    // 이 경로는 ApplyRefreshOutcome을 타지 않는다. 되돌리기가 남긴 메시지를
+                    // 여기서 비우지 않으면 이번과 무관한 다음 새로고침 끝에 되살아난다.
+                    _pendingStatusMessage = null;
 
                     // 취소는 실패가 아니다. 오류 상자로 알리면 사용자가 자기가 누른 것을
                     // 오류로 되읽는다. 이미 추출된 파일은 남아 있으므로 목록도 지우지 않는다.
@@ -1839,8 +1852,11 @@ namespace DBVC.Vsix.ViewModels
                     if (!outcome.WroteACommit)
                     {
                         // 커밋은 만들어지지 않았다. 목록에서만 사라지므로 그 사실을 말해야
-                        // 사용자가 "커밋했는데 이력에 없다"로 읽지 않는다.
-                        WarningMessage = "선택한 항목은 저장소와 이미 같아 커밋할 것이 없었습니다. 목록에서만 정리했습니다.";
+                        // 사용자가 "커밋했는데 이력에 없다"로 읽지 않는다. 아래에서 Refresh()를
+                        // 부르므로 WarningMessage에 담으면 ApplyRefreshOutcome이 곧바로 지운다 -
+                        // _pendingStatusMessage에 담아 그쪽이 꺼내 쓰게 한다. 되돌리기 → 커밋으로
+                        // 항목을 완전히 지우는 절차의 유일한 확인 메시지이므로 반드시 살아남아야 한다.
+                        _pendingStatusMessage = "선택한 항목은 저장소와 이미 같아 커밋할 것이 없었습니다. 목록에서만 정리했습니다.";
                     }
                     else
                     {
@@ -1994,6 +2010,7 @@ namespace DBVC.Vsix.ViewModels
                         _notifier.ShowError(
                             "DBVC 되돌리기 — 일부 실패",
                             "다음 파일을 되돌리지 못했습니다. 다른 프로그램이 파일을 열고 있는지 확인하세요."
+                            + " 파일 이름에 대괄호(`[` `]`)가 들어 있으면 되돌릴 수 없습니다."
                             + Environment.NewLine + Environment.NewLine
                             + string.Join(Environment.NewLine, result.FailedPaths.Select(p => "  · " + p)));
                     }
@@ -2039,7 +2056,7 @@ namespace DBVC.Vsix.ViewModels
 
             if (plan.DeletePaths.Count > 0)
             {
-                builder.Append($"  지울 파일 {plan.DeletePaths.Count}개 — 복구되지 않습니다").Append(nl);
+                builder.Append($"  지울 파일 {plan.DeletePaths.Count}개 — git으로는 복구되지 않습니다").Append(nl);
                 foreach (var path in plan.DeletePaths.Take(MaxListedDeletePaths))
                 {
                     builder.Append("    · ").Append(path).Append(nl);
@@ -2068,9 +2085,13 @@ namespace DBVC.Vsix.ViewModels
             if (result.SkippedPaths.Count > 0) parts.Add($"제외 {result.SkippedPaths.Count}개");
             if (result.FailedPaths.Count > 0) parts.Add($"실패 {result.FailedPaths.Count}개");
 
-            return parts.Count == 0
-                ? "되돌릴 대상이 없습니다."
-                : "되돌렸습니다 — " + string.Join(", ", parts) + ".";
+            if (parts.Count == 0) return "되돌릴 대상이 없습니다.";
+
+            // 되돌리거나 지운 것이 하나도 없는데 "되돌렸습니다"로 시작하면 제외·실패뿐인
+            // 결과도 성공처럼 읽힌다. 실제로 바뀐 것이 있을 때만 성공 어투를 쓴다.
+            var succeeded = result.RestoredPaths.Count + result.DeletedPaths.Count > 0;
+            var lead = succeeded ? "되돌렸습니다 — " : "되돌리지 못했습니다 — ";
+            return lead + string.Join(", ", parts) + ".";
         }
 
         // ---------- 외부에서 객체 선택 (SQL 에디터 컨텍스트 메뉴) ----------
