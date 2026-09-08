@@ -518,6 +518,48 @@ namespace DBVC.Core.Tests
             Assert.That(tracker.BuildChangeSet(System.Array.Empty<ChangeLogRow>(), null), Is.Empty);
         }
 
+        [Test]
+        public void BuildChangeSet_SurfacesForeignFile_WhenLogRowIsGone()
+        {
+            // 30일 정리가 남의 열린 행을 지우면 그 경로는 PartitionByAuthor의 foreignPaths에서도
+            // 빠진다. 그때부터 Git 폴백이 그 더러운 파일을 주인 없는 변경으로 올린다.
+            //
+            // 이것이 미채택자의 변경을 결국 git에 담기게 하는 유일한 길이다(설계 2.2).
+            // LastLogId가 0이라 되돌리기가 자기 취소되지도 않는다. 우연에 기대지 않도록 여기서 고정한다.
+            var tracker = NewTracker();
+            var gitStates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["dbo/Tables/Foo.sql"] = "Modified"
+            };
+
+            var changes = tracker.BuildChangeSet(
+                new List<ChangeLogRow>(), gitStates, foreignPaths: null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(changes.Count, Is.EqualTo(1));
+                Assert.That(changes[0].RelativePath, Is.EqualTo("dbo/Tables/Foo.sql"));
+                Assert.That(changes[0].LastLogId, Is.EqualTo(0));
+            });
+        }
+
+        [Test]
+        public void BuildChangeSet_HidesForeignFile_WhileTheLogRowIsStillOpen()
+        {
+            // 정리 전에는 가려져 있어야 한다. 이 짝이 없으면 위 테스트가 "언제나 뜬다"로 읽힌다.
+            var tracker = NewTracker();
+            var gitStates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["dbo/Tables/Foo.sql"] = "Modified"
+            };
+
+            var changes = tracker.BuildChangeSet(
+                new List<ChangeLogRow>(), gitStates,
+                foreignPaths: new[] { "dbo/Tables/Foo.sql" });
+
+            Assert.That(changes, Is.Empty);
+        }
+
         // ---------- 캐시 ----------
 
         [Test]
@@ -646,11 +688,11 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
-        public void RequiredSchemaVersion_IsFive()
+        public void RequiredSchemaVersion_IsSix()
         {
             // 설치 스크립트가 심는 값과 같아야 한다. 어긋나면 모든 사용자에게 업데이트 배너가 계속 뜨거나
             // 구버전이 최신으로 읽힌다. 스크립트 쪽 값은 InstallScriptSyncTests가 대조한다.
-            Assert.That(StateTracker.RequiredSchemaVersion, Is.EqualTo(5));
+            Assert.That(StateTracker.RequiredSchemaVersion, Is.EqualTo(6));
         }
 
         [Test]
@@ -658,7 +700,9 @@ namespace DBVC.Core.Tests
         {
             // 이 안내가 "커밋 실패"로 읽히면 사용자가 같은 커밋을 다시 만든다.
             // 항목이 목록에 되살아나는 것도 미리 말해야 결함으로 신고되지 않는다.
-            var message = StateTracker.BuildMarkProcessedFailureMessage("SELECT 권한이 거부되었습니다");
+            var message = StateTracker.BuildMarkProcessedFailureMessage(
+                "커밋은 성공했습니다. 다만 변경 로그를 닫지 못해 이 항목이 새로고침 목록에 다시 나타납니다.",
+                "SELECT 권한이 거부되었습니다");
 
             Assert.Multiple(() =>
             {
@@ -669,11 +713,29 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void MarkProcessedFailureMessage_SaysWhateverTheCallerPassed_NotAlwaysCommit()
+        {
+            // 무시는 커밋한 적이 없다. 이 메서드가 "커밋은 성공했습니다"를 하드코딩하면
+            // 무시 사용자에게 하지도 않은 커밋이 성공했다고 거짓말하게 된다 - 리드 문장은
+            // 반드시 호출자가 준 그대로 나가야 한다.
+            var message = StateTracker.BuildMarkProcessedFailureMessage(
+                "선택한 파일은 되돌렸습니다. 다만 변경 로그를 닫지 못해 이 항목이 새로고침 목록에 다시 나타납니다.",
+                "UPDATE 권한이 거부되었습니다");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(message, Does.Contain("선택한 파일은 되돌렸습니다"));
+                Assert.That(message, Does.Not.Contain("커밋은 성공"));
+                Assert.That(message, Does.Contain("UPDATE 권한이 거부되었습니다"));
+            });
+        }
+
+        [Test]
         public void MarkProcessedFailureMessage_PointsAtThePermissionAndTheButtonThatFixesIt()
         {
             // 원인이 거의 항상 권한이고, 고치는 자리가 화면 안에 있다. 그 두 가지를 말하지 않으면
             // 사용자는 libgit2/서버 원문만 보고 무엇을 해야 할지 모른다.
-            var message = StateTracker.BuildMarkProcessedFailureMessage("무엇이든");
+            var message = StateTracker.BuildMarkProcessedFailureMessage("아무 리드 문장", "무엇이든");
 
             Assert.Multiple(() =>
             {
@@ -736,6 +798,19 @@ namespace DBVC.Core.Tests
         }
 
         // ---------- 설치 스크립트 ----------
+
+        [Test]
+        public void PurgeCommand_CallsTheProcedureTheInstallScriptCreates()
+        {
+            // 이름이 어긋나면 정리가 영영 돌지 않는데, 실패를 삼키는 자리라 아무도 모른다.
+            var script = StateTracker.ReadInstallScript();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(StateTracker.PurgeCommand, Does.Contain("DBVC_PurgeChangeLog"));
+                Assert.That(script, Does.Contain("CREATE PROCEDURE [dbo].[DBVC_PurgeChangeLog]"));
+            });
+        }
 
         // ---------- 변경분만 추출하기 위한 대상 목록 ----------
         //
@@ -830,11 +905,33 @@ namespace DBVC.Core.Tests
             Assert.That(batches, Has.All.Matches<string>(b => !string.IsNullOrWhiteSpace(b)));
         }
 
+        /// <summary>
+        /// "--"부터 줄 끝까지를 지운다. 배치의 실제 시작 구문을 문자열로 찾을 때, 그 구문을
+        /// 설명하는 주석 산문(예: "...CREATE TRIGGER 사이에서 실행한다")이 같은 키워드를
+        /// 우연히 포함해 배치 자체가 그 키워드로 시작한다고 오탐하는 것을 막는다. 이 스크립트에는
+        /// 문자열 리터럴 안에 "--"가 없음을 확인했다 - 있었다면 이 방식은 안전하지 않다.
+        /// </summary>
+        private static string StripSqlLineComments(string sql)
+        {
+            var lines = sql.Replace("\r\n", "\n").Split('\n');
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var idx = lines[i].IndexOf("--", System.StringComparison.Ordinal);
+                if (idx >= 0) lines[i] = lines[i].Substring(0, idx);
+            }
+            return string.Join("\n", lines);
+        }
+
         [Test]
         public void InstallScript_PutsCreateTriggerFirstInItsBatch()
         {
-            // SQL Server는 CREATE TRIGGER가 배치의 첫 구문일 것을 요구한다.
-            var batches = StateTracker.SplitSqlBatches(StateTracker.ReadInstallScript());
+            // SQL Server는 CREATE TRIGGER가 배치의 첫 구문일 것을 요구한다. 주석을 먼저 지운다 -
+            // 그러지 않으면 이 배치 순서를 설명하는 주석 자체가 "CREATE TRIGGER"를 언급하는 것만으로
+            // 그 앞의 주석 블록이 CREATE TRIGGER 배치로 오인되거나, 반대로 실제로는 다른 문장으로
+            // 시작하는 배치가 주석 속 우연한 일치 때문에 통과해 진짜 결함을 가릴 수 있다.
+            var batches = StateTracker.SplitSqlBatches(StateTracker.ReadInstallScript())
+                .Select(StripSqlLineComments)
+                .ToList();
 
             var triggerBatches = batches
                 .Where(b => b.IndexOf("CREATE TRIGGER", System.StringComparison.OrdinalIgnoreCase) >= 0)

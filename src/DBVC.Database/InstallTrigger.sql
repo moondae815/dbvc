@@ -93,14 +93,6 @@ BEGIN
 END
 GO
 
--- 미처리 변경 조회(RefreshState)의 주 조회 경로
-IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'IX_DBVC_ChangeLog_IsProcessed')
-BEGIN
-    CREATE NONCLUSTERED INDEX [IX_DBVC_ChangeLog_IsProcessed]
-        ON [dbo].[DBVC_ChangeLog] ([IsProcessed], [PostTime] DESC);
-END
-GO
-
 -- 로그를 읽고 닫는 일은 클라이언트가 접속 계정 그대로 한다 - 트리거의 INSERT만 dbo로 돈다.
 -- 이 GRANT가 없으면 db_owner가 아닌 계정의 커밋이 로그를 닫지 못하고, 그 항목이 새로고침마다
 -- 되살아난다. 커밋은 이미 성공한 뒤라 사용자에게는 원인이 보이지 않는다.
@@ -116,6 +108,77 @@ GO
 IF EXISTS (SELECT * FROM sys.triggers WHERE parent_class = 0 AND name = 'trg_DBVC_DDL_Tracker')
 BEGIN
     DROP TRIGGER [trg_DBVC_DDL_Tracker] ON DATABASE;
+END
+GO
+
+-- 이 위치가 중요하다 - DBVC 자신이 만드는 객체(프로시저·인덱스 등)에 대한 DDL은 전부 이
+-- 구간, 즉 DROP TRIGGER와 CREATE TRIGGER 사이에서 실행한다. v5 -> v6처럼 옛 트리거가 아직
+-- 살아있는 상태로(방금 위에서 DROP했고 아래에서 다시 CREATE하기 전) 새 DBVC 객체를 만들면,
+-- 그 CREATE 이벤트의 ObjectName은 부모 테이블이 아니라 새로 만든 객체 자신의 이름
+-- (예: 인덱스면 IX_DBVC_ChangeLog_PostTime, 프로시저면 DBVC_PurgeChangeLog)이다. 옛 트리거의
+-- 자기 제외 판정은 문자열을 나열한 목록이라(DBVC_ 접두사 규칙이 없다) 이 이름들을 통과시키지
+-- 못하고, ObjectType(INDEX/PROCEDURE)은 추적 대상이라 로그에 그대로 남는다. StateTracker가
+-- 그 행을 부모(DBVC_ChangeLog)로 정규화하면 사용자에게는 DBVC 자신의 객체가 첫 새로고침에
+-- 변경 사항으로 보인다. 앞으로 DBVC 객체를 더할 때도 그 DDL을 이 구간 밖에 두지 말 것.
+-- IX_DBVC_ChangeLog_IsProcessed도 원래 이 구간 밖(GRANT 앞)에 있었다 - 지금까지는 v5 이전
+-- 설치에서 이미 만들어져 있어 IF NOT EXISTS가 매번 no-op이었을 뿐, 예외가 아니다. 같은 실수를
+-- 되풀이하지 않도록 여기로 함께 옮긴다.
+
+-- 미처리 변경 조회(RefreshState)의 주 조회 경로
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'IX_DBVC_ChangeLog_IsProcessed')
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_DBVC_ChangeLog_IsProcessed]
+        ON [dbo].[DBVC_ChangeLog] ([IsProcessed], [PostTime] DESC);
+END
+GO
+
+-- 변경 로그 정리. 나이 하나로 지우고 IsProcessed를 보지 않는다 - 커밋되지 않은 채 남는
+-- 미채택자의 행이 정확히 IsProcessed = 0이라, 처리된 행만 지우는 정책은 그 행에 영영 닿지 않는다.
+--
+-- EXECUTE AS OWNER인 이유는 public에 DELETE를 주지 않기 위해서다. DELETE를 주면 사용자가
+-- 로그를 직접 조작할 수 있게 되고, 그것은 위 GRANT에서 INSERT를 뺀 이유와 같은 문제다.
+--
+-- 배치로 나누는 이유는 첫 실행 때문이다. 몇 달 쌓인 DB에서 한 트랜잭션으로 수백만 행을
+-- 지우면 그동안 모든 DDL이 트리거의 INSERT에서 막히고 트랜잭션 로그가 부풀어 오른다.
+--
+-- CREATE OR ALTER를 쓰지 않는 것은 그것이 SQL Server 2016 SP1+를 요구해 최소 버전을
+-- 새로 못 박기 때문이다. 트리거와 같은 DROP -> CREATE 형태를 쓴다.
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_PurgeChangeLog]') AND type = N'P')
+BEGIN
+    DROP PROCEDURE [dbo].[DBVC_PurgeChangeLog];
+END
+GO
+
+CREATE PROCEDURE [dbo].[DBVC_PurgeChangeLog]
+WITH EXECUTE AS OWNER
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- DBVC_RETENTION_DAYS: Core의 StateTracker.RetentionDays와 같아야 한다.
+    -- InstallScriptSyncTests가 두 값을 대조한다.
+    DECLARE @cutoff DATETIME = DATEADD(day, -30, GETDATE());
+    DECLARE @deleted INT = 1;
+
+    WHILE @deleted > 0
+    BEGIN
+        DELETE TOP (5000) FROM [dbo].[DBVC_ChangeLog] WHERE [PostTime] < @cutoff;
+        SET @deleted = @@ROWCOUNT;
+    END
+END
+GO
+
+-- 클라이언트는 접속 계정 그대로 이것을 부른다. EXECUTE만 주므로 사용자가 지울 수 있는 것은
+-- 프로시저가 허용하는 것뿐이다.
+GRANT EXECUTE ON [dbo].[DBVC_PurgeChangeLog] TO [public];
+GO
+
+-- 정리(DBVC_PurgeChangeLog)의 조회 경로. PostTime 단독 조건은 위 IX_DBVC_ChangeLog_IsProcessed로
+-- seek이 되지 않아 인덱스가 없으면 정리가 매번 전체 스캔이 된다.
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'IX_DBVC_ChangeLog_PostTime')
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_DBVC_ChangeLog_PostTime]
+        ON [dbo].[DBVC_ChangeLog] ([PostTime]);
 END
 GO
 
@@ -135,8 +198,16 @@ BEGIN
 
     DECLARE @ObjectName NVARCHAR(256) = @EventData.value('(/EVENT_INSTANCE/ObjectName)[1]', 'NVARCHAR(256)');
 
-    -- DBVC 자체 테이블/트리거에 대한 DDL은 사용자 변경이 아니므로 기록하지 않는다.
-    IF @ObjectName IS NULL OR @ObjectName IN (N'DBVC_ChangeLog', N'trg_DBVC_DDL_Tracker')
+    -- DBVC 자체 객체에 대한 DDL은 사용자 변경이 아니므로 기록하지 않는다.
+    -- 이름을 하나씩 나열하지 않는 이유는 객체가 늘 때마다 여기와 SmoManager 두 곳을
+    -- 함께 고쳐야 하고, 한쪽을 빠뜨리면 도구가 자기 자신을 저장소에 커밋하기 때문이다.
+    -- DbvcOwnedObjects와 같은 판정이어야 하며 InstallScriptSyncTests가 대조한다.
+    -- LIKE의 [_]는 밑줄이 와일드카드이기 때문이다 - 빼면 DBVCx로 시작하는 사용자 객체까지 빠진다.
+    -- COLLATE를 명시하는 이유는 이 LIKE가 기본으로는 데이터베이스 collation을 따르기 때문이다.
+    -- C# 쪽 판정(DbvcOwnedObjects.IsOwned)은 항상 OrdinalIgnoreCase라 대소문자를 구분하지 않는데,
+    -- 대소문자를 구분하는 collation의 DB에서 이 LIKE가 그대로 두면 dbvc_x 같은 사용자 객체를
+    -- 트리거는 로그에 남기고 SMO는 영영 추출하지 않는 유령 항목이 생긴다. 두 판정은 항상 같아야 한다.
+    IF @ObjectName IS NULL OR @ObjectName COLLATE Latin1_General_CI_AS LIKE N'DBVC[_]%' OR @ObjectName = N'trg_DBVC_DDL_Tracker'
         RETURN;
 
     DECLARE @ObjectType NVARCHAR(100) = @EventData.value('(/EVENT_INSTANCE/ObjectType)[1]', 'NVARCHAR(100)');
@@ -198,13 +269,13 @@ IF NOT EXISTS (SELECT 1 FROM sys.extended_properties
                WHERE class = 1 AND major_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]')
                  AND minor_id = 0 AND name = N'DBVC_SchemaVersion')
 BEGIN
-    EXEC sp_addextendedproperty @name = N'DBVC_SchemaVersion', @value = N'5',
+    EXEC sp_addextendedproperty @name = N'DBVC_SchemaVersion', @value = N'6',
          @level0type = N'SCHEMA', @level0name = N'dbo',
          @level1type = N'TABLE',  @level1name = N'DBVC_ChangeLog';
 END
 ELSE
 BEGIN
-    EXEC sp_updateextendedproperty @name = N'DBVC_SchemaVersion', @value = N'5',
+    EXEC sp_updateextendedproperty @name = N'DBVC_SchemaVersion', @value = N'6',
          @level0type = N'SCHEMA', @level0name = N'dbo',
          @level1type = N'TABLE',  @level1name = N'DBVC_ChangeLog';
 END

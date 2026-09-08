@@ -554,6 +554,35 @@ namespace DBVC.Core.Tests
             Assert.That(SmoManager.ShouldInclude(Target("dbo", "Table", "Users"), filter), Is.True);
         }
 
+        [Test]
+        public void ShouldInclude_ExcludesDbvcOwnedObjects_WhenNoFilterGiven()
+        {
+            // "전체 다시 추출"은 필터 없이 돈다. 여기서 거르지 않으면 도구가 만든
+            // 프로시저가 dbo/StoredProcedures/DBVC_PurgeChangeLog.sql로 커밋된다.
+            Assert.That(
+                SmoManager.ShouldInclude(Target("dbo", "StoredProcedure", "DBVC_PurgeChangeLog"), null),
+                Is.False);
+        }
+
+        [Test]
+        public void ShouldInclude_ExcludesDbvcOwnedObjects_EvenWhenTheFilterAsksForThem()
+        {
+            // 필터는 로그에서 온다. 구버전이 남긴 행이 DBVC 객체를 가리켜도
+            // 그것이 저장소에 써지는 일은 없어야 한다.
+            var filter = new HashSet<string>(
+                new[] { "dbo.DBVC_PurgeChangeLog" }, StringComparer.OrdinalIgnoreCase);
+
+            Assert.That(
+                SmoManager.ShouldInclude(Target("dbo", "StoredProcedure", "DBVC_PurgeChangeLog"), filter),
+                Is.False);
+        }
+
+        [Test]
+        public void ShouldInclude_KeepsUserObjects_WhenNameOnlyResemblesThePrefix()
+        {
+            Assert.That(SmoManager.ShouldInclude(Target("dbo", "Table", "DBVCReport"), null), Is.True);
+        }
+
         // ---------- BuildComparison: 두 갈래의 차이를 한 목록으로 합친다 ----------
 
         [Test]

@@ -119,6 +119,7 @@ namespace DBVC.Vsix.ViewModels
             SetCommitIdentityCommand = new RelayCommand(SetCommitIdentity, () => !IsBusy);
             CommitCommand = new RelayCommand(Commit, CanCommit);
             DiscardCommand = new RelayCommand(Discard, CanDiscard);
+            IgnoreCommand = new RelayCommand(Ignore, CanDiscard);
             ConnectCommand = new RelayCommand(Connect, () => _ssmsConnectionSource != null && !IsBusy);
             ConnectRepositoryCommand = new RelayCommand(ConnectRepository, CanConnectRepository);
             PullCommand = new RelayCommand(Pull, CanPull);
@@ -872,6 +873,8 @@ namespace DBVC.Vsix.ViewModels
         /// DB의 변경은 그대로 남는다 - 확인 문구가 그 사실을 말한다.
         /// </summary>
         public ICommand DiscardCommand { get; }
+
+        public ICommand IgnoreCommand { get; }
 
         /// <summary>
         /// 개체 탐색기의 현재 선택을 대상으로 채택하고 접속한다.
@@ -1815,7 +1818,10 @@ namespace DBVC.Vsix.ViewModels
                     {
                         Committed = true,
                         WroteACommit = result == GitCommitResult.Committed,
-                        MarkProcessedFailure = _stateTracker.MarkProcessed(server, database, committedRecords)
+                        // 실패 문구의 첫 문장은 이 흐름의 것이다 - 여기서는 커밋이 이미 끝난 뒤라
+                        // "커밋은 성공했습니다"가 참이다. 무시 쪽은 자기 문장을 따로 넘긴다.
+                        MarkProcessedFailure = _stateTracker.MarkProcessed(server, database, committedRecords,
+                            "커밋은 성공했습니다. 다만 변경 로그를 닫지 못해 이 항목이 새로고침 목록에 다시 나타납니다.")
                     };
                 },
                 outcome =>
@@ -2056,6 +2062,148 @@ namespace DBVC.Vsix.ViewModels
             public DiscardResult? Result { get; set; }
         }
 
+        // ---------- 무시 ----------
+
+        private void Ignore() => Ignore(confirmed: false);
+
+        /// <param name="confirmed">
+        /// Discard와 같은 왕복 패턴이다. 판정은 저장소를 여는 일이라 백그라운드에서 하고
+        /// 확인은 UI 스레드에서만 띄울 수 있어, 확인을 받은 뒤 참으로 해서 같은 경로를 다시 탄다.
+        /// </param>
+        private void Ignore(bool confirmed)
+        {
+            // 게이트는 되돌리기와 같다. 무시가 하는 일에 되돌리기가 포함되므로
+            // 되돌릴 수 없는 상태에서 무시할 수 있어서는 안 된다.
+            if (!CanDiscard()) return;
+
+            var selectedPaths = Changes
+                .Where(c => c.IsSelected)
+                .Select(c => c.RelativePath)
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(p => p!)
+                .ToList();
+            if (selectedPaths.Count == 0) return;
+
+            var server = ServerName!;
+            var database = DatabaseName!;
+            var gitPath = _configManager.TryGetMapping(server, database)?.GitPath;
+            if (gitPath == null) return;
+
+            // 닫을 행은 화면 항목이 아니라 마지막 갱신의 레코드에서 온다 - LastLogId와 작업자는
+            // 화면 항목에 없다. 커밋이 committedRecords를 고르는 것과 같은 자리다.
+            var records = _lastChangeRecords
+                .Where(r => selectedPaths.Contains(r.RelativePath ?? string.Empty, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+
+            IsBusy = true;
+            _scheduler.Run<IgnoreOutcome>(
+                () =>
+                {
+                    if (confirmed)
+                    {
+                        var result = _gitManager.DiscardChanges(server, database, selectedPaths);
+
+                        // 되돌리지 못한 파일의 행은 닫지 않는다. 성공한 것까지 막지는 않는다 -
+                        // 전부 막으면 한 파일이 잠긴 것 때문에 나머지가 다음 새로고침에 되살아난다.
+                        var closable = records
+                            .Where(r => !result.FailedPaths.Contains(r.RelativePath ?? string.Empty, StringComparer.OrdinalIgnoreCase))
+                            .ToList();
+
+                        return new IgnoreOutcome
+                        {
+                            Result = result,
+                            ClosedRows = closable.Count(r => r.LastLogId > 0),
+                            // 커밋의 "커밋은 성공했습니다"를 그대로 쓰면 커밋한 적 없는 사용자에게
+                            // 거짓말이 된다. 이 흐름에서 실제로 끝난 일은 되돌리기다.
+                            MarkProcessedFailure = _stateTracker.MarkProcessed(server, database, closable,
+                                "선택한 파일은 되돌렸습니다. 다만 변경 로그를 닫지 못해 이 항목이 새로고침 목록에 다시 나타납니다.")
+                        };
+                    }
+
+                    var states = _gitManager.GetChangedFileStates(gitPath);
+                    return new IgnoreOutcome
+                    {
+                        Plan = DiscardPlan.Build(selectedPaths, states),
+                        ClosedRows = records.Count(r => r.LastLogId > 0),
+                        // 남이 만졌다는 판정은 커밋이 쓰는 그것을 그대로 쓴다. 뷰모델은 "내가 누구인지"를
+                        // 모르고(그 값은 서버가 안다), 새 API를 만들면 판정이 두 곳으로 갈라진다.
+                        ForeignAuthors = (_stateTracker.GetCoAuthorWarnings(
+                                    server, database, records.Select(r => r.QualifiedName))
+                                ?? Array.Empty<CoAuthorWarning>())
+                            .Select(w => w.Author)
+                            .Where(a => !string.IsNullOrWhiteSpace(a))
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .ToList()
+                    };
+                },
+                outcome =>
+                {
+                    IsBusy = false;
+
+                    if (outcome.Plan != null)
+                    {
+                        // 되돌릴 것이 없어도 닫을 행이 있으면 무시는 할 일이 있다.
+                        if (outcome.Plan.IsEmpty && outcome.ClosedRows == 0)
+                        {
+                            WarningMessage = "무시할 대상이 없습니다.";
+                            return;
+                        }
+
+                        if (_notifier.Confirm(
+                                "DBVC 무시 확인",
+                                BuildIgnoreConfirmation(outcome.Plan, outcome.ClosedRows, outcome.ForeignAuthors)))
+                        {
+                            Ignore(confirmed: true);
+                        }
+
+                        return;
+                    }
+
+                    var result = outcome.Result!;
+
+                    if (result.HasFailures)
+                    {
+                        _notifier.ShowError(
+                            "DBVC 무시 — 일부 실패",
+                            "다음 파일을 되돌리지 못해 그 항목의 변경 로그도 닫지 않았습니다."
+                            + " 다른 프로그램이 파일을 열고 있는지 확인하세요."
+                            + Environment.NewLine + Environment.NewLine
+                            + string.Join(Environment.NewLine, result.FailedPaths.Select(p => "  · " + p)));
+                    }
+
+                    // 커밋과 같은 자리의 실패다. 삼키면 그 항목이 새로고침마다 되살아난다.
+                    if (outcome.MarkProcessedFailure != null)
+                    {
+                        _notifier.ShowError("DBVC 무시 — 변경 로그를 닫지 못함", outcome.MarkProcessedFailure);
+                    }
+
+                    // 실패했으면 닫힌 행은 0개다. outcome.ClosedRows를 그대로 쓰면 바로 위 상자가
+                    // "닫지 못했다"고 말한 직후에 상태 줄이 "N개 닫음"이라고 반대로 말해, 같은 클릭에
+                    // 대해 서로 모순된 두 문장이 남는다 - 그리고 뒤이은 Refresh가 실제로 항목을 되살려
+                    // 상태 줄 쪽이 거짓으로 판명난다.
+                    var closedRows = outcome.MarkProcessedFailure != null ? 0 : outcome.ClosedRows;
+                    _pendingStatusMessage = BuildIgnoreSummary(result, closedRows);
+
+                    // 재추출하지 않는다. 하면 아직 닫지 못한 행이 가리키는 객체가 다시 추출되어
+                    // 같은 클릭 안에서 되돌리기가 취소된다(되돌리기와 같은 이유).
+                    Refresh(fullExtraction: false, reloadHistory: false, syncRepository: false);
+                },
+                ex =>
+                {
+                    IsBusy = false;
+                    _notifier.ShowError("DBVC 무시 실패", ex.Message);
+                });
+        }
+
+        private sealed class IgnoreOutcome
+        {
+            public DiscardPlan? Plan { get; set; }
+            public DiscardResult? Result { get; set; }
+            public int ClosedRows { get; set; }
+            public IReadOnlyList<string> ForeignAuthors { get; set; } = new List<string>();
+            public string? MarkProcessedFailure { get; set; }
+        }
+
         /// <summary>
         /// 지울 파일만 이름을 나열한다. 되돌릴 파일은 git이 갖고 있으므로 셈만으로 충분하고,
         /// 사람이 읽어야 하는 것은 복구되지 않는 쪽이다.
@@ -2108,6 +2256,87 @@ namespace DBVC.Vsix.ViewModels
             // 결과도 성공처럼 읽힌다. 실제로 바뀐 것이 있을 때만 성공 어투를 쓴다.
             var succeeded = result.RestoredPaths.Count + result.DeletedPaths.Count > 0;
             var lead = succeeded ? "되돌렸습니다 — " : "되돌리지 못했습니다 — ";
+            return lead + string.Join(", ", parts) + ".";
+        }
+
+        /// <summary>
+        /// 무시의 확인 문구. 되돌리기보다 한 문단 무겁다 - 로그 행을 닫는 것은 공유 DB에서
+        /// 전역이고, 닫힌 변경은 git에 영영 담기지 않기 때문이다.
+        ///
+        /// 순수 함수로 둔 이유는 SQL Server와 WPF 없이 검증하기 위해서다
+        /// (BuildMarkProcessedFailureMessage를 Core로 뺀 것과 같은 이유).
+        /// </summary>
+        /// <param name="rowsToClose">닫을 로그 행이 있는 항목 수. 0이면 전역 경고를 넣지 않는다.</param>
+        /// <param name="foreignAuthors">선택 항목의 작업자 중 현재 사용자가 아닌 사람들. 중복 없이 온다.</param>
+        internal static string BuildIgnoreConfirmation(
+            DiscardPlan plan, int rowsToClose, IReadOnlyList<string> foreignAuthors)
+        {
+            var nl = Environment.NewLine;
+            var builder = new StringBuilder();
+            builder.Append("선택한 변경을 무시합니다.").Append(nl).Append(nl);
+
+            if (plan.RestorePaths.Count > 0)
+            {
+                builder.Append($"  되돌릴 파일 {plan.RestorePaths.Count}개").Append(nl);
+            }
+
+            if (plan.DeletePaths.Count > 0)
+            {
+                builder.Append($"  지울 파일 {plan.DeletePaths.Count}개 — git으로는 복구되지 않습니다").Append(nl);
+                foreach (var path in plan.DeletePaths.Take(MaxListedDeletePaths))
+                {
+                    builder.Append("    · ").Append(path).Append(nl);
+                }
+
+                var rest = plan.DeletePaths.Count - MaxListedDeletePaths;
+                if (rest > 0) builder.Append($"    외 {rest}개").Append(nl);
+            }
+
+            if (rowsToClose > 0)
+            {
+                builder.Append($"  닫을 변경 로그 {rowsToClose}개").Append(nl);
+            }
+
+            if (foreignAuthors.Count > 0)
+            {
+                builder.Append(nl)
+                    .Append($"선택한 항목에는 다른 사람({string.Join(", ", foreignAuthors)})의 변경이 들어 있습니다.")
+                    .Append(nl);
+            }
+
+            // 닫을 행이 없으면 되돌리기와 같은 무게다. 없는 위험을 경고하면 문구가 값을 잃는다.
+            if (rowsToClose > 0)
+            {
+                builder.Append(nl)
+                    .Append("변경 로그를 닫는 것은 이 데이터베이스를 함께 쓰는 모두에게 적용됩니다.").Append(nl)
+                    .Append("닫힌 변경은 앞으로 어떤 새로고침에도 다시 나타나지 않고, git에 담기지 않습니다.").Append(nl);
+            }
+
+            builder.Append(nl)
+                .Append("데이터베이스의 변경은 그대로 남습니다 — 무시는 DDL을 취소하지 않습니다.")
+                .Append(nl).Append(nl)
+                .Append("계속할까요?");
+
+            return builder.ToString();
+        }
+
+        /// <summary>
+        /// 무시의 결과 요약. 되돌리거나 지우거나 닫은 것이 하나도 없으면 성공 어투를 쓰지 않는다 —
+        /// 제외·실패뿐인 결과가 성공처럼 읽히면 사용자는 치워진 줄 안다.
+        /// </summary>
+        internal static string BuildIgnoreSummary(DiscardResult result, int closedRows)
+        {
+            var parts = new List<string>();
+            if (result.RestoredPaths.Count > 0) parts.Add($"되돌림 {result.RestoredPaths.Count}개");
+            if (result.DeletedPaths.Count > 0) parts.Add($"삭제 {result.DeletedPaths.Count}개");
+            if (closedRows > 0) parts.Add($"로그 {closedRows}개 닫음");
+            if (result.SkippedPaths.Count > 0) parts.Add($"제외 {result.SkippedPaths.Count}개");
+            if (result.FailedPaths.Count > 0) parts.Add($"실패 {result.FailedPaths.Count}개");
+
+            if (parts.Count == 0) return "무시할 대상이 없습니다.";
+
+            var succeeded = result.RestoredPaths.Count + result.DeletedPaths.Count + closedRows > 0;
+            var lead = succeeded ? "무시했습니다 — " : "무시하지 못했습니다 — ";
             return lead + string.Join(", ", parts) + ".";
         }
 
@@ -2232,6 +2461,7 @@ namespace DBVC.Vsix.ViewModels
             (ConnectCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CommitCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (DiscardCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (IgnoreCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GenerateDeploymentScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GenerateRollbackScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (ConnectRepositoryCommand as RelayCommand)?.RaiseCanExecuteChanged();

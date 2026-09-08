@@ -892,7 +892,8 @@ namespace DBVC.Vsix.Tests.ViewModels
             _stateTracker.Verify(s => s.MarkProcessed(Server, Database,
                 It.Is<IEnumerable<ChangeRecord>>(records =>
                     records.All(r => r.QualifiedName != "dbo.Users") &&
-                    records.Any(r => r.QualifiedName == "dbo.Orders"))),
+                    records.Any(r => r.QualifiedName == "dbo.Orders")),
+                It.IsAny<string>()),
                 Times.Once,
                 "정리에 실패한 삭제가 처리 완료로 표시되면 파일이 남아 있는데도 다음 새로고침에서 조용히 사라집니다");
         }
@@ -1767,7 +1768,8 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             vm.CommitCommand.Execute(null);
 
-            _stateTracker.Verify(s => s.MarkProcessed(Server, Database, It.IsAny<IEnumerable<ChangeRecord>>()), Times.Once);
+            _stateTracker.Verify(s => s.MarkProcessed(
+                Server, Database, It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()), Times.Once);
             Assert.That(vm.CommitMessage, Is.Empty, "커밋 성공 후 메시지 입력창은 비워져야 합니다");
         }
 
@@ -2700,7 +2702,8 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.CommitCommand.Execute(null);
 
             _stateTracker.Verify(s => s.MarkProcessed(Server, Database,
-                It.Is<IEnumerable<ChangeRecord>>(records => records.Any(r => r.QualifiedName == "dbo.Orders"))),
+                It.Is<IEnumerable<ChangeRecord>>(records => records.Any(r => r.QualifiedName == "dbo.Orders")),
+                It.IsAny<string>()),
                 Times.Once);
         }
 
@@ -2709,7 +2712,8 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             // 커밋은 성공했는데 로그가 닫히지 않으면 그 항목이 새로고침마다 되살아난다.
             // 조용히 넘어가면 사용자는 원인을 알 길이 없고 도구가 고장 난 것으로 읽는다.
-            _stateTracker.Setup(s => s.MarkProcessed(Server, Database, It.IsAny<IEnumerable<ChangeRecord>>()))
+            _stateTracker.Setup(s => s.MarkProcessed(
+                    Server, Database, It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()))
                 .Returns("커밋은 성공했습니다. 다만 변경 로그를 닫지 못해...");
 
             var vm = NewViewModelWithOneSelectedChange("dbo.P");
@@ -2729,7 +2733,8 @@ namespace DBVC.Vsix.Tests.ViewModels
         public void Commit_SaysNothing_WhenTheLogRowsClosedCleanly()
         {
             // 정상 경로에서 상자가 뜨면 커밋마다 클릭이 하나 늘어난다.
-            _stateTracker.Setup(s => s.MarkProcessed(Server, Database, It.IsAny<IEnumerable<ChangeRecord>>()))
+            _stateTracker.Setup(s => s.MarkProcessed(
+                    Server, Database, It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()))
                 .Returns((string?)null);
 
             var vm = NewViewModelWithOneSelectedChange("dbo.P");
@@ -2758,7 +2763,8 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             vm.CommitCommand.Execute(null);
 
-            _stateTracker.Verify(s => s.MarkProcessed(Server, Database, It.IsAny<IEnumerable<ChangeRecord>>()),
+            _stateTracker.Verify(s => s.MarkProcessed(
+                Server, Database, It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()),
                 Times.Never);
         }
 
@@ -3722,7 +3728,8 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.DiscardCommand.Execute(null);
 
             _stateTracker.Verify(s => s.MarkProcessed(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>()), Times.Never);
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()),
+                Times.Never);
             Assert.That(vm.Changes.Count, Is.EqualTo(1), "되돌리기만으로는 항목이 목록에서 빠지면 안 된다");
             Assert.That(vm.Changes[0].RelativePath, Is.EqualTo("dbo/Tables/Users.sql"));
         }
@@ -3888,6 +3895,178 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.ShowChangeList, Is.False, "배포·감사에는 변경 목록 패널이 없다");
             Assert.That(MappingPolicy.IsAllowed(vm.Mode, DbvcOperation.Discard), Is.False);
             Assert.That(vm.DiscardCommand.CanExecute(null), Is.False);
+        }
+
+        // ---------- 무시 ----------
+
+        /// <summary>
+        /// 열린 로그 행이 있는 변경 하나가 선택된 뷰모델. 되돌리기 쪽 헬퍼는 LastLogId가 0이라
+        /// MarkProcessed가 스스로 건너뛴다 - 무시는 그 반대 경우를 봐야 한다.
+        /// </summary>
+        private ViewChangesViewModel NewViewModelWithOpenLogRow(
+            string relativePath = "dbo/Tables/Users.sql", string state = "Modified")
+        {
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                new ChangeRecord
+                {
+                    QualifiedName = "dbo.Users", ObjectType = "TABLE", State = state,
+                    RelativePath = relativePath, LastLogId = 42, Author = "sa", HostName = "PC-A"
+                }
+            });
+            _git.Setup(g => g.GetChangedFileStates(It.IsAny<string>()))
+                .Returns(new Dictionary<string, string> { [relativePath] = state });
+            _git.Setup(g => g.DiscardChanges(Server, Database, It.IsAny<IEnumerable<string>>()))
+                .Returns(new DiscardResult());
+
+            var vm = NewConnectedViewModel();
+            vm.Changes[0].IsSelected = true;
+            return vm;
+        }
+
+        [Test]
+        public void Ignore_ClosesLogRows_AfterDiscardSucceeds()
+        {
+            // 파일 먼저, 행 나중. 커밋 흐름과 같은 순서라 실패 문구를 그대로 쓸 수 있고,
+            // 반대 순서는 행이 닫힌 채 더러운 파일이 남아 주인 없는 변경으로 떠오른다.
+            var order = new List<string>();
+            IEnumerable<ChangeRecord>? closedRecords = null;
+            string? leadSentence = null;
+            var vm = NewViewModelWithOpenLogRow();
+            _notifier.ConfirmResult = true;
+
+            _git.Setup(g => g.DiscardChanges(Server, Database, It.IsAny<IEnumerable<string>>()))
+                .Callback(() => order.Add("discard"))
+                .Returns(new DiscardResult());
+            _stateTracker.Setup(s => s.MarkProcessed(
+                    Server, Database, It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()))
+                .Callback<string, string, IEnumerable<ChangeRecord>, string>((_, _, records, sentence) =>
+                {
+                    order.Add("mark");
+                    closedRecords = records;
+                    leadSentence = sentence;
+                })
+                .Returns((string?)null);
+
+            vm.IgnoreCommand.Execute(null);
+
+            Assert.That(order, Is.EqualTo(new[] { "discard", "mark" }));
+            // 순서만 보면 mark가 빈 목록으로 불려도 통과한다 - 대소문자·구분자가 어긋난
+            // 필터가 조용히 아무것도 닫지 않는 바로 그 실패를 이 단언이 잡는다.
+            Assert.That(closedRecords, Is.Not.Null);
+            Assert.That(closedRecords!.Any(r => r.LastLogId == 42), Is.True,
+                "열린 로그 행(LastLogId=42)이 MarkProcessed에 실제로 전달되어야 한다");
+            // Core는 주어진 첫 문장을 그대로 실을 뿐이다 - 무시 호출부가 커밋 문구를
+            // 잘못 복사해 붙여도 Core 테스트는 못 잡는다. 여기서 호출부 자체를 고정한다.
+            Assert.That(leadSentence, Does.Not.Contain("커밋"),
+                "무시의 첫 문장에 커밋 성공 문구가 들어가면 안 된다");
+            Assert.That(leadSentence, Does.Contain("되돌렸습니다"),
+                "무시의 첫 문장은 되돌렸다는 사실을 말해야 한다");
+        }
+
+        [Test]
+        public void Ignore_ReportsSuccess_WhenOnlyTheLogRowCloses()
+        {
+            // 되돌리거나 지운 파일이 하나도 없어도(파일이 이미 저장소와 같아 DiscardChanges가
+            // 빈 결과를 돌려주는 경우) 닫은 로그 행만으로 성공이다. 기존 테스트는 전부 되돌림·
+            // 삭제와 닫힌 행이 함께였고, closedRows 혼자 succeeded 판정에 기여하는 조합이 없었다.
+            var vm = NewViewModelWithOpenLogRow();
+            _notifier.ConfirmResult = true;
+            // DiscardChanges는 헬퍼 기본값(빈 DiscardResult - 되돌림도 삭제도 0개)을 그대로 쓴다.
+            _stateTracker.Setup(s => s.MarkProcessed(
+                    Server, Database, It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()))
+                .Returns((string?)null);
+
+            vm.IgnoreCommand.Execute(null);
+
+            Assert.That(vm.WarningMessage, Does.StartWith("무시했습니다"),
+                "닫은 로그 행만 있어도 성공 어투여야 한다");
+            Assert.That(vm.WarningMessage, Does.Contain("로그 1개 닫음"));
+        }
+
+        [Test]
+        public void Ignore_OmitsClosedCountFromStatus_WhenMarkProcessedFails()
+        {
+            // MarkProcessed가 실패하면 닫힌 행은 실제로는 0개다. outcome.ClosedRows를 그대로
+            // 상태 줄에 쓰면 바로 위에서 "로그를 닫지 못했습니다" 오류 상자를 띄운 직후에
+            // 상태 줄이 "닫음"이라 반대로 말해, 같은 클릭에 대해 모순된 두 문장이 남는다.
+            var vm = NewViewModelWithOpenLogRow();
+            _notifier.ConfirmResult = true;
+            _stateTracker.Setup(s => s.MarkProcessed(
+                    Server, Database, It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()))
+                .Returns("변경 로그를 닫지 못했습니다.");
+
+            vm.IgnoreCommand.Execute(null);
+
+            Assert.That(_notifier.ErrorCalls.Any(c => c.Title.Contains("변경 로그를 닫지 못함")), Is.True);
+            Assert.That(vm.WarningMessage, Does.Not.Contain("닫음"),
+                "로그를 닫지 못했다는 오류 상자 직후에 상태 줄이 반대로 말하면 안 된다");
+        }
+
+        [Test]
+        public void Ignore_DoesNotCloseRow_WhenDiscardFailedForThatPath()
+        {
+            // 되돌리지 못한 파일의 행을 닫으면 그 더러운 파일이 다음 새로고침에서
+            // 주인 없는 변경으로 떠올라 사용자가 이해할 수 없는 상태가 된다.
+            var vm = NewViewModelWithOpenLogRow();
+            _notifier.ConfirmResult = true;
+
+            var failed = new DiscardResult();
+            failed.FailedPaths.Add("dbo/Tables/Users.sql");
+            _git.Setup(g => g.DiscardChanges(Server, Database, It.IsAny<IEnumerable<string>>()))
+                .Returns(failed);
+
+            vm.IgnoreCommand.Execute(null);
+
+            _stateTracker.Verify(
+                s => s.MarkProcessed(
+                    Server, Database, It.Is<IEnumerable<ChangeRecord>>(r => r.Any()), It.IsAny<string>()),
+                Times.Never);
+        }
+
+        [Test]
+        public void Ignore_DoesNotTouchRepository_WhenUserCancelsConfirmation()
+        {
+            var vm = NewViewModelWithOpenLogRow();
+            _notifier.ConfirmResult = false;
+
+            vm.IgnoreCommand.Execute(null);
+
+            _git.Verify(g => g.DiscardChanges(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>()), Times.Never);
+            _stateTracker.Verify(s => s.MarkProcessed(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<ChangeRecord>>(), It.IsAny<string>()),
+                Times.Never);
+        }
+
+        [Test]
+        public void Ignore_WarnsAboutTheGlobalEffect_InTheConfirmation()
+        {
+            // 이 문장이 빠지면 사용자는 무시를 되돌리기의 다른 이름으로 읽는다.
+            var vm = NewViewModelWithOpenLogRow();
+            _notifier.ConfirmResult = false;
+
+            vm.IgnoreCommand.Execute(null);
+
+            // Single()이 아니라 Last()다. 연결 경로가 확인 대화상자를 띄우면 Single()은
+            // 검증 대상과 무관한 이유로 깨진다.
+            Assert.That(_notifier.ConfirmCalls.Last().Message, Does.Contain("함께 쓰는 모두에게"));
+        }
+
+        [Test]
+        public void Ignore_DoesNotReExtract_AfterIgnoring()
+        {
+            // 되돌리기와 같은 이유다. 재추출하면 아직 닫지 못한 행이 가리키는 객체가
+            // 다시 추출되어 같은 클릭 안에서 되돌리기가 취소된다.
+            var vm = NewViewModelWithOpenLogRow();
+            _notifier.ConfirmResult = true;
+            _smo.Invocations.Clear();
+
+            vm.IgnoreCommand.Execute(null);
+
+            _smo.Verify(s => s.ScriptObjectsDetailed(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>(),
+                It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.Never);
         }
     }
 }

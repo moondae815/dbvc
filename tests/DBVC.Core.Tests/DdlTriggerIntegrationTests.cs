@@ -22,6 +22,13 @@ namespace DBVC.Core.Tests
         private static SqlServerTestDatabase? _db;
         private static string? _skipReason;
 
+        /// <summary>
+        /// 이 파일의 테스트는 로그 행이 실제로 닫히는지만 본다 - 실패 문구의 정확한 문장은
+        /// StateTrackerTests(BuildMarkProcessedFailureMessage)가 SQL Server 없이 검증한다.
+        /// 값 자체는 임의라 상수 하나로 충분하다.
+        /// </summary>
+        private const string TestFailureLead = "테스트 리드 문장.";
+
         [OneTimeSetUp]
         public void CreateDatabase()
         {
@@ -62,7 +69,12 @@ namespace DBVC.Core.Tests
                 "GRANT CREATE TABLE TO dbvc_low_t1",
                 "GRANT ALTER ON SCHEMA::dbo TO dbvc_low_t1");
 
-            Assert.DoesNotThrow(() => _db.ExecuteInOneSession(
+            // 이 문장 중 하나라도 던지면(트리거 회귀가 그렇게 만든다) REVERT가 돌지 않고,
+            // 풀에 반환되는 세션으로 하면 dbvc_low_t1로 가장한 채인 연결이 다음 테스트에
+            // 다시 나가 조용히 저권한으로 실행된다 - Purge_Succeeds_WhenCallerIsNotOwner가
+            // 이미 겪은 것과 같은 결함이다. ExecuteInOneUnpooledSession은 그 연결을 풀에
+            // 돌려주지 않으므로 여기서도 이것을 쓴다.
+            Assert.DoesNotThrow(() => _db.ExecuteInOneUnpooledSession(
                 "EXECUTE AS USER = 'dbvc_low_t1'",
                 "CREATE TABLE dbo.LowPrivTable (Id int)",
                 "REVERT"));
@@ -144,7 +156,7 @@ namespace DBVC.Core.Tests
                     Author = CurrentLogin(),
                     HostName = CurrentHost()
                 }
-            });
+            }, TestFailureLead);
 
             var open = _db.QueryScalar(
                 "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog " +
@@ -185,7 +197,7 @@ namespace DBVC.Core.Tests
                     Author = CurrentLogin(),
                     HostName = CurrentHost()
                 }
-            });
+            }, TestFailureLead);
 
             var indexOpen = Convert.ToInt32(_db.QueryScalar(
                 "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE IsProcessed = 0 AND ObjectName = N'IX_AuditedTable_Name'"));
@@ -230,7 +242,7 @@ namespace DBVC.Core.Tests
                     Author = CurrentLogin(),
                     HostName = CurrentHost()
                 }
-            });
+            }, TestFailureLead);
 
             var open = Convert.ToInt32(_db.QueryScalar(
                 "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE IsProcessed = 0 AND TargetObjectName = N'RenamedColumnTable'"));
@@ -252,7 +264,8 @@ namespace DBVC.Core.Tests
                 "SELECT MAX(Id) FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'QuietCloseTable'"));
 
             var reason = new StateTracker(NewConfig()).MarkProcessed(
-                SqlServerTestDatabase.ServerName, _db.Name, new[] { RecordFor("QuietCloseTable", maxId) });
+                SqlServerTestDatabase.ServerName, _db.Name,
+                new[] { RecordFor("QuietCloseTable", maxId) }, TestFailureLead);
 
             Assert.That(reason, Is.Null);
         }
@@ -263,10 +276,15 @@ namespace DBVC.Core.Tests
             // 여기가 이 수정의 요점이다. 예전에는 예외를 Debug.WriteLine으로 삼켜, 커밋은 성공했는데
             // 로그가 닫히지 않은 상태를 사용자가 알 방법이 없었다 - 그 항목이 새로고침마다 되살아나고
             // 원인은 어디에도 나타나지 않았다. 없는 데이터베이스를 가리켜 접속 자체를 실패시킨다.
+            //
+            // 리드 문장은 실제 커밋 호출부가 넘기는 것을 그대로 써서, 이 왕복이 실제 커밋 실패
+            // 안내와 같은 문구를 만드는지도 함께 확인한다.
+            const string commitFailureLead =
+                "커밋은 성공했습니다. 다만 변경 로그를 닫지 못해 이 항목이 새로고침 목록에 다시 나타납니다.";
             var reason = new StateTracker(NewConfig()).MarkProcessed(
                 SqlServerTestDatabase.ServerName,
                 SqlServerTestDatabase.Prefix + "no_such_db_" + Guid.NewGuid().ToString("N"),
-                new[] { RecordFor("Anything", 1) });
+                new[] { RecordFor("Anything", 1) }, commitFailureLead);
 
             Assert.That(reason, Is.Not.Null, "실패했는데 사유가 돌아오지 않았습니다");
             Assert.That(reason, Does.Contain("커밋은 성공"));
@@ -631,7 +649,7 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
                 .Where(c => c.ObjectName == "CloseFoldedProbe").ToList();
             Assert.That(records, Has.Count.EqualTo(1), "접힌 뒤에는 항목이 하나여야 한다");
 
-            tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name, records);
+            tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name, records, TestFailureLead);
 
             var stillOpen = _db.QueryScalar(
                 "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE IsProcessed = 0 AND ObjectName = N'Tmp_CloseFoldedProbe'");
@@ -673,7 +691,7 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
                 tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: false);
                 tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name,
                     tracker.GetPendingChanges(SqlServerTestDatabase.ServerName, _db.Name)
-                        .Where(c => c.ObjectName == "LeftoverProbe").ToList());
+                        .Where(c => c.ObjectName == "LeftoverProbe").ToList(), TestFailureLead);
 
                 // 전체 보기. 이제 남의 행만 남아 있고, 그 코드는 이미 저장소에 들어가 있다.
                 tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
@@ -686,7 +704,7 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
                 Assert.That(result, Is.EqualTo(GitCommitResult.NothingToCommit),
                     "저장소가 이미 그 코드를 갖고 있으므로 담을 것이 없어야 한다");
 
-                tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name, records);
+                tracker.MarkProcessed(SqlServerTestDatabase.ServerName, _db.Name, records, TestFailureLead);
 
                 tracker.RefreshState(SqlServerTestDatabase.ServerName, _db.Name, includeAllAuthors: true);
                 Assert.That(
@@ -807,6 +825,103 @@ VALUES (N'CREATE_USER', N'dbo', N'ghost_user', N'USER', N'tester', 0),
             Assert.That(changes.Select(c => c.ObjectName), Does.Contain("RenameProbeNew"));
             Assert.That(changes.Select(c => c.ObjectName), Does.Not.Contain("RenameProbeOld"),
                 "옛 이름은 DB에도 저장소에도 없으므로 걷혀야 한다");
+        }
+
+        [Test]
+        public void Purge_DeletesUnprocessedRows_WhenOlderThanRetention()
+        {
+            // 이 규칙이 이 설계의 핵심이다. IsProcessed를 보면 미채택자의 행에 영영 닿지 못한다.
+            _db!.Execute(
+                "INSERT INTO dbo.DBVC_ChangeLog (EventType, SchemaName, ObjectName, ObjectType, PostTime, LoginName, IsProcessed) " +
+                "VALUES (N'ALTER_TABLE', N'dbo', N'PurgeOldOpen', N'TABLE', DATEADD(day, -400, GETDATE()), N'nobody', 0)");
+
+            _db.Execute("EXEC dbo.DBVC_PurgeChangeLog");
+
+            var left = Convert.ToInt32(_db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'PurgeOldOpen'"));
+            Assert.That(left, Is.Zero);
+        }
+
+        [Test]
+        public void Purge_KeepsRows_WhenWithinRetention()
+        {
+            _db!.Execute(
+                "INSERT INTO dbo.DBVC_ChangeLog (EventType, SchemaName, ObjectName, ObjectType, PostTime, LoginName, IsProcessed) " +
+                "VALUES (N'ALTER_TABLE', N'dbo', N'PurgeRecent', N'TABLE', DATEADD(day, -1, GETDATE()), N'nobody', 0)");
+
+            _db.Execute("EXEC dbo.DBVC_PurgeChangeLog");
+
+            var left = Convert.ToInt32(_db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'PurgeRecent'"));
+            Assert.That(left, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Purge_DeletesAllRows_WhenCountExceedsBatchSize()
+        {
+            // 배치 루프가 한 번만 돌고 멈추면 5000개만 지워진다. 5001개로 그것을 태운다.
+            _db!.Execute(
+                "INSERT INTO dbo.DBVC_ChangeLog (EventType, SchemaName, ObjectName, ObjectType, PostTime, LoginName, IsProcessed) " +
+                "SELECT TOP (5001) N'ALTER_TABLE', N'dbo', N'PurgeBulk', N'TABLE', DATEADD(day, -400, GETDATE()), N'nobody', 0 " +
+                "FROM sys.all_columns a CROSS JOIN sys.all_columns b");
+
+            _db.Execute("EXEC dbo.DBVC_PurgeChangeLog");
+
+            var left = Convert.ToInt32(_db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'PurgeBulk'"));
+            Assert.That(left, Is.Zero);
+        }
+
+        [Test]
+        public void Purge_Succeeds_WhenCallerIsNotOwner()
+        {
+            // public에 DELETE를 주지 않았으므로 EXECUTE AS OWNER가 아니면 여기서 죽는다.
+            // 공용 계정이 db_owner가 아닌 환경이 실제로 그렇다.
+            _db!.Execute(
+                "INSERT INTO dbo.DBVC_ChangeLog (EventType, SchemaName, ObjectName, ObjectType, PostTime, LoginName, IsProcessed) " +
+                "VALUES (N'ALTER_TABLE', N'dbo', N'PurgeLowPriv', N'TABLE', DATEADD(day, -400, GETDATE()), N'nobody', 0)");
+
+            // 이 테스트가 잡아야 할 바로 그 회귀(EXECUTE AS OWNER가 빠짐)가 나면 EXEC가 던지고
+            // 뒤의 REVERT가 돌지 않는다. 풀에 반환되는 세션으로 이걸 하면 LowPrivPurge로 가장한
+            // 채인 연결이 다음 테스트에 다시 나가 저권한으로 조용히 실행된다 - 회귀를 잡다가
+            // 다른 테스트를 깨뜨린다. ExecuteInOneUnpooledSession은 그 연결을 풀에 돌려주지
+            // 않으므로 여기서는 이것을 쓴다.
+            _db.ExecuteInOneUnpooledSession(
+                "CREATE USER LowPrivPurge WITHOUT LOGIN;",
+                "EXECUTE AS USER = N'LowPrivPurge';",
+                "EXEC dbo.DBVC_PurgeChangeLog;",
+                "REVERT;",
+                "DROP USER LowPrivPurge;");
+
+            var left = Convert.ToInt32(_db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'PurgeLowPriv'"));
+            Assert.That(left, Is.Zero);
+        }
+
+        [Test]
+        public void Trigger_DoesNotLog_WhenDbvcOwnedObjectIsCreated()
+        {
+            // 설치가 자기 자신을 사용자 변경으로 기록하면 그것이 저장소에 커밋된다.
+            var before = Convert.ToInt32(_db!.QueryScalar("SELECT COUNT(*) FROM dbo.DBVC_ChangeLog"));
+
+            _db.Execute("CREATE TABLE dbo.DBVC_ScratchTable (Id INT NULL);");
+            _db.Execute("DROP TABLE dbo.DBVC_ScratchTable;");
+
+            var after = Convert.ToInt32(_db.QueryScalar("SELECT COUNT(*) FROM dbo.DBVC_ChangeLog"));
+            Assert.That(after, Is.EqualTo(before));
+        }
+
+        [Test]
+        public void Trigger_Logs_WhenNameOnlyResemblesTheDbvcPrefix()
+        {
+            // LIKE의 [_] 이스케이프가 빠지면 이 테이블이 조용히 추적에서 빠진다.
+            _db!.Execute("CREATE TABLE dbo.DBVCxResemble (Id INT NULL);");
+
+            var logged = Convert.ToInt32(_db.QueryScalar(
+                "SELECT COUNT(*) FROM dbo.DBVC_ChangeLog WHERE ObjectName = N'DBVCxResemble'"));
+
+            _db.Execute("DROP TABLE dbo.DBVCxResemble;");
+            Assert.That(logged, Is.GreaterThan(0));
         }
     }
 }
