@@ -91,7 +91,11 @@ namespace DBVC.Core.Tests
             // Regex.Match(첫 번째만)가 아니라 Matches를 쓴다 - public이 DBVC_ChangeLog에
             // DELETE를 받는 일이 절대 없다는 것이 이 브랜치의 핵심 보안 주장인데, 첫 번째
             // GRANT 뒤에 같은 테이블에 대한 두 번째 GRANT가 추가되어도 Match만으로는 못 잡는다.
-            var script = StateTracker.ReadInstallScript();
+            //
+            // 주석을 지우고 본다 - 모든 일치를 검사하게 되면서 주석 속 예시까지 대상이 됐다.
+            // 이 파일의 문체상 "GRANT DELETE ...를 주지 않는다" 같은 예시를 주석에 적기 쉬운데,
+            // 지우지 않으면 그 산문 한 줄이 실제 권한과 무관하게 테스트를 깨뜨린다.
+            var script = StripSqlLineComments(StateTracker.ReadInstallScript());
 
             var matches = Regex.Matches(
                 script,
@@ -151,11 +155,20 @@ namespace DBVC.Core.Tests
             Assert.That(dropTrigger, Is.GreaterThan(-1), "DROP TRIGGER 문을 찾지 못했습니다");
             Assert.That(createTrigger, Is.GreaterThan(-1), "CREATE TRIGGER 문을 찾지 못했습니다");
 
+            // DROP도 함께 본다 - DROP_PROCEDURE 이벤트의 ObjectName도 프로시저 자신의 이름이라
+            // CREATE와 똑같이 옛 트리거를 통과한다. CREATE만 감시하면 짝을 이루는 DROP이 구간
+            // 밖으로 새는 것을 못 잡는다.
+            //
+            // DBVC_ChangeLog만 제외한다. 그 이름은 옛 트리거의 나열 목록에 이미 있어 어디서
+            // 만들어도 로그에 남지 않는다(그래서 테이블 생성·ALTER·GRANT가 이 구간 밖에 있다).
+            // 기준은 "DBVC가 만드는 것 전부"가 아니라 "옛 목록에 없던 이름"이고, 설치 스크립트의
+            // 같은 자리 주석이 같은 기준을 적고 있다.
             var ownedObjectPatterns = new[]
             {
                 @"CREATE PROCEDURE \[dbo\]\.\[DBVC_\w+\]",
+                @"DROP PROCEDURE \[dbo\]\.\[DBVC_\w+\]",
                 @"CREATE NONCLUSTERED INDEX \[IX_DBVC_\w+\]",
-                @"GRANT\s+[A-Z]+\s+ON\s+\[dbo\]\.\[DBVC_Purge\w*\]",
+                @"GRANT\s+[A-Z]+\s+ON\s+\[dbo\]\.\[DBVC_(?!ChangeLog\])\w+\]",
             };
 
             var matches = ownedObjectPatterns

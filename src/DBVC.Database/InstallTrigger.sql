@@ -111,18 +111,24 @@ BEGIN
 END
 GO
 
--- 이 위치가 중요하다 - DBVC 자신이 만드는 객체(프로시저·인덱스 등)에 대한 DDL은 전부 이
--- 구간, 즉 DROP TRIGGER와 CREATE TRIGGER 사이에서 실행한다. v5 -> v6처럼 옛 트리거가 아직
--- 살아있는 상태로(방금 위에서 DROP했고 아래에서 다시 CREATE하기 전) 새 DBVC 객체를 만들면,
--- 그 CREATE 이벤트의 ObjectName은 부모 테이블이 아니라 새로 만든 객체 자신의 이름
+-- 이 위치가 중요하다 - 여기부터 아래 트리거를 다시 만들기 전까지가, 재설치 중에 옛 트리거가
+-- 살아있지 않은 유일한 구간이다. v5 -> v6처럼 옛 트리거가 살아있는 동안 DBVC 객체를 만들면,
+-- 그 이벤트의 ObjectName은 부모 테이블이 아니라 새로 만든 객체 자신의 이름
 -- (예: 인덱스면 IX_DBVC_ChangeLog_PostTime, 프로시저면 DBVC_PurgeChangeLog)이다. 옛 트리거의
 -- 자기 제외 판정은 문자열을 나열한 목록이라(DBVC_ 접두사 규칙이 없다) 이 이름들을 통과시키지
 -- 못하고, ObjectType(INDEX/PROCEDURE)은 추적 대상이라 로그에 그대로 남는다. StateTracker가
 -- 그 행을 부모(DBVC_ChangeLog)로 정규화하면 사용자에게는 DBVC 자신의 객체가 첫 새로고침에
--- 변경 사항으로 보인다. 앞으로 DBVC 객체를 더할 때도 그 DDL을 이 구간 밖에 두지 말 것.
--- IX_DBVC_ChangeLog_IsProcessed도 원래 이 구간 밖(GRANT 앞)에 있었다 - 지금까지는 v5 이전
--- 설치에서 이미 만들어져 있어 IF NOT EXISTS가 매번 no-op이었을 뿐, 예외가 아니다. 같은 실수를
--- 되풀이하지 않도록 여기로 함께 옮긴다.
+-- 변경 사항으로 보인다.
+--
+-- 기준은 "DBVC가 만드는 것 전부"가 아니라 **옛 목록에 없던 이름**이다. 위쪽의 테이블 생성과
+-- 컬럼 보정, 그리고 DBVC_ChangeLog에 대한 GRANT는 ObjectName이 DBVC_ChangeLog라 그 목록에
+-- 이미 있어 이 구간 밖에서도 로그에 남지 않는다 - 테이블이 먼저 있어야 나머지가 성립하므로
+-- 옮길 수도 없다. 새 이름의 DBVC 객체를 더할 때는 CREATE든 DROP이든 GRANT든 이 구간 안에 둔다.
+-- InstallScriptSyncTests가 같은 기준으로 대조한다.
+--
+-- IX_DBVC_ChangeLog_IsProcessed도 원래 이 구간 밖(GRANT 앞)에 있었다. 그 이름은 옛 목록에
+-- 없으므로 예외가 아니라 운이었다 - v5 이전 설치에 이미 만들어져 있어 IF NOT EXISTS가 매번
+-- no-op이었을 뿐이다. 같은 실수를 되풀이하지 않도록 여기로 함께 옮긴다.
 
 -- 미처리 변경 조회(RefreshState)의 주 조회 경로
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[DBVC_ChangeLog]') AND name = N'IX_DBVC_ChangeLog_IsProcessed')
@@ -207,7 +213,11 @@ BEGIN
     -- C# 쪽 판정(DbvcOwnedObjects.IsOwned)은 항상 OrdinalIgnoreCase라 대소문자를 구분하지 않는데,
     -- 대소문자를 구분하는 collation의 DB에서 이 LIKE가 그대로 두면 dbvc_x 같은 사용자 객체를
     -- 트리거는 로그에 남기고 SMO는 영영 추출하지 않는 유령 항목이 생긴다. 두 판정은 항상 같아야 한다.
-    IF @ObjectName IS NULL OR @ObjectName COLLATE Latin1_General_CI_AS LIKE N'DBVC[_]%' OR @ObjectName = N'trg_DBVC_DDL_Tracker'
+    -- 트리거 이름 비교에도 같은 이유로 COLLATE를 붙인다 - 접두사 규칙 밖에 있는 유일한 이름이라
+    -- 빠뜨리기 쉽지만, 여기만 데이터베이스 collation을 따르면 같은 어긋남이 그 이름 하나에 남는다.
+    IF @ObjectName IS NULL
+        OR @ObjectName COLLATE Latin1_General_CI_AS LIKE N'DBVC[_]%'
+        OR @ObjectName COLLATE Latin1_General_CI_AS = N'trg_DBVC_DDL_Tracker'
         RETURN;
 
     DECLARE @ObjectType NVARCHAR(100) = @EventData.value('(/EVENT_INSTANCE/ObjectType)[1]', 'NVARCHAR(100)');
