@@ -1415,7 +1415,7 @@ namespace DBVC.Baseline
 - [ ] **Step 6: 전체 테스트와 빌드를 확인한다**
 
 Run: `dotnet test tests/DBVC.Baseline.Tests -f net48`
-Expected: PASS **36/36** — Options 7, Preflight 6, Report 9, Runner 10, TempConfig 4.
+Expected: PASS **37/37** — Options 7, Preflight 6, Report 9, Runner 11, TempConfig 4.
 
 > 개수가 다르면 앞 태스크의 테스트가 빠진 것이다. 멈추고 확인한다.
 
