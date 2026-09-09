@@ -36,13 +36,13 @@
 **Interfaces:**
 - Produces: 2절의 새 제목 `## 2. 공용 개발 DB에서 커밋할 때` — Task 2와 Task 3이 이 절을 링크로 가리킨다.
 
-- [ ] **Step 1: 현재 상태를 확인한다**
+- [x] **Step 1: 현재 상태를 확인한다**
 
 Run: `grep -n "develop.*둔다\|develop.*고정한다\|갈아탄 채" docs/rollout-announcement.md`
 Expected: **4줄** — `:27`(요약), `:100`(2절 제목), `:131`(왜 위험한가), `:170`(릴리스 템플릿).
 실측값이다. 다르면 파일이 이미 손대진 것이므로 멈추고 알린다.
 
-- [ ] **Step 2: 머리말을 고친다**
+- [x] **Step 2: 머리말을 고친다**
 
 `:3-5`에서 이 문장을 찾는다:
 
@@ -57,7 +57,7 @@ Expected: **4줄** — `:27`(요약), `:100`(2절 제목), `:131`(왜 위험한�
 두 가지를
 ```
 
-- [ ] **Step 3: "지금 할 일" 4번을 고친다**
+- [x] **Step 3: "지금 할 일" 4번을 고친다**
 
 `:27`의 이 줄을:
 
@@ -71,7 +71,7 @@ Expected: **4줄** — `:27`(요약), `:100`(2절 제목), `:131`(왜 위험한�
 4. 개발 클론의 **브랜치는 자유다.** 커밋할 때 경고가 뜨면 **멈추고 확인한다**
 ```
 
-- [ ] **Step 4: 2절을 통째로 교체한다**
+- [x] **Step 4: 2절을 통째로 교체한다**
 
 `## 2. 개발 클론은 `develop`에 고정한다`(`:100`)부터 `### 왜 어긋나면 위험한가` 절의 끝(`:141`, `---` 직전)까지를 아래로 교체한다.
 
@@ -129,7 +129,7 @@ DB는 하나뿐이므로, 프로시저 `P`를 남이 먼저 고쳤고 내가 이
 않다 — DB는 이미 공유되어 있다.** `feature/*`에서 DB를 고쳤으면 빨리 `develop`에 병합한다.
 ````
 
-- [ ] **Step 5: 릴리스 노트 템플릿의 `### 브랜치`를 고친다**
+- [x] **Step 5: 릴리스 노트 템플릿의 `### 브랜치`를 고친다**
 
 `:169-172`의 이 블록을:
 
@@ -149,7 +149,7 @@ DB는 하나뿐이므로, 프로시저 `P`를 남이 먼저 고쳤고 내가 이
 자세한 내용은 `docs/rollout-announcement.md` 2절.
 ```
 
-- [ ] **Step 6: 옛 규칙이 남지 않았는지 확인한다**
+- [x] **Step 6: 옛 규칙이 남지 않았는지 확인한다**
 
 Run: `grep -n "develop.*둔다\|develop.*고정한다\|갈아탄 채\|내가 지운 것처럼" docs/rollout-announcement.md`
 Expected: 아무것도 나오지 않는다 (exit code 1).
@@ -157,7 +157,7 @@ Expected: 아무것도 나오지 않는다 (exit code 1).
 Run: `grep -c "브랜치 전환 기능은 넣지 않는다" docs/rollout-announcement.md`
 Expected: `1` — 유지하기로 한 문장이 살아 있다.
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add docs/rollout-announcement.md
@@ -185,12 +185,12 @@ EOF
 - Consumes: Task 1이 만든 `rollout-announcement.md` 2절 제목.
 - Produces: hotfix가 결정 항목이 아니라 정해진 규칙이라는 서술 — Task 4가 설득 자료에서 결정 항목을 지울 때 이것을 근거로 삼는다.
 
-- [ ] **Step 1: 현재 상태를 확인한다**
+- [x] **Step 1: 현재 상태를 확인한다**
 
 Run: `grep -n "develop.*고정한다\|hotfix" docs/setup-checklist.md`
 Expected: `:956`의 고정 규칙과 `:967` 이하 hotfix 절이 보인다.
 
-- [ ] **Step 2: 규칙 요약 문장을 고친다**
+- [x] **Step 2: 규칙 요약 문장을 고친다**
 
 `:956`의 이 부분을:
 
@@ -205,7 +205,7 @@ Expected: `:956`의 고정 규칙과 `:967` 이하 hotfix 절이 보인다.
 커밋 시 경고가 뜨면 멈추고 확인한다.**
 ```
 
-- [ ] **Step 3: "DB 변경은 짧게 산다"에 한 문장을 보탠다**
+- [x] **Step 3: "DB 변경은 짧게 산다"에 한 문장을 보탠다**
 
 `:960` 문단의 마지막 문장 `**DB는 이미 공유되어 있다.**` 뒤에 이어서 적는다:
 
@@ -213,7 +213,7 @@ Expected: `:956`의 고정 규칙과 `:967` 이하 hotfix 절이 보인다.
 브랜치가 자유인 이상 이것이 실질 안전장치다.
 ```
 
-- [ ] **Step 4: hotfix 절을 교체한다**
+- [x] **Step 4: hotfix 절을 교체한다**
 
 `**`hotfix/*`의 DB 변경을 어떻게 할지 정한다.**` 로 시작하는 문단부터 번호 목록 세 줄까지(`:967-974`)를 아래로 교체한다.
 
@@ -230,7 +230,7 @@ DB 변경을 만들 다른 장소가 없고, 운영 백업을 복원한 별도 D
 [`team-rollout-backlog.md`](team-rollout-backlog.md)의 "11. 미승격 변경 경고(경고 A)"다.
 ````
 
-- [ ] **Step 5: 확인한다**
+- [x] **Step 5: 확인한다**
 
 Run: `grep -n "develop.*고정한다\|운영 백업을 복원한 별도 DB\*\*에서 만든다" docs/setup-checklist.md`
 Expected: 아무것도 나오지 않는다.
@@ -241,7 +241,7 @@ Expected: `1`
 > 백틱이 든 문자열은 큰따옴표로 감싸지 않는다 — bash가 명령 치환을 해 버린다. 백틱을 아예 피해
 > 백틱 없는 부분 문자열로 확인한다.
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add docs/setup-checklist.md
@@ -268,12 +268,12 @@ EOF
 **Interfaces:**
 - Produces: 백로그 항목 제목 `### 11. 미승격 변경 경고(경고 A)` — Task 2와 Task 4가 이 이름으로 가리킨다. 철자를 바꾸지 않는다.
 
-- [ ] **Step 1: 현재 상태를 확인한다**
+- [x] **Step 1: 현재 상태를 확인한다**
 
 Run: `grep -n "3번 브랜치 전환\|### 3. 브랜치 전환\|### 9. 클라이언트 버전 보고" docs/team-rollout-backlog.md`
 Expected: 세 줄이 나온다.
 
-- [ ] **Step 2: 우선순위 표의 P0 3번 행을 고친다**
+- [x] **Step 2: 우선순위 표의 P0 3번 행을 고친다**
 
 `:29`의 이 행을:
 
@@ -287,7 +287,7 @@ Expected: 세 줄이 나온다.
 | ~~P0~~ | ~~3번 브랜치 전환을 정책으로 닫기~~ | 같은 문서 2절. 처음엔 "`develop` 고정"으로 닫았으나 그 규칙이 실제 브랜치 흐름을 막아 2026-09-09에 철회했다 — 지금은 "브랜치 자유 + 커밋 경고" |
 ```
 
-- [ ] **Step 3: 우선순위 표에 경고 A 행을 더한다**
+- [x] **Step 3: 우선순위 표에 경고 A 행을 더한다**
 
 `| **P2** | 9번 클라이언트 버전 보고 | …` 행 **바로 다음 줄**에 삽입한다:
 
@@ -295,7 +295,7 @@ Expected: 세 줄이 나온다.
 | **P2** | 11번 미승격 변경 경고(경고 A) | `hotfix`를 `feature`와 같은 정책으로 둔 이상, 미승격 변경이 운영에 일찍 도착하는 것을 막는 유일한 수단이다. 지금 관문은 DBA가 배포 스크립트를 읽는 것 하나뿐이다 |
 ```
 
-- [ ] **Step 4: "3. 브랜치 전환" 절을 교체한다**
+- [x] **Step 4: "3. 브랜치 전환" 절을 교체한다**
 
 `### 3. 브랜치 전환 — 정책으로 닫음`(`:121`)부터 그 절의 끝(`### 4. ChangeLog 보존 정책` 직전)까지를 아래로 교체한다.
 
@@ -311,7 +311,7 @@ Expected: 세 줄이 나온다.
 [설계 문서](superpowers/specs/2026-09-09-dbvc-branch-policy-correction-design.md)에 있다.
 ````
 
-- [ ] **Step 5: 새 절 "11. 미승격 변경 경고(경고 A)"를 더한다**
+- [x] **Step 5: 새 절 "11. 미승격 변경 경고(경고 A)"를 더한다**
 
 `### 9. 클라이언트 버전 보고` 절이 끝나는 자리(다음 `## ` 제목 직전)에 삽입한다.
 
@@ -337,7 +337,7 @@ Expected: 세 줄이 나온다.
 "브랜치 인자를 받도록 넓힌다"고 했던 그것이다.
 ````
 
-- [ ] **Step 6: 확인한다**
+- [x] **Step 6: 확인한다**
 
 Run: `grep -c "11. 미승격 변경 경고(경고 A)" docs/team-rollout-backlog.md`
 Expected: `2` — 우선순위 표의 행 하나와 절 제목 하나.
@@ -345,7 +345,7 @@ Expected: `2` — 우선순위 표의 행 하나와 절 제목 하나.
 Run: `grep -c '을 1번과 한 공지에 넣었다' docs/team-rollout-backlog.md`
 Expected: `0`
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add docs/team-rollout-backlog.md
@@ -378,7 +378,7 @@ EOF
 
 **아티팩트 URL:** `https://claude.ai/code/artifact/c0a8e030-cea9-4d79-93cc-0e27bbdcd1cf`
 
-- [ ] **Step 0: 고치기 전 `<li>` 수를 세어 적어 둔다**
+- [x] **Step 0: 고치기 전 `<li>` 수를 세어 적어 둔다**
 
 Run: `grep -c "<li>" docs/why-db-version-control.html`
 
@@ -386,7 +386,7 @@ Run: `grep -c "<li>" docs/why-db-version-control.html`
 이 수를 적어 둔다. Step 6에서 **이 수보다 1 적어야** 한다 — 한계 항목 하나가 늘고(Step 4)
 결정 항목 둘이 줄기(Step 5) 때문이다.
 
-- [ ] **Step 1: 확정 규칙을 교체한다**
+- [x] **Step 1: 확정 규칙을 교체한다**
 
 `<b>DBVC를 누를 때는 <code>develop</code>에 있는다</b>` 로 시작하는 `<li>` 전체를 찾는다:
 
@@ -411,7 +411,7 @@ Run: `grep -c "<li>" docs/why-db-version-control.html`
             </li>
 ```
 
-- [ ] **Step 2: 구조 절의 문단을 다시 쓴다**
+- [x] **Step 2: 구조 절의 문단을 다시 쓴다**
 
 `개발 클론이 <code>develop</code>에 있어야 하는 이유도 같다.` 로 시작하는 `<p>` 전체를 찾아 아래로 교체한다.
 
@@ -428,7 +428,7 @@ Run: `grep -c "<li>" docs/why-db-version-control.html`
         </p>
 ```
 
-- [ ] **Step 3: 한계 목록의 브랜치 항목을 교체한다**
+- [x] **Step 3: 한계 목록의 브랜치 항목을 교체한다**
 
 `<strong>개발 클론의 브랜치는 기본값이 검사하지 않는다 — 켤 수는 있다.</strong>` 로 시작하는 `<li>` 전체를 아래로 교체한다.
 
@@ -443,7 +443,7 @@ Run: `grep -c "<li>" docs/why-db-version-control.html`
         </li>
 ```
 
-- [ ] **Step 4: 한계 목록에 hotfix 항목을 더한다**
+- [x] **Step 4: 한계 목록에 hotfix 항목을 더한다**
 
 Step 3에서 만든 `<li>` **바로 다음**, 오버레이 항목 `<li>` **앞**에 삽입한다.
 
@@ -457,7 +457,7 @@ Step 3에서 만든 `<li>` **바로 다음**, 오버레이 항목 `<li>` **앞**
         </li>
 ```
 
-- [ ] **Step 4b: "DB 변경은 짧게 산다" 확정 규칙에 한 문장을 보탠다**
+- [x] **Step 4b: "DB 변경은 짧게 산다" 확정 규칙에 한 문장을 보탠다**
 
 확정 규칙 목록에서 `<b>DB 변경은 짧게 산다</b>` 를 품은 `<li>` 를 찾아, 마지막 문장
 `코드와 달리 DB는 이미 공유되어 있다.` 뒤에 이어 적는다:
@@ -466,11 +466,11 @@ Step 3에서 만든 `<li>` **바로 다음**, 오버레이 항목 `<li>` **앞**
               브랜치가 자유인 이상 이것이 실질 안전장치다.
 ```
 
-- [ ] **Step 5: 결정 항목 두 개를 지운다**
+- [x] **Step 5: 결정 항목 두 개를 지운다**
 
 `<b>개발 클론의 브랜치를 도구가 강제하게 할 것인가` 로 시작하는 `<li>` 전체와, `<b><code>hotfix/*</code>의 DB 변경을 어떻게 할지` 로 시작하는 `<li>` 전체를 각각 통째로 삭제한다. 각 `<li>`는 안에 `<span class="record">` 블록을 품고 있으므로 대응하는 `</li>`까지 지운다.
 
-- [ ] **Step 6: 남은 참조가 없는지 확인한다**
+- [x] **Step 6: 남은 참조가 없는지 확인한다**
 
 Run: `grep -n "develop</code>으로 돌아와서\|기본값이 검사하지 않는다\|hotfix/\*</code>의 DB 변경을 어떻게" docs/why-db-version-control.html`
 Expected: 아무것도 나오지 않는다.
@@ -480,11 +480,11 @@ Expected: **Step 0에서 적어 둔 수보다 정확히 1 적다.**
 
 > 맞지 않으면 `<li>` 를 잘못 지웠거나 남겼다는 뜻이다. 멈추고 `git diff`를 읽는다.
 
-- [ ] **Step 7: 게시본을 읽는다**
+- [x] **Step 7: 게시본을 읽는다**
 
 Artifact 도구를 `action: "read"`, `url: https://claude.ai/code/artifact/c0a8e030-cea9-4d79-93cc-0e27bbdcd1cf` 로 부른다. 결과가 저장 파일 경로를 주면 **그 파일을 전부 읽는다** — 읽지 않으면 게시가 거부된다.
 
-- [ ] **Step 8: 같은 URL로 다시 게시한다**
+- [x] **Step 8: 같은 URL로 다시 게시한다**
 
 Artifact 도구를 아래로 부른다:
 - `file_path`: `D:\git-root\dbvc\docs\why-db-version-control.html`
@@ -494,7 +494,7 @@ Artifact 도구를 아래로 부른다:
 
 Expected: `Published … at https://claude.ai/code/artifact/c0a8e030-…` — 새 URL이 생기면 잘못된 것이다.
 
-- [ ] **Step 9: 커밋**
+- [x] **Step 9: 커밋**
 
 ```bash
 git add docs/why-db-version-control.html
@@ -520,7 +520,7 @@ EOF
 **Files:**
 - Modify: 검사에서 발견된 것만. 없으면 수정 없음.
 
-- [ ] **Step 1: 옛 규칙이 어느 표현으로도 남지 않았는지 확인한다**
+- [x] **Step 1: 옛 규칙이 어느 표현으로도 남지 않았는지 확인한다**
 
 ```bash
 grep -rn "develop.*둔다\|develop.*고정한다\|갈아탄 채\|develop으로 돌아와" \
@@ -532,7 +532,7 @@ Expected: 아무것도 나오지 않는다 (exit code 1).
 
 > 백로그의 P0 3번 행에는 `"develop` 고정"이 **이력으로** 남아 있다. 그 행이 걸리면 정상이다 — 문장이 "철회했다"를 포함하는지 눈으로 확인한다.
 
-- [ ] **Step 2: 새 규칙이 네 문서에 모두 있는지 확인한다**
+- [x] **Step 2: 새 규칙이 네 문서에 모두 있는지 확인한다**
 
 ```bash
 grep -l "브랜치는 자유" docs/rollout-announcement.md docs/setup-checklist.md docs/why-db-version-control.html
@@ -540,7 +540,7 @@ grep -l "브랜치는 자유" docs/rollout-announcement.md docs/setup-checklist.
 
 Expected: 세 파일이 모두 나온다. (백로그는 규칙을 서술하는 문서가 아니라 제외.)
 
-- [ ] **Step 3: 삭제한 결정 항목을 가리키는 문장이 없는지 확인한다**
+- [x] **Step 3: 삭제한 결정 항목을 가리키는 문장이 없는지 확인한다**
 
 ```bash
 grep -n "아래 결정 항목에 있다" docs/why-db-version-control.html
@@ -554,7 +554,7 @@ grep -c "같은 객체를 둘이 만질 때 어떻게 조율하는가" docs/why-
 
 Expected: `1`
 
-- [ ] **Step 4: 백로그 상호 참조를 확인한다**
+- [x] **Step 4: 백로그 상호 참조를 확인한다**
 
 ```bash
 grep -n "11. 미승격 변경 경고" docs/setup-checklist.md docs/team-rollout-backlog.md
@@ -562,7 +562,7 @@ grep -n "11. 미승격 변경 경고" docs/setup-checklist.md docs/team-rollout-
 
 Expected: `setup-checklist.md` 1건(Task 2가 건 링크), `team-rollout-backlog.md` 2건(표 행 + 절 제목). 제목 철자가 셋 다 같은지 본다.
 
-- [ ] **Step 5: README가 바뀌지 않았는지 확인한다**
+- [x] **Step 5: README가 바뀌지 않았는지 확인한다**
 
 ```bash
 git log --oneline --since="1 day ago" -- README.md
@@ -578,7 +578,7 @@ grep -n "자유롭게 전환" README.md
 
 Expected: 1건.
 
-- [ ] **Step 6: 게시본과 저장소 파일이 같은지 확인한다**
+- [x] **Step 6: 게시본과 저장소 파일이 같은지 확인한다**
 
 Artifact 도구 `action: "read"` 로 아티팩트를 읽고, 저장된 파일과 `docs/why-db-version-control.html`을 비교한다:
 
@@ -588,7 +588,7 @@ diff <(tail -n +2 "<저장된 경로>") docs/why-db-version-control.html
 
 Expected: 마지막 두 줄(`</body></html>` 래퍼)만 차이로 나온다. 본문 차이가 있으면 재게시가 반영되지 않은 것이다.
 
-- [ ] **Step 7: 발견된 것이 있으면 고치고 커밋한다**
+- [x] **Step 7: 발견된 것이 있으면 고치고 커밋한다**
 
 없으면 이 단계를 건너뛴다. 있으면:
 
