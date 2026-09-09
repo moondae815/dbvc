@@ -280,6 +280,7 @@ dotnet build DBVC.slnx
 # 단위 테스트 실행
 dotnet test tests/DBVC.Core.Tests
 dotnet test tests/DBVC.Vsix.Tests
+dotnet test tests/DBVC.Baseline.Tests -f net48
 ```
 
 > **참고:** `.vsct` 컴파일과 `.vsix` 패키징에는 Windows와 Visual Studio 2022의

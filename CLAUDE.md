@@ -13,7 +13,7 @@ dotnet test tests/DBVC.Baseline.Tests -f net48
 # 단일 테스트 / 픽스처
 dotnet test tests/DBVC.Core.Tests --filter "FullyQualifiedName~GetStatus_ReturnsClean"
 
-# 프레임워크 지정 (테스트 프로젝트는 net48;net10.0 멀티타깃)
+# 프레임워크 지정 (DBVC.Core.Tests·DBVC.Vsix.Tests는 net48;net10.0 멀티타깃, DBVC.Baseline.Tests는 net48 단독)
 dotnet test tests/DBVC.Core.Tests -f net48    # Windows에서만 실행 가능
 dotnet test tests/DBVC.Core.Tests -f net10.0
 ```

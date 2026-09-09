@@ -19,8 +19,13 @@ namespace DBVC.Baseline
             var preflightError = PreflightCheck.Validate(Observe(options.RepositoryPath));
             if (preflightError != null)
             {
-                Console.Error.WriteLine(preflightError);
-                return 3;
+                var preflightReport = new BaselineReport
+                {
+                    Verdict = BaselineVerdict.PreflightFailed,
+                    StopReason = preflightError
+                };
+                Console.Error.WriteLine(preflightReport.Render());
+                return preflightReport.ExitCode;
             }
 
             var credentialStore = new SessionCredentialStore();
@@ -46,11 +51,18 @@ namespace DBVC.Baseline
                 Console.WriteLine(report.Render());
                 return report.ExitCode;
             }
+            catch (Exception ex)
+            {
+                // 예기치 못한 예외까지 종료 코드 계약(런북이 읽는 0~3) 밖으로 나가면 안 된다.
+                // 3은 "멈췄고 결과를 믿을 수 없다"는 뜻이므로 그대로 재사용한다.
+                Console.Error.WriteLine($"예기치 못한 오류로 멈췄습니다: {ex.Message}");
+                return 3;
+            }
             finally
             {
                 // 임시 매핑이 남으면 격리가 무너진다. 실패해도 반드시 지운다.
                 try { Directory.Delete(tempDirectory, recursive: true); }
-                catch (IOException) { /* 지우지 못해도 %TEMP%다. 실행 자체를 실패시키지 않는다. */ }
+                catch (Exception) { /* 지우지 못해도 %TEMP%다. 실행 자체를 실패시키지 않는다. */ }
             }
         }
 

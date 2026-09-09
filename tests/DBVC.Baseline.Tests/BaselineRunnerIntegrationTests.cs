@@ -17,7 +17,7 @@ namespace DBVC.Baseline.Tests
             using var database = SqlServerTestDatabase.TryCreate(out var skipReason);
             if (database == null)
             {
-                Assert.Ignore(skipReason);
+                Assert.Ignore(skipReason ?? "SQL Server에 접속할 수 없습니다.");
                 return;
             }
 
