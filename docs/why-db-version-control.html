@@ -1280,6 +1280,16 @@
           </dd>
         </div>
         <div class="qa-row">
+          <dt>테스트 DB에는 왜 걸지 않나</dt>
+          <dd>
+            운영과 달리 <strong>테스트 DB에는 걸 수 있다.</strong> 그런데도 하지 않는 이유는
+            둘이다. 테스트 DB의 DDL은 대부분 <em>배포 그 자체</em>라, 트리거를 걸면 배포할
+            때마다 자기가 실행한 스크립트가 로그에 쌓여 잡음이 된다. 그리고 알고 싶은 것
+            — <strong>테스트 DB가 <code>develop</code>과 같은가</strong> — 은 트리거 없이
+            [차이 검사]가 이미 답한다. 걸어서 얻는 것이 없다.
+          </dd>
+        </div>
+        <div class="qa-row">
           <dt>트리거가 DDL을 막을 수 있나</dt>
           <dd>
             없다. <strong>기록만 한다.</strong> 롤백하지 않는다. 개발자가 지금 할 수 있는
