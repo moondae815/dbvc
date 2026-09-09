@@ -219,12 +219,13 @@ namespace DBVC.Baseline.Tests
         [Test]
         public void Parse_ReturnsError_WhenUnknownFlagGiven()
         {
-            var args = new List<string>(Valid()) { "--force" };
+            // 값을 함께 준다. 값이 없으면 "값이 없습니다" 갈래로 빠져 엉뚱한 이유로 통과한다.
+            var args = new List<string>(Valid()) { "--force", "true" };
 
             var result = BaselineOptions.Parse(args);
 
             Assert.That(result.IsValid, Is.False);
-            Assert.That(result.Error, Does.Contain("--force"));
+            Assert.That(result.Error, Does.Contain("모르는 옵션"));
         }
 
         [Test]
@@ -815,18 +816,25 @@ namespace DBVC.Baseline.Tests
         {
             var config = new Mock<IConfigManager>();
             var smo = new Mock<ISmoManager>();
-            MappingMode? modeAtExtraction = null;
+
+            // 마지막으로 쓰인 mode를 계속 덮어 담는다. 추출 시점에는 Write여야 하고,
+            // Run이 끝난 뒤에는 검증 직전에 덮어쓴 Audit이 남아 있어야 한다.
+            MappingMode? lastWrittenMode = null;
 
             config.Setup(c => c.AddMapping(It.IsAny<MappingConfig>()))
-                  .Callback<MappingConfig>(m => modeAtExtraction = m.Mode);
+                  .Callback<MappingConfig>(m => lastWrittenMode = m.Mode);
             smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null, It.IsAny<IProgress<ExtractionProgress>?>(), It.IsAny<CancellationToken>()))
-               .Returns(() => { Assert.That(modeAtExtraction, Is.EqualTo(MappingMode.Write)); return CleanScript(10); });
+               .Returns(() =>
+               {
+                   Assert.That(lastWrittenMode, Is.EqualTo(MappingMode.Write), "추출 시점에는 Write여야 한다");
+                   return CleanScript(10);
+               });
             smo.Setup(s => s.CompareWithRepository(Server, Database, It.IsAny<IProgress<ExtractionProgress>?>(), It.IsAny<CancellationToken>()))
                .Returns(CleanComparison(10));
 
             new BaselineRunner(config.Object, smo.Object).Run(Options());
 
-            Assert.That(modeAtExtraction, Is.EqualTo(MappingMode.Audit), "검증 직전에 Audit으로 덮어써야 한다");
+            Assert.That(lastWrittenMode, Is.EqualTo(MappingMode.Audit), "검증 직전에 Audit으로 덮어써야 한다");
         }
 
         [Test]
