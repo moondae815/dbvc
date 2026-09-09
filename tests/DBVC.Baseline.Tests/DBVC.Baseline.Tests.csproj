@@ -29,4 +29,12 @@
     <ProjectReference Include="..\..\tools\DBVC.Baseline\DBVC.Baseline.csproj" />
   </ItemGroup>
 
+  <!--
+    복사하지 않고 링크한다. 임시 DB를 만들고 지우는 규약이 두 벌이 되면 한쪽만 고쳐지고,
+    그 차이가 "왜 여기서만 Skip되는가"로 나타난다.
+  -->
+  <ItemGroup>
+    <Compile Include="..\DBVC.Core.Tests\SqlServerTestDatabase.cs" Link="SqlServerTestDatabase.cs" />
+  </ItemGroup>
+
 </Project>
