@@ -98,6 +98,37 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void BuildMessage_ExplainsTheSharedDatabaseRisk_WhenWriteCloneIsOffItsBranch()
+        {
+            // 개발 클론에는 차이 검사가 없다(MappingPolicy가 Compare를 write에서 막는다).
+            // 그래서 배포·감사용 문구인 "비교 결과가 사실과 달라진다"는 여기서 뜻이 통하지
+            // 않는다. 개발 클론의 진짜 위험은 하나뿐인 공용 DB와 체크아웃된 브랜치가 따로
+            // 움직인다는 것이고, 사용자가 그것을 알아야 왜 막혔는지 이해한다.
+            var message = RepositoryStateEvaluator.BuildMessage(
+                RepositoryBlockReason.BranchMismatch, "feature/x", "develop", null,
+                MappingMode.Write);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(message, Does.Contain("feature/x"));
+                Assert.That(message, Does.Contain("develop"));
+                Assert.That(message, Does.Contain("공용"));
+                Assert.That(message, Does.Not.Contain("비교 결과"));
+            });
+        }
+
+        [Test]
+        public void BuildMessage_KeepsTheComparisonWording_WhenDeployCloneIsOffItsBranch()
+        {
+            // 배포·감사 클론의 존재 이유가 비교라 그쪽 문구는 그대로여야 한다.
+            var message = RepositoryStateEvaluator.BuildMessage(
+                RepositoryBlockReason.BranchMismatch, "main", "develop", null,
+                MappingMode.Deploy);
+
+            Assert.That(message, Does.Contain("비교 결과"));
+        }
+
+        [Test]
         public void BuildMessage_ReturnsNull_WhenNotBlocked()
         {
             var message = RepositoryStateEvaluator.BuildMessage(

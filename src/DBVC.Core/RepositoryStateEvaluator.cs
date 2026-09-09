@@ -60,8 +60,15 @@ namespace DBVC.Core
             return mode != MappingMode.Write && hasUncommittedChanges;
         }
 
+        /// <param name="mode">
+        /// 브랜치 이탈의 <b>이유</b>가 모드마다 다르다. 배포·감사 클론은 비교가 존재 이유라
+        /// "비교 결과가 사실과 달라진다"가 맞는 설명이지만, 개발 클론에는 차이 검사 자체가
+        /// 없다(MappingPolicy가 Compare를 write에서 막는다). 거기서 같은 문구를 쓰면 사용자가
+        /// 자기 화면에 없는 기능을 근거로 막혔다는 말을 듣는다.
+        /// </param>
         public static string? BuildMessage(
-            RepositoryBlockReason reason, string? currentBranch, string? expectedBranch, string? pendingOperation)
+            RepositoryBlockReason reason, string? currentBranch, string? expectedBranch, string? pendingOperation,
+            MappingMode mode = MappingMode.Write)
         {
             switch (reason)
             {
@@ -75,7 +82,10 @@ namespace DBVC.Core
 
                 case RepositoryBlockReason.BranchMismatch:
                     return $"이 대상은 '{expectedBranch}' 브랜치에 고정되어 있는데 저장소는 '{currentBranch}'에 있습니다. " +
-                           "그대로 두면 비교 결과가 사실과 달라지므로 중단했습니다. " +
+                           (mode == MappingMode.Write
+                               ? "비교 기준은 지금 체크아웃된 브랜치의 파일인데 대상은 언제나 하나뿐인 공용 개발 DB라, " +
+                                 "그대로 두면 남이 넣은 변경이 내 것처럼 목록에 오르고 커밋하면 그것이 이 브랜치로 딸려 갑니다. "
+                               : "그대로 두면 비교 결과가 사실과 달라지므로 중단했습니다. ") +
                            $"Git 클라이언트에서 '{expectedBranch}'를 체크아웃한 뒤 다시 시도하세요.";
 
                 case RepositoryBlockReason.WorkingTreeDirty:

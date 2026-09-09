@@ -177,7 +177,8 @@ namespace DBVC.Core
                 IsDetached = detached,
                 PendingOperation = operation,
                 BlockReason = reason,
-                BlockMessage = RepositoryStateEvaluator.BuildMessage(reason, branch, mapping.Branch, operation)
+                BlockMessage = RepositoryStateEvaluator.BuildMessage(
+                    reason, branch, mapping.Branch, operation, mapping.Mode)
             };
         }
 
