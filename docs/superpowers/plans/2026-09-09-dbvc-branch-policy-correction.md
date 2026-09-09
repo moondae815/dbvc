@@ -235,11 +235,11 @@ DB 변경을 만들 다른 장소가 없고, 운영 백업을 복원한 별도 D
 Run: `grep -n "develop.*고정한다\|운영 백업을 복원한 별도 DB\*\*에서 만든다" docs/setup-checklist.md`
 Expected: 아무것도 나오지 않는다.
 
-Run: `grep -c '도 .feature/\*..와 같은 정책이다' docs/setup-checklist.md`
+Run: `grep -c '와 같은 정책이다' docs/setup-checklist.md`
 Expected: `1`
 
-> 백틱이 든 문자열은 큰따옴표로 감싸지 않는다 — bash가 명령 치환을 해 버린다. 작은따옴표를 쓰고
-> 백틱 자리는 `.` 로 둔다.
+> 백틱이 든 문자열은 큰따옴표로 감싸지 않는다 — bash가 명령 치환을 해 버린다. 백틱을 아예 피해
+> 백틱 없는 부분 문자열로 확인한다.
 
 - [ ] **Step 6: 커밋**
 
@@ -342,8 +342,8 @@ Expected: 세 줄이 나온다.
 Run: `grep -c "11. 미승격 변경 경고(경고 A)" docs/team-rollout-backlog.md`
 Expected: `2` — 우선순위 표의 행 하나와 절 제목 하나.
 
-Run: `grep -n '고정"을 1번과 한 공지에 넣었다' docs/team-rollout-backlog.md`
-Expected: 아무것도 나오지 않는다.
+Run: `grep -c '을 1번과 한 공지에 넣었다' docs/team-rollout-backlog.md`
+Expected: `0`
 
 - [ ] **Step 7: 커밋**
 
