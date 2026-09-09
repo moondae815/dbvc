@@ -1232,13 +1232,12 @@
           [차이 검사] 자체를 막아 뒀다. <strong>첫 배포는 사람이 항목을 골라야 한다.</strong>
         </li>
         <li>
-          <strong><code>master</code>를 무엇으로 채울지가 아직 정해지지 않았다.</strong>
+          <strong><code>master</code>는 별도 도구로 한 번 채운다.</strong>
           감사 클론은 추출·커밋이 잠겨 있어 스스로 채우지 못한다 — 운영 DB에 트리거를
-          설치하는 사고를 막는 것이 그 모드의 존재 이유라 옳은 설계지만, 그래서 채울 경로가
-          도구 안에 없다. 길은 둘이다: <strong>운영 백업을 복원한 임시 DB에서 뽑아
-          커밋</strong>하거나, <strong>첫 정규 배포 시점의 <code>develop</code> 커밋을
-          <code>master</code>로 삼는다.</strong> 뒤쪽은 준비가 필요 없는 대신 그때까지 운영
-          드리프트가 보이지 않는다.
+          설치하는 사고를 막는 것이 그 모드의 존재 이유라 옳은 설계다. 그래서 기준선은
+          <strong>운영 DB를 읽기만 하는 별도 도구</strong>로 한 번 만든다. 운영에는 트리거도
+          테이블도 <em>아무것도 설치되지 않는다</em> — 읽는 것은 앞으로 감사 클론이 매주 하게 될
+          바로 그 읽기다. 절차는 <code>docs/setup-checklist.md</code>에 있다.
         </li>
         <li>
           <strong>운영 쪽 차이는 원인을 구분해 주지 않는다.</strong>
@@ -1416,9 +1415,7 @@
           <span class="who who-dev">개발</span>은 개발팀 합의가 필요한 것,
           <span class="who who-both">공동</span>은 둘 다 있어야 정해지는 것이다.
           한자리에 다 모이기 어렵다면 <span class="who who-dba">DBA</span> 항목만 먼저
-          정해도 도입은 시작할 수 있다. <strong>다만 <code>master</code> 기준선은
-          예외다</strong> — 백업 복원을 고르면 그날부터 DBA 일정이 걸리므로, 다른 것을
-          다 정해 놓고 그것만 기다리게 되지 않으려면 이것을 가장 먼저 정한다.
+          정해도 도입은 시작할 수 있다.
         </p>
         <p>
           각 항목 아래에 <strong>정한 것을 적는 칸</strong>이 있다. 적을 곳이 없으면
@@ -1477,18 +1474,6 @@
               <span class="record">
                 경로 <span>________________________</span><br>
                 담당 <span>__________</span> · 채널 <span>__________</span> · 날짜 <span>__________</span>
-              </span>
-            </li>
-            <li>
-              <b><code>master</code> 기준선을 어떻게 만들지 <span class="who who-dba">DBA</span></b>
-              <strong>가장 먼저 정해야 한다.</strong> 운영 백업을 복원해 뽑으면 정확하지만
-              DBA 시간과 공간이 필요해 리드타임이 붙는다. 첫 정규 배포 시점의
-              <code>develop</code>을 <code>master</code>로 삼으면 준비가 필요 없는 대신
-              <em>그때까지 운영 드리프트가 보이지 않는다</em> — 지금 가장 알고 싶은 것을
-              가장 나중에 알게 된다.
-              <span class="record">
-                결정 <span>☐ 백업 복원 &nbsp; ☐ 첫 배포 시점 develop</span><br>
-                결정자 <span>__________</span> · 날짜 <span>__________</span>
               </span>
             </li>
             <li>

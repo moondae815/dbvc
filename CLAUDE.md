@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 dotnet build DBVC.slnx                       # 전체 (net48 + netstandard2.0 + net10.0 테스트)
 dotnet test tests/DBVC.Core.Tests
 dotnet test tests/DBVC.Vsix.Tests
+dotnet test tests/DBVC.Baseline.Tests -f net48
 
 # 단일 테스트 / 픽스처
 dotnet test tests/DBVC.Core.Tests --filter "FullyQualifiedName~GetStatus_ReturnsClean"
@@ -37,8 +38,13 @@ msbuild로도 `.vsix`는 나오지 않는다 — GitHub Actions의 `windows-late
 
 ## 아키텍처
 
-두 계층이다. `DBVC.Core`(netstandard2.0 + net48)에 모든 로직이 있고, `DBVC.Vsix`(net48, WPF/MVVM)는
-SSMS 21(VS 2022 셸) 안에서 그것을 띄운다. Core는 VS 셸을 전혀 모르므로 셸 없이 테스트된다.
+세 프로젝트로 나뉜다. `DBVC.Core`(netstandard2.0 + net48)에 모든 로직이 있고, `DBVC.Vsix`(net48,
+WPF/MVVM)는 SSMS 21(VS 2022 셸) 안에서 그것을 띄운다. Core는 VS 셸을 전혀 모르므로 셸 없이
+테스트된다. `tools/DBVC.Baseline`(net48 콘솔)은 감사 클론이 스스로 채우지 못하는 `master`
+기준선을 한 번 만드는 별도 하네스다 — **운영 DB를 읽기만 하고**, 커밋도 push도 하지 않으며,
+`%APPDATA%\DBVC\mappings.json`은 절대 건드리지 않는다(임시 디렉터리에 매핑을 따로 만든다 —
+그러지 않으면 운영 DB가 `Mode = Write`로 남아 누군가 DBVC를 열고 초기화를 누르는 순간 트리거가
+깔린다).
 
 **변경이 흐르는 경로**
 
