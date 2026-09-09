@@ -39,7 +39,8 @@
 - [ ] **Step 1: 현재 상태를 확인한다**
 
 Run: `grep -n "develop.*둔다\|develop.*고정한다\|갈아탄 채" docs/rollout-announcement.md`
-Expected: 3줄이 나온다 (`:27`, `:100` 근처, `:169` 근처).
+Expected: **4줄** — `:27`(요약), `:100`(2절 제목), `:131`(왜 위험한가), `:170`(릴리스 템플릿).
+실측값이다. 다르면 파일이 이미 손대진 것이므로 멈추고 알린다.
 
 - [ ] **Step 2: 머리말을 고친다**
 
@@ -234,8 +235,11 @@ DB 변경을 만들 다른 장소가 없고, 운영 백업을 복원한 별도 D
 Run: `grep -n "develop.*고정한다\|운영 백업을 복원한 별도 DB\*\*에서 만든다" docs/setup-checklist.md`
 Expected: 아무것도 나오지 않는다.
 
-Run: `grep -c "hotfix/\*\`도 \`feature/\*\`와 같은 정책이다" docs/setup-checklist.md`
+Run: `grep -c '도 .feature/\*..와 같은 정책이다' docs/setup-checklist.md`
 Expected: `1`
+
+> 백틱이 든 문자열은 큰따옴표로 감싸지 않는다 — bash가 명령 치환을 해 버린다. 작은따옴표를 쓰고
+> 백틱 자리는 `.` 로 둔다.
 
 - [ ] **Step 6: 커밋**
 
@@ -338,7 +342,7 @@ Expected: 세 줄이 나온다.
 Run: `grep -c "11. 미승격 변경 경고(경고 A)" docs/team-rollout-backlog.md`
 Expected: `2` — 우선순위 표의 행 하나와 절 제목 하나.
 
-Run: `grep -n "개발 클론은 \`develop\` 고정\"을 1번과" docs/team-rollout-backlog.md`
+Run: `grep -n '고정"을 1번과 한 공지에 넣었다' docs/team-rollout-backlog.md`
 Expected: 아무것도 나오지 않는다.
 
 - [ ] **Step 7: 커밋**
@@ -378,6 +382,7 @@ EOF
 
 Run: `grep -c "<li>" docs/why-db-version-control.html`
 
+**2026-09-09 기준 실측값은 `37`이다.** 다르면 파일이 이미 손대진 것이므로 멈추고 알린다.
 이 수를 적어 둔다. Step 6에서 **이 수보다 1 적어야** 한다 — 한계 항목 하나가 늘고(Step 4)
 결정 항목 둘이 줄기(Step 5) 때문이다.
 
