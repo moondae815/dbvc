@@ -57,5 +57,20 @@ namespace DBVC.Baseline.Tests
 
             Assert.That(PreflightCheck.Validate(input), Does.Contain("폴더"));
         }
+
+        [Test]
+        public void Validate_ReportsMissingGitDirectory_WhenSqlFilesAlsoPresent()
+        {
+            // 구현이 이미 이 우선순위(git 부재가 .sql 존재보다 먼저)를 지키고 있지만,
+            // 지금까지 아무 테스트도 이를 고정하지 않았다.
+            var input = new PreflightInput
+            {
+                DirectoryExists = true,
+                HasGitDirectory = false,
+                HasSqlFiles = true
+            };
+
+            Assert.That(PreflightCheck.Validate(input), Does.Contain("git"));
+        }
     }
 }

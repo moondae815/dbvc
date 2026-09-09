@@ -463,6 +463,21 @@ namespace DBVC.Baseline.Tests
 
             Assert.That(PreflightCheck.Validate(input), Does.Contain("폴더"));
         }
+
+        [Test]
+        public void Validate_ReportsMissingGitDirectory_WhenSqlFilesAlsoPresent()
+        {
+            // 구현이 이미 이 우선순위(git 부재가 .sql 존재보다 먼저)를 지키고 있지만,
+            // 지금까지 아무 테스트도 이를 고정하지 않았다.
+            var input = new PreflightInput
+            {
+                DirectoryExists = true,
+                HasGitDirectory = false,
+                HasSqlFiles = true
+            };
+
+            Assert.That(PreflightCheck.Validate(input), Does.Contain("git"));
+        }
     }
 }
 ```
@@ -526,7 +541,7 @@ namespace DBVC.Baseline
 - [ ] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Baseline.Tests -f net48 --filter "FullyQualifiedName~PreflightCheckTests"`
-Expected: PASS 5/5
+Expected: PASS 6/6
 
 - [ ] **Step 5: 커밋**
 
@@ -634,6 +649,32 @@ namespace DBVC.Baseline.Tests
             Assert.That(text, Does.Contain("1234"));
             Assert.That(text, Does.Contain("커밋해도 됩니다"));
         }
+
+        [Test]
+        public void Render_DoesNotSayCommitIsSafe_WhenPreflightFailed()
+        {
+            // PreflightFailed는 아무것도 쓰지 않고 멈춘 상태다. 성공 문구가 섞이면
+            // 이 도구가 막으려던 사고(개발 클론을 운영 사진으로 덮어쓰기)를 놓친다.
+            var report = new BaselineReport { Verdict = BaselineVerdict.PreflightFailed };
+
+            var text = report.Render();
+
+            Assert.That(text, Does.Not.Contain("커밋해도 됩니다"));
+        }
+
+        [Test]
+        public void Render_ReportsVerificationBranch_WhenVerdictIsVerificationFailedDespiteExtractionFailures()
+        {
+            // Verdict가 유일한 분기 기준임을 고정한다 — 리스트 내용으로 분기하면
+            // ExtractionFailures가 남아 있을 때 VerificationFindings가 조용히 빠진다.
+            var report = new BaselineReport { Verdict = BaselineVerdict.VerificationFailed };
+            report.VerificationFindings.Add("dbo.P — 수정됨");
+            report.ExtractionFailures.Add("dbo.usp_A");
+
+            var text = report.Render();
+
+            Assert.That(text, Does.Contain("dbo.P"));
+        }
     }
 }
 ```
@@ -700,46 +741,58 @@ namespace DBVC.Baseline
                 return sb.ToString();
             }
 
-            sb.AppendLine($"추출한 객체: {ExtractedCount}개");
-
-            if (ExtractionFailures.Count > 0)
+            // Verdict가 유일한 분기 기준이다. 리스트 내용(ExtractionFailures.Count 등)으로
+            // 분기하면 VerificationFailed인데 ExtractionFailures가 남아 있어 엉뚱한 블록이
+            // 출력되거나, PreflightFailed가 끝까지 흘러내려 "커밋해도 됩니다"까지 찍힐 수
+            // 있다 — 이 도구가 막으려는 사고를 이 함수 자신이 저지르는 셈이다.
+            switch (Verdict)
             {
-                sb.AppendLine();
-                sb.AppendLine($"스크립팅에 실패한 객체 {ExtractionFailures.Count}개 —");
-                sb.AppendLine("대개 VIEW DEFINITION 권한이 없거나 암호화된 모듈입니다.");
-                foreach (var name in ExtractionFailures)
-                {
-                    sb.AppendLine($"  - {name}");
-                }
-                sb.AppendLine();
-                sb.AppendLine("기준선이 불완전합니다. 커밋하지 마세요 — 빠진 객체는 나중에 " +
-                              "\"브랜치에만 있음\"으로 떠서 배포 스크립트에 CREATE가 들어갑니다.");
-                return sb.ToString();
-            }
+                case BaselineVerdict.ExtractionFailed:
+                    sb.AppendLine($"추출한 객체: {ExtractedCount}개");
+                    sb.AppendLine();
+                    sb.AppendLine($"스크립팅에 실패한 객체 {ExtractionFailures.Count}개 —");
+                    sb.AppendLine("대개 VIEW DEFINITION 권한이 없거나 암호화된 모듈입니다.");
+                    foreach (var name in ExtractionFailures)
+                    {
+                        sb.AppendLine($"  - {name}");
+                    }
+                    sb.AppendLine();
+                    sb.AppendLine("기준선이 불완전합니다. 커밋하지 마세요 — 빠진 객체는 나중에 " +
+                                  "\"브랜치에만 있음\"으로 떠서 배포 스크립트에 CREATE가 들어갑니다.");
+                    return sb.ToString();
 
-            if (Verdict == BaselineVerdict.VerificationFailed)
-            {
-                sb.AppendLine($"검증한 객체: {ComparedCount}개");
-                sb.AppendLine();
-                sb.AppendLine("검증에서 차이가 나왔습니다 —");
-                foreach (var finding in VerificationFindings)
-                {
-                    sb.AppendLine($"  - {finding}");
-                }
-                if (!RepositoryScanCompleted)
-                {
-                    sb.AppendLine("  - 저장소 스캔이 끝까지 돌지 못했습니다.");
-                }
-                sb.AppendLine();
-                sb.AppendLine("이 기준선은 믿을 수 없습니다. 커밋하지 마세요. " +
-                              "실행 중에 운영이 바뀌었을 수 있으니 다시 돌려 보세요.");
-                return sb.ToString();
-            }
+                case BaselineVerdict.VerificationFailed:
+                    sb.AppendLine($"추출한 객체: {ExtractedCount}개");
+                    sb.AppendLine($"검증한 객체: {ComparedCount}개");
+                    sb.AppendLine();
+                    sb.AppendLine("검증에서 차이가 나왔습니다 —");
+                    foreach (var finding in VerificationFindings)
+                    {
+                        sb.AppendLine($"  - {finding}");
+                    }
+                    if (!RepositoryScanCompleted)
+                    {
+                        sb.AppendLine("  - 저장소 스캔이 끝까지 돌지 못했습니다.");
+                    }
+                    sb.AppendLine();
+                    sb.AppendLine("이 기준선은 믿을 수 없습니다. 커밋하지 마세요. " +
+                                  "실행 중에 운영이 바뀌었을 수 있으니 다시 돌려 보세요.");
+                    return sb.ToString();
 
-            sb.AppendLine($"검증한 객체: {ComparedCount}개, 차이 없음");
-            sb.AppendLine();
-            sb.AppendLine("기준선이 만들어졌습니다. git status로 확인한 뒤 커밋해도 됩니다.");
-            return sb.ToString();
+                case BaselineVerdict.PreflightFailed:
+                    // 사전 점검 실패는 아무것도 쓰지 않고 멈춘 상태다. 성공 문구와
+                    // 조금이라도 닮으면 "덮어쓰지 않았는가"를 가려내려던 목적이 무너진다.
+                    sb.AppendLine("사전 점검을 통과하지 못해 실행을 멈췄습니다. " +
+                                  "아무것도 쓰지 않았으므로 커밋하거나 되돌릴 것이 없습니다.");
+                    return sb.ToString();
+
+                default:
+                    sb.AppendLine($"추출한 객체: {ExtractedCount}개");
+                    sb.AppendLine($"검증한 객체: {ComparedCount}개, 차이 없음");
+                    sb.AppendLine();
+                    sb.AppendLine("기준선이 만들어졌습니다. git status로 확인한 뒤 커밋해도 됩니다.");
+                    return sb.ToString();
+            }
         }
     }
 }
@@ -748,7 +801,7 @@ namespace DBVC.Baseline
 - [ ] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Baseline.Tests -f net48 --filter "FullyQualifiedName~BaselineReportTests"`
-Expected: PASS 7/7
+Expected: PASS 9/9
 
 - [ ] **Step 5: 커밋**
 
@@ -1329,7 +1382,7 @@ namespace DBVC.Baseline
 - [ ] **Step 6: 전체 테스트와 빌드를 확인한다**
 
 Run: `dotnet test tests/DBVC.Baseline.Tests -f net48`
-Expected: PASS **33/33** — Options 7, Preflight 5, Report 7, Runner 10, TempConfig 4.
+Expected: PASS **36/36** — Options 7, Preflight 6, Report 9, Runner 10, TempConfig 4.
 
 > 개수가 다르면 앞 태스크의 테스트가 빠진 것이다. 멈추고 확인한다.
 
