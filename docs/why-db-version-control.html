@@ -539,6 +539,35 @@
     color: var(--alert);
   }
 
+  /* 누가 답해야 하는 결정인지 — 회의 진행이 여기서 갈린다 */
+  .who {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    padding: 1px 7px;
+    border-radius: 2px;
+    margin-left: 7px;
+    vertical-align: 1px;
+  }
+  .who-dba  { background: var(--alert-soft);  color: var(--alert); }
+  .who-dev  { background: var(--accent-soft); color: var(--accent); }
+  .who-both { background: var(--sunk);        color: var(--muted); }
+
+  /* 정한 것을 그 자리에 적는다 — 적을 곳이 없으면 두 달 뒤 같은 논의를 다시 한다 */
+  .record {
+    display: block;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dotted var(--rule-strong);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.9;
+    color: var(--muted);
+  }
+  .record span { color: var(--rule-strong); }
+
   /* ── 꼬리 ─────────────────────────────────────── */
 
   footer {
@@ -572,7 +601,7 @@
 
 <header class="masthead">
   <div class="wrap">
-    <p class="kicker">개발팀 · DBA 공동 검토 &nbsp;/&nbsp; 2026-09-07</p>
+    <p class="kicker">개발팀 · DBA 공동 검토 &nbsp;/&nbsp; 2026-09-09</p>
     <h1>기록되지 않는 데이터베이스</h1>
     <p class="lede">
       우리는 애플리케이션 코드의 모든 줄이 언제 누구 손에서 왜 바뀌었는지 안다.
@@ -596,7 +625,7 @@
       </div>
       <div class="fact">
         <dt>도구</dt>
-        <dd>DBVC 0.5.20<br>SSMS 21 확장</dd>
+        <dd>DBVC 0.5.21<br>SSMS 21 확장</dd>
       </div>
     </dl>
   </div>
@@ -1317,13 +1346,12 @@
           그 환경이면 사람마다 SQL 로그인을 나눠야 한다.
         </li>
         <li>
-          <strong><code>DBVC_ChangeLog</code>의 보존 정책이 아직 없다.</strong>
-          공용 개발 DB에서 계속 커진다. 도입 후 정리 주기를 정해야 하는 항목이다.
-        </li>
-        <li>
-          <strong>부분 도입이 제일 나쁘다.</strong> DBVC를 쓰지 않는 사람의 DDL도 트리거는
-          기록하는데, 아무도 커밋하지 않으므로 그 행이 미처리 상태로 남아
-          <em>모두의</em> 목록에 쌓인다. 전원이 쓰거나, 안 쓰거나 둘 중 하나다.
+          <strong>부분 도입은 여전히 권하지 않는다.</strong> DBVC를 쓰지 않는 사람의 DDL도
+          트리거는 기록하고, 아무도 커밋하지 않으므로 그 행이 미처리 상태로 남는다.
+          0.5.21부터는 그런 행이 30일 뒤 자동으로 정리되고 그 시점에 해당 파일이
+          <em>주인 없는 변경</em>으로 목록에 떠올라 누구든 커밋할 수 있으므로, 예전처럼
+          목록이 영구히 오염되지는 않는다. 다만 그 30일 동안 그 사람의 변경은 아무 데도
+          기록되지 않는다 — <strong>기록의 값은 빠짐없을 때 나온다.</strong>
         </li>
         <li>
           <strong>개발 클론의 브랜치는 도구가 검사하지 않는다.</strong>
@@ -1352,6 +1380,20 @@
           <strong>공용 개발 DB에 변경 추적을 켜고, 전원이 커밋하기로 하는가.</strong>
           도구도 설치 절차도 이미 준비되어 있다. 아래 왼쪽은 이미 확정된 규칙이고,
           오른쪽은 이 자리에서 정하거나 담당을 지정해야 하는 것이다.
+        </p>
+        <p>
+          오른쪽 항목에는 <strong>누가 답해야 하는지</strong>를 붙여 두었다 —
+          <span class="who who-dba">DBA</span>는 DBA가 답하면 끝나는 것,
+          <span class="who who-dev">개발</span>은 개발팀 합의가 필요한 것,
+          <span class="who who-both">공동</span>은 둘 다 있어야 정해지는 것이다.
+          한자리에 다 모이기 어렵다면 <span class="who who-dba">DBA</span> 항목만 먼저
+          정해도 도입은 시작할 수 있다. <strong>다만 <code>master</code> 기준선은
+          예외다</strong> — 백업 복원을 고르면 그날부터 DBA 일정이 걸리므로, 다른 것을
+          다 정해 놓고 그것만 기다리게 되지 않으려면 이것을 가장 먼저 정한다.
+        </p>
+        <p>
+          각 항목 아래에 <strong>정한 것을 적는 칸</strong>이 있다. 적을 곳이 없으면
+          두 달 뒤 같은 논의를 다시 하게 된다.
         </p>
       </div>
 
@@ -1386,6 +1428,12 @@
               <code>feature/*</code>에서 DB를 고쳤으면 빨리 <code>develop</code>에
               병합한다. 코드와 달리 DB는 이미 공유되어 있다.
             </li>
+            <li>
+              <b>변경 로그는 30일만 남는다</b>
+              <code>DBVC_ChangeLog</code>는 30일이 지난 행을 처리 여부와 관계없이
+              지운다. 0.5.21부터 자동이며 사람이 정하거나 돌릴 것이 없다.
+              쌓이던 문제와 함께, 미채택자의 행이 목록에 영구히 남던 문제도 닫혔다.
+            </li>
           </ul>
         </div>
 
@@ -1393,30 +1441,81 @@
           <h3>오늘 정해야 하는 것</h3>
           <ul>
             <li>
-              <b>GitLab 배포 프로젝트 경로 · 릴리스 담당자 · 공지 채널</b>
+              <b>GitLab 배포 프로젝트 경로 · 릴리스 담당자 · 공지 채널 <span class="who who-both">공동</span></b>
               세 값이 비어 있는 동안은 규칙만 있고 공지를 보낼 곳이 없다.
+              <span class="record">
+                경로 <span>________________________</span><br>
+                담당 <span>__________</span> · 채널 <span>__________</span> · 날짜 <span>__________</span>
+              </span>
             </li>
             <li>
-              <b><code>master</code> 기준선을 어떻게 만들지</b>
-              운영 백업을 복원해 뽑을 것인가, 첫 정규 배포 시점의 <code>develop</code>을
-              <code>master</code>로 삼을 것인가. 앞쪽은 DBA 시간과 공간이 필요하다.
+              <b><code>master</code> 기준선을 어떻게 만들지 <span class="who who-dba">DBA</span></b>
+              <strong>가장 먼저 정해야 한다.</strong> 운영 백업을 복원해 뽑으면 정확하지만
+              DBA 시간과 공간이 필요해 리드타임이 붙는다. 첫 정규 배포 시점의
+              <code>develop</code>을 <code>master</code>로 삼으면 준비가 필요 없는 대신
+              <em>그때까지 운영 드리프트가 보이지 않는다</em> — 지금 가장 알고 싶은 것을
+              가장 나중에 알게 된다.
+              <span class="record">
+                결정 <span>☐ 백업 복원 &nbsp; ☐ 첫 배포 시점 develop</span><br>
+                결정자 <span>__________</span> · 날짜 <span>__________</span>
+              </span>
             </li>
             <li>
-              <b>[차이 검사] 주기와 책임자</b>
+              <b>[차이 검사] 주기와 책임자 <span class="who who-dba">DBA</span></b>
               예: 테스트는 배포 직후와 매일 아침, 운영은 매주 월요일 DBA가 확인한다.
+              자동으로 돌지 않으므로 사람이 누르지 않으면 아무 일도 일어나지 않는다.
+              <span class="record">
+                테스트 <span>______________</span> · 운영 <span>______________</span><br>
+                책임자 <span>__________</span> · 날짜 <span>__________</span>
+              </span>
             </li>
             <li>
-              <b><code>hotfix/*</code>의 DB 변경을 어떻게 할지</b>
-              별도 복원 DB에서 만들 것인가, 커밋 전 사람이 확인할 것인가,
-              아니면 hotfix에 DB 변경을 넣지 않을 것인가.
+              <b><code>hotfix/*</code>의 DB 변경을 어떻게 할지 <span class="who who-both">공동</span></b>
+              개발 DB는 <code>master + 진행 중 feature</code> 상태라 거기서 뜬 스크립트에
+              승격되지 않은 변경이 섞일 수 있다. 한 파일 안에 develop 변경과 hotfix 변경이
+              함께 들어오면 도구가 판정하지 못한다 — 파일 단위 비교의 한계다.
+              <span class="record">
+                결정 <span>☐ 별도 복원 DB &nbsp; ☐ 커밋 전 사람이 확인 &nbsp; ☐ hotfix에 DB 변경 금지</span><br>
+                결정자 <span>__________</span> · 날짜 <span>__________</span>
+              </span>
             </li>
             <li>
-              <b><code>DBVC_ChangeLog</code> 정리 주기</b>
-              공용 개발 DB에서 무한히 증가한다. 언제 누가 줄일지.
+              <b><code>develop</code>을 리셋하거나 force-push하는가 <span class="who who-dev">개발</span></b>
+              그렇게 하는 팀이 있다. 그러면 <code>develop</code>이 "테스트 DB에 있어야 할
+              것"이라는 등식이 흔들리고 테스트 DB 배포 이력이 끊긴다. 한다면 그 주기와
+              절차를 정해 적어야 한다.
+              <span class="record">
+                결정 <span>☐ 하지 않는다 &nbsp; ☐ 한다 — 주기·절차: ________________</span><br>
+                결정자 <span>__________</span> · 날짜 <span>__________</span>
+              </span>
             </li>
             <li>
-              <b>한 사람이 한 PC를 쓰는가</b>
-              원격 데스크톱 공유가 있으면 사람별 SQL 로그인이 선행 조건이다.
+              <b>같은 객체를 둘이 만질 때 어떻게 조율하는가 <span class="who who-dev">개발</span></b>
+              공용 DB가 하나인 이상 나중에 저장한 쪽이 이긴다. 도구는 커밋 시점에 알릴 뿐
+              막지 못한다. 알림을 받았을 때 무엇을 하기로 하는지가 규칙이다.
+              <span class="record">
+                규칙 <span>________________________________________</span><br>
+                결정자 <span>__________</span> · 날짜 <span>__________</span>
+              </span>
+            </li>
+            <li>
+              <b>한 사람이 한 PC를 쓰는가 <span class="who who-both">공동</span></b>
+              작업자 구분은 접속 PC 이름(<code>HOST_NAME()</code>)으로 한다. 원격 데스크톱
+              공유가 있으면 그 값이 같아져 필터가 무력해지고, <strong>사람별 SQL 로그인이
+              선행 조건</strong>이 된다.
+              <span class="record">
+                해당 <span>☐ 없음 &nbsp; ☐ 있음 — 로그인 분리 담당: __________</span><br>
+                결정자 <span>__________</span> · 날짜 <span>__________</span>
+              </span>
+            </li>
+            <li>
+              <b>공용 계정의 권한 범위를 확인한다 <span class="who who-dba">DBA</span></b>
+              그 계정으로 접속한 모두가 서로의 객체를 고칠 수 있다. DBVC는 누가 무엇을
+              만졌는지 기록하고 알릴 뿐, 막지 못한다. 지금 범위가 의도한 것인지 확인한다.
+              <span class="record">
+                확인 <span>☐ 현행 유지 &nbsp; ☐ 조정 필요 — 내용: ________________</span><br>
+                확인자 <span>__________</span> · 날짜 <span>__________</span>
+              </span>
             </li>
           </ul>
         </div>
@@ -1434,6 +1533,7 @@
       <li><span class="path">docs/setup-checklist.md</span>설치 절차, 일상 사용에 필요한 권한, 조직이 정해야 할 운영 규칙</li>
       <li><span class="path">docs/rollout-announcement.md</span>배포·갱신 채널과 브랜치 규칙, 릴리스 노트 템플릿</li>
       <li><span class="path">docs/team-rollout-backlog.md</span>남은 일과 그 우선순위, 이 문서가 "정해야 하는 것"으로 옮겨 적은 항목들</li>
+      <li><span class="path">docs/superpowers/specs/2026-08-24-dbvc-git-workflow-design.md</span>3환경·공용 개발 DB 워크플로 설계. 6장이 "조직이 정해야 할 운영 규칙"이고, 오른쪽 항목 대부분이 거기서 왔다</li>
     </ul>
   </div>
 </footer>
