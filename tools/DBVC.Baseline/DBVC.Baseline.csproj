@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!--
+      net48 단독이다. develop 쪽 추출은 SSMS 안 net48에서 MDS 5.1.5 + SMO 171.30.0으로 돈다.
+      이 도구의 존재 이유가 바이트 동일성이므로 같은 코드를 다른 런타임에서 돌릴 수 없다.
+    -->
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>dbvc-baseline</AssemblyName>
+    <RootNamespace>DBVC.Baseline</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!--
+    MDS·SMO를 직접 적지 않는다. DBVC.Core가 SSMS 21에 맞춰 고정한 버전을 전이 참조로 받는다.
+    직접 적으면 그쪽이 이겨 Core와 다른 SMO가 올라오고, SmoManager가 그 TypeLoadException을
+    삼켜 조용히 null을 돌려준다.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DBVC.Core\DBVC.Core.csproj" />
+  </ItemGroup>
+
+</Project>

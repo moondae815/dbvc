@@ -54,6 +54,10 @@ jobs:
       - name: 테스트 - DBVC.Vsix (net10.0)
         run: dotnet test tests/DBVC.Vsix.Tests -f net10.0 -c Release --logger "trx;LogFileName=vsix-net10.trx" --results-directory TestResults
 
+      # net48 단독이다 - 대상 도구가 net48이라 net10.0 짝이 없다.
+      - name: 테스트 - DBVC.Baseline (net48)
+        run: dotnet test tests/DBVC.Baseline.Tests -f net48 -c Release --logger "trx;LogFileName=baseline-net48.trx" --results-directory TestResults
+
       - name: 테스트 결과 업로드
         if: always()
         uses: actions/upload-artifact@v7
