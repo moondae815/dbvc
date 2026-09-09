@@ -883,11 +883,44 @@ namespace DBVC.Baseline.Tests
                    return CleanScript(10);
                });
             smo.Setup(s => s.CompareWithRepository(Server, Database, It.IsAny<IProgress<ExtractionProgress>?>(), It.IsAny<CancellationToken>()))
-               .Returns(CleanComparison(10));
+               .Returns(() =>
+               {
+                   // 끝난 뒤의 상태만 보면 Compare → SetMode(Audit) 순서로 뒤집혀도 같은 결과가
+                   // 나와 통과해 버린다. 호출되는 그 순간에 이미 Audit이어야 한다고 못 박는다.
+                   Assert.That(lastWrittenMode, Is.EqualTo(MappingMode.Audit), "비교 시점에는 Audit이어야 한다");
+                   return CleanComparison(10);
+               });
 
             new BaselineRunner(config.Object, smo.Object).Run(Options());
 
             Assert.That(lastWrittenMode, Is.EqualTo(MappingMode.Audit), "검증 직전에 Audit으로 덮어써야 한다");
+        }
+
+        [Test]
+        public void Run_WritesOptionValuesIntoMapping_WhenRunning()
+        {
+            // Mode만 보면 ServerName·DatabaseName·GitPath가 엉뚱한 값이어도 잡아내지 못한다.
+            // GitPath가 틀리면 운영 스냅샷이 엉뚱한 폴더에 쓰이는데 조용히 통과해 버린다.
+            var config = new Mock<IConfigManager>();
+            var smo = new Mock<ISmoManager>();
+            var writtenMappings = new List<MappingConfig>();
+
+            config.Setup(c => c.AddMapping(It.IsAny<MappingConfig>()))
+                  .Callback<MappingConfig>(m => writtenMappings.Add(m));
+            smo.Setup(s => s.ScriptObjectsDetailed(Server, Database, null, It.IsAny<IProgress<ExtractionProgress>?>(), It.IsAny<CancellationToken>()))
+               .Returns(CleanScript(10));
+            smo.Setup(s => s.CompareWithRepository(Server, Database, It.IsAny<IProgress<ExtractionProgress>?>(), It.IsAny<CancellationToken>()))
+               .Returns(CleanComparison(10));
+
+            new BaselineRunner(config.Object, smo.Object).Run(Options());
+
+            Assert.That(writtenMappings.Count, Is.EqualTo(2));
+            foreach (var mapping in writtenMappings)
+            {
+                Assert.That(mapping.ServerName, Is.EqualTo(Server));
+                Assert.That(mapping.DatabaseName, Is.EqualTo(Database));
+                Assert.That(mapping.GitPath, Is.EqualTo(Repo));
+            }
         }
 
         [Test]
@@ -1137,7 +1170,7 @@ namespace DBVC.Baseline
 - [ ] **Step 4: 통과를 확인한다**
 
 Run: `dotnet test tests/DBVC.Baseline.Tests -f net48 --filter "FullyQualifiedName~BaselineRunnerTests"`
-Expected: PASS 10/10
+Expected: PASS 11/11
 
 - [ ] **Step 5: 커밋**
 
