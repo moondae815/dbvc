@@ -39,7 +39,15 @@
 ## 3. 무엇을 만드는가
 
 새 프로젝트 **`tools/DBVC.Baseline`** — `src/`가 아니라 `tools/`에 둔다. 제품이 아니라는 것이
-경로에서 보여야 하고, 솔루션과 `.vsix`에 딸려 들어가지 않는다.
+경로에서 보여야 한다.
+
+**`.vsix`에는 들어가지 않는다.** `.vsix`가 담는 것은 `DBVC.Vsix.csproj`가 참조하는 것뿐이고
+하네스는 거기 없다.
+
+**솔루션(`DBVC.slnx`)에는 들어간다.** 빼면 `dotnet build DBVC.slnx`가 빌드하지 않고 CI가 테스트를
+돌리지 않는다 — 돌지 않는 테스트는 없는 것보다 나쁘다. `DBVC.Vsix`가 이미 net48 단독으로
+솔루션에 있으므로 net48 프로젝트가 하나 더 늘어도 달라지는 것이 없다. `/tools/` 폴더를 새로 만들고,
+`.github/workflows/ci.yml`의 Windows 잡에 테스트 단계를 하나 더한다.
 
 **타깃은 `net48`이다. 선택이 아니라 요구다.** `develop` 쪽 추출은 SSMS 안 net48에서
 MDS 5.1.5 + SMO 171.30.0으로 돈다. 이 도구의 존재 이유가 **바이트 동일성**인데, 같은 코드를 다른
@@ -185,7 +193,8 @@ DB가 필요한 것 하나 — 기존 `SmoManagerIntegrationTests`의 방식을 
 | `docs/setup-checklist.md` | `master` 기준선 절차(런북)를 적는다 — **10번을 닫는 것은 도구가 아니라 이 절차다.** 그리고 3단계에 `develop`·`master` 브랜치를 만드는 항목이 없다(예시가 `main`). 함께 넣는다 |
 | `docs/team-rollout-backlog.md` | 10번을 닫고 결정 근거를 남긴다 — A 배제 사유(백업 몇 테라, 비운영 인스턴스 없음), D 채택, C는 P3로 남긴다 |
 | `docs/why-db-version-control.html` | 결정 항목 "`master` 기준선을 어떻게 만들지"가 **정해졌다.** 오늘 정해야 하는 것이 7개 → 6개. 도입 절의 "함정 2 — 아직 정해지지 않았다"도 바뀐다. **같은 URL로 재게시한다** |
-| `CLAUDE.md` | 아키텍처 절이 "두 계층이다"로 시작하는데 프로젝트가 셋이 된다. 한 줄 |
+| `CLAUDE.md` | 아키텍처 절이 "두 계층이다"로 시작하는데 프로젝트가 셋이 된다. 한 줄. 빌드·테스트 절에도 하네스 테스트 명령을 더한다 |
+| `DBVC.slnx` · `.github/workflows/ci.yml` | `/tools/` 폴더와 프로젝트 둘을 솔루션에 더하고, CI Windows 잡에 `dotnet test tests/DBVC.Baseline.Tests -f net48` 단계를 더한다 |
 
 `README.md`는 하네스가 사용자 기능이 아니므로 손대지 않는다. 저장소 구조를 나열하는 자리가
 있으면 그때 판단한다.
