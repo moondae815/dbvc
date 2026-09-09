@@ -24,9 +24,11 @@ DBVC는 SQL Server Management Studio (SSMS) 21을 위한 데이터베이스 형�
 
 ### 기능 커버리지
 14개 MVP 기능 중 13개가 구현되어 있습니다. **Object Explorer 상태 아이콘 오버레이(Feature 10)는 미구현**입니다.
-SSMS Object Explorer의 아이콘 오버레이에는 공개 확장점이 없고 필요한 어셈블리가 NuGet에 배포되지 않아,
-검증 가능한 형태로 구현할 수 없다고 판단했습니다.
-사유와 선행 조건은 [docs/superpowers/plans/2026-08-01-dbvc-object-explorer-overlay.md](docs/superpowers/plans/2026-08-01-dbvc-object-explorer-overlay.md)에 정리되어 있습니다.
+SSMS Object Explorer에는 아이콘 오버레이용 공개 확장점이 없습니다. 다만 2026-09-09 실기 실험에서
+트리가 WinForms 컨트롤이라 아이콘에 배지를 얹는 것 자체는 가능함을 확인했습니다.
+그럼에도 미구현으로 두는 이유는 아직 펼치지 않은 노드에는 배지를 얹을 수 없어,
+아이콘이 없다는 것이 "변경되지 않았다"는 뜻이 되지 못하기 때문입니다.
+실험 기록과 사유는 [docs/superpowers/plans/2026-08-01-dbvc-object-explorer-overlay.md](docs/superpowers/plans/2026-08-01-dbvc-object-explorer-overlay.md)에 정리되어 있습니다.
 변경 상태는 DBVC 창에서 모두 확인할 수 있습니다.
 
 ### 이 방식이 성립하지 않는 환경

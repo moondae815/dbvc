@@ -103,7 +103,8 @@ SSMS 21(VS 2022 셸) 안에서 그것을 띄운다. Core는 VS 셸을 전혀 모
   `src/DBVC.Vsix/source.extension.vsixmanifest`의 버전을 올린다.
 - **CI가 검증하지 않는 것:** WPF 렌더링, VS 패키지 로딩, `.vsct` 메뉴 등록, SSMS 통합, 실제 DB 연결.
   이 영역을 건드렸다면 SSMS 21에서 직접 눌러 보기 전에는 "동작한다"고 말할 수 없다.
-- 미구현 기능은 Object Explorer 아이콘 오버레이(Feature 10) 하나이며, 공개 확장점이 없어 보류된
-  상태다. 사유는 `docs/superpowers/plans/2026-08-01-dbvc-object-explorer-overlay.md`에 있다.
+- 미구현 기능은 Object Explorer 아이콘 오버레이(Feature 10) 하나다. 2026-09-09 실기 실험에서
+  구현 가능함이 확인되었고, 그럼에도 보류하는 사유(펼친 노드만 칠해져 상태를 반쪽만 보여 준다)와
+  착수 시 감당할 것들은 `docs/superpowers/plans/2026-08-01-dbvc-object-explorer-overlay.md`에 있다.
 - 팀 배포까지 남은 일과 그 우선순위는 `docs/team-rollout-backlog.md`에 있다. 개발자 20명·DBA 3명이
   **공용 DB 하나**를 함께 쓴다는 전제에서 순서가 나왔으므로, 우선순위를 바꾸기 전에 그 전제를 읽는다.

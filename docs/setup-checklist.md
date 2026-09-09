@@ -1028,7 +1028,8 @@ DBVC는 누가 무엇을 만졌는지 기록하고 알릴 뿐, 막지 못한다.
 - **전환 이전 커밋의 diff는 바이너리로 남는다.** 0.5.15가 추출물 인코딩을 UTF-8로 바꿨지만
   과거 커밋의 블롭은 그대로다. 이력을 다시 쓰면(`git filter-repo`) 고칠 수 있으나 저장소를
   가진 모든 사람이 클론을 다시 받아야 하므로 하지 않는다. 전환 이후의 변경은 정상적으로 보인다.
-- **Object Explorer 상태 아이콘 오버레이는 미구현.** SSMS에 공개 확장점이 없어 보류했다
+- **Object Explorer 상태 아이콘 오버레이는 미구현.** 만들 수는 있지만 펼친 노드만 칠할 수 있어
+  상태를 반쪽만 보여 주므로 보류했다
   (Feature 10, [plans/2026-08-01-dbvc-object-explorer-overlay.md](superpowers/plans/2026-08-01-dbvc-object-explorer-overlay.md)).
   변경 상태는 DBVC 창에서 확인한다.
 
