@@ -79,6 +79,9 @@
     font-size: 16px;
     line-height: 1.75;
     -webkit-font-smoothing: antialiased;
+    /* 한국어는 낱말 안에서도 줄이 바뀐다 — 좁은 화면에서 "기록되지 않 / 는"이 된다. */
+    word-break: keep-all;
+    overflow-wrap: break-word;
   }
 
   .wrap {
