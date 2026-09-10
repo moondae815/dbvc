@@ -1,3 +1,12 @@
+<!doctype html>
+<!--
+  doctype과 charset은 반드시 이 자리에 있어야 한다. 둘 다 없던 상태에서는 브라우저가
+  UTF-8을 알아보지 못해 Windows 한국어 코드페이지로 읽었고, 본문 전체가 깨져 나왔다
+  (BOM도 없고 로컬 파일·정적 서버 어느 쪽도 charset을 알려 주지 않는다). doctype이
+  없으면 호환 모드로 그려져 꼬리말이 지정한 여백을 받지 못한다 — 나머지 요소는 픽셀
+  단위로 동일함을 확인했다. doctype 앞에는 아무것도 두지 않는다.
+-->
+<meta charset="utf-8">
 <title>기록되지 않는 데이터베이스</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
