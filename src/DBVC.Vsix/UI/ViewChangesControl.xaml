@@ -69,6 +69,14 @@
                     <Button x:Name="ConnectButton" Content="연결" Command="{Binding ConnectCommand}" Width="70" Margin="0,0,10,4"
                             ToolTip="SSMS 개체 탐색기에서 선택한 데이터베이스로 접속합니다. 인증 정보는 그 연결에서만 오며 디스크에 저장되지 않습니다."/>
                     <TextBlock x:Name="TargetLabel" Text="{Binding TargetSummary}" VerticalAlignment="Center" Margin="0,0,0,4"/>
+                    <!--
+                        고정 브랜치 클론(배포용)에서는 CanExecute가 항상 false라 눌러도 반응이 없다 -
+                        여기서 또 IsEnabled/Visibility를 걸면 같은 판정이 두 곳에 생긴다.
+                    -->
+                    <Button Content="새 브랜치" Command="{Binding CreateBranchCommand}" Width="80" Margin="0,0,6,4"
+                            ToolTip="지금 브랜치에서 새 브랜치를 만들고 갈아탑니다. 작업 중인 파일은 그대로 남습니다."/>
+                    <Button Content="브랜치 전환" Command="{Binding SwitchBranchCommand}" Width="90" Margin="0,0,10,4"
+                            ToolTip="다른 브랜치로 갈아탑니다.&#10;커밋되지 않은 변경이 있으면 갈아타지 않고 무엇이 남았는지 알려 줍니다."/>
                 </WrapPanel>
             </DockPanel>
 
