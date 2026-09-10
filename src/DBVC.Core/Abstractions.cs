@@ -144,6 +144,12 @@ namespace DBVC.Core
         /// 미커밋 변경이 있어도 안전하다.
         /// </summary>
         BranchResult CreateBranch(string serverName, string databaseName, string branchName);
+
+        /// <summary>
+        /// 브랜치를 갈아탄다. 미커밋 변경이 하나라도 있으면 갈아타지 않고 그 목록을 담아 돌려준다.
+        /// 로컬에 없고 원격에만 있는 이름이면 그것을 추적하는 로컬 브랜치를 만들어 붙는다.
+        /// </summary>
+        BranchResult SwitchBranch(string serverName, string databaseName, string branchName);
         PushResult PushChanges(string serverName, string databaseName);
         bool HasCommitsToPush(string serverName, string databaseName);
 

@@ -2475,5 +2475,80 @@ namespace DBVC.Core.Tests
             Assert.Throws<OperationNotAllowedException>(
                 () => git.CreateBranch(Server, Database, "PROJ-123"));
         }
+
+        // ---------- SwitchBranch ----------
+
+        [Test]
+        public void SwitchBranch_Switches_WhenTreeIsClean()
+        {
+            var path = NewRepoWithCommit();
+            string original;
+            using (var repo = new Repository(path))
+            {
+                repo.CreateBranch("PROJ-123");
+                original = repo.Head.FriendlyName;
+            }
+            var git = NewGitManager("localhost", "testdb", path);
+
+            var result = git.SwitchBranch("localhost", "testdb", "PROJ-123");
+
+            Assert.That(result.Succeeded, Is.True, result.Message);
+            using var after = new Repository(path);
+            Assert.That(after.Head.FriendlyName, Is.EqualTo("PROJ-123"));
+            Assert.That(original, Is.Not.EqualTo("PROJ-123"));
+        }
+
+        [Test]
+        public void SwitchBranch_Refuses_WhenTreeIsDirty()
+        {
+            var path = NewRepoWithCommit();
+            using (var repo = new Repository(path)) repo.CreateBranch("PROJ-123");
+            WriteRepoFile(path, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);");
+            var git = NewGitManager("localhost", "testdb", path);
+
+            var result = git.SwitchBranch("localhost", "testdb", "PROJ-123");
+
+            Assert.That(result.Succeeded, Is.False);
+            Assert.That(result.BlockingPaths, Does.Contain("dbo/Tables/Orders.sql"),
+                "무엇이 막았는지 파일 이름으로 말해야 합니다");
+            using var after = new Repository(path);
+            Assert.That(after.Head.FriendlyName, Is.Not.EqualTo("PROJ-123"),
+                "거부했으면 브랜치도 그대로여야 합니다");
+        }
+
+        [Test]
+        public void SwitchBranch_Refuses_WhenBranchDoesNotExist()
+        {
+            var git = NewGitManager("localhost", "testdb", NewRepoWithCommit());
+
+            var result = git.SwitchBranch("localhost", "testdb", "PROJ-999");
+
+            Assert.That(result.Succeeded, Is.False);
+            Assert.That(result.Message, Does.Contain("PROJ-999"));
+        }
+
+        [Test]
+        public void SwitchBranch_CreatesLocalBranch_WhenBranchExistsOnlyOnRemote()
+        {
+            // 남이 만든 티켓 브랜치에 합류하는 경로다. git checkout <name>과 같은 동작이다.
+            var (localPath, originPath) = NewClonedRepoWithBareOrigin();
+            using (var origin = new Repository(originPath))
+            {
+                // bare 저장소에 브랜치를 하나 더 만든다.
+                origin.CreateBranch("PROJ-123", origin.Head.Tip);
+            }
+            using (var local = new Repository(localPath))
+            {
+                Commands.Fetch(local, "origin", Array.Empty<string>(), null, null);
+            }
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var result = git.SwitchBranch("localhost", "testdb", "PROJ-123");
+
+            Assert.That(result.Succeeded, Is.True, result.Message);
+            using var after = new Repository(localPath);
+            Assert.That(after.Head.FriendlyName, Is.EqualTo("PROJ-123"));
+            Assert.That(after.Head.IsTracking, Is.True, "원격을 추적하도록 붙여야 합니다");
+        }
     }
 }

@@ -1129,6 +1129,56 @@ namespace DBVC.Core
         }
 
         /// <summary>
+        /// 브랜치를 갈아탄다. 미커밋 변경이 하나라도 있으면 거부한다 - 겹치지 않는 변경은
+        /// libgit2의 checkout이 조용히 다음 브랜치로 이어 붙이는데, 그것이 이 기능을 처음에
+        /// 도구에서 뺐던 사고이다. 그래서 CheckoutConflictException에 기대지 않고
+        /// RetrieveStatus로 직접 먼저 세어, 하나라도 있으면 checkout을 시도조차 하지 않는다.
+        /// </summary>
+        public BranchResult SwitchBranch(string serverName, string databaseName, string branchName)
+        {
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null) return BranchResult.Fail("이 데이터베이스에 연결된 저장소가 없습니다.");
+
+            EnsureAllowed(serverName, databaseName, DbvcOperation.SwitchBranch);
+
+            using var repo = new Repository(repoPath);
+
+            // 경로 구분자는 저장소 규약(ObjectPathConvention)대로 '/'로 통일한다 - Windows에서
+            // libgit2가 '\'를 낼 수 있는데, 화면은 이 목록을 그대로 보여 준다.
+            var blocking = repo.RetrieveStatus(UntrackedInclusiveOptions)
+                .Where(e => e.State != FileStatus.Ignored && e.State != FileStatus.Unaltered)
+                .Select(e => e.FilePath.Replace('\\', '/'))
+                .OrderBy(p => p, StringComparer.Ordinal)
+                .ToList();
+
+            if (blocking.Count > 0)
+            {
+                return BranchResult.Fail(
+                    "커밋되지 않은 변경이 있어 브랜치를 바꿀 수 없습니다. " +
+                    "먼저 커밋하거나 되돌린 뒤 다시 시도하세요.",
+                    blocking);
+            }
+
+            var target = repo.Branches[branchName];
+
+            if (target == null)
+            {
+                // 원격에만 있는 이름이면 그것을 추적하는 로컬 브랜치를 만든다.
+                var remote = repo.Branches
+                    .FirstOrDefault(b => b.IsRemote && StripRemotePrefix(b.FriendlyName) == branchName);
+
+                if (remote == null)
+                    return BranchResult.Fail($"'{branchName}' 브랜치를 찾을 수 없습니다.");
+
+                var created = repo.CreateBranch(branchName, remote.Tip);
+                target = repo.Branches.Update(created, b => b.TrackedBranch = remote.CanonicalName);
+            }
+
+            Commands.Checkout(repo, target);
+            return BranchResult.Ok();
+        }
+
+        /// <summary>
         /// 매핑의 mode가 이 연산을 허용하지 않으면 던진다. 화면의 CanExecute와 같은 함수를
         /// 쓰는 것이 규약이다 - 판정이 두 곳에 생기면 언젠가 갈라진다.
         /// </summary>
