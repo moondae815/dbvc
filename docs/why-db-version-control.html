@@ -69,6 +69,9 @@
 
   * { box-sizing: border-box; }
 
+  /* 목차가 상단에 붙어 있으므로, 앵커로 뛰면 그 높이만큼 제목이 가린다. */
+  html { scroll-behavior: smooth; scroll-padding-top: 78px; }
+
   body {
     background: var(--paper);
     color: var(--ink);
@@ -173,6 +176,36 @@
     font-size: 14.5px;
     line-height: 1.55;
     color: var(--ink);
+  }
+
+  /* ── 목차 ─────────────────────────────────────── */
+
+  nav.toc {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--paper);
+    border-bottom: 1px solid var(--rule);
+  }
+  nav.toc .wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 18px;
+    padding-block: 11px;
+  }
+  nav.toc a {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-2);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  nav.toc a:hover { color: var(--accent); }
+  nav.toc .sep {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--rule-strong);
   }
 
   /* ── 절 ───────────────────────────────────────── */
@@ -603,7 +636,12 @@
     margin-right: 10px;
   }
 
+  @media print {
+    nav.toc { display: none; }
+  }
+
   @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
     * { animation: none !important; transition: none !important; }
   }
 </style>
@@ -639,6 +677,30 @@
     </dl>
   </div>
 </header>
+
+<!--
+  절 이름은 각 절의 eyebrow를 그대로 쓴다 — 이 문서가 이미 쓰고 있는 어휘이고,
+  h2를 잘라 넣는 것보다 짧으면서 무엇을 다루는 절인지 더 정확하다.
+-->
+<nav class="toc">
+  <div class="wrap">
+    <a href="#observation">관찰</a>
+    <span class="sep">/</span>
+    <a href="#scenes">장면</a>
+    <span class="sep">/</span>
+    <a href="#cost">반론</a>
+    <span class="sep">/</span>
+    <a href="#how">구조</a>
+    <span class="sep">/</span>
+    <a href="#drift">도입</a>
+    <span class="sep">/</span>
+    <a href="#dba">점검</a>
+    <span class="sep">/</span>
+    <a href="#limits">경계</a>
+    <span class="sep">/</span>
+    <a href="#decide">결정</a>
+  </div>
+</nav>
 
 <main>
 
