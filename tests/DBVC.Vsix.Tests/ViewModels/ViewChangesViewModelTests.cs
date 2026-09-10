@@ -1646,6 +1646,33 @@ namespace DBVC.Vsix.Tests.ViewModels
                 Times.Never);
         }
 
+        [Test]
+        public void PushCommand_AsksBeforeSettingUpstream_WhenBranchHasNoUpstream()
+        {
+            _git.Setup(g => g.PushChanges(Server, Database, false)).Returns(PushResult.NoUpstream);
+            _git.Setup(g => g.PushChanges(Server, Database, true)).Returns(PushResult.Pushed);
+            _notifier.ConfirmResult = true;
+            var vm = NewConnectedViewModel();
+
+            vm.PushCommand.Execute(null);
+
+            Assert.That(_notifier.ConfirmCalls.Single().Message, Does.Contain("추적"),
+                "무엇을 바꾸는지 먼저 말해야 합니다");
+            _git.Verify(g => g.PushChanges(Server, Database, true), Times.Once);
+        }
+
+        [Test]
+        public void PushCommand_DoesNotSetUpstream_WhenUserDeclines()
+        {
+            _git.Setup(g => g.PushChanges(Server, Database, false)).Returns(PushResult.NoUpstream);
+            _notifier.ConfirmResult = false;
+            var vm = NewConnectedViewModel();
+
+            vm.PushCommand.Execute(null);
+
+            _git.Verify(g => g.PushChanges(Server, Database, true), Times.Never);
+        }
+
         // ---------- 원격 확인 ----------
 
         [Test]

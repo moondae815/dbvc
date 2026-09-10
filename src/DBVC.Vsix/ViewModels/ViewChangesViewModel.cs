@@ -1164,6 +1164,25 @@ namespace DBVC.Vsix.ViewModels
                     _notifier.ShowInfo("DBVC Push", "커밋을 원격 저장소에 올렸습니다.");
                     break;
 
+                case PushResult.NoUpstream:
+                    // 원래 설계는 "버튼 하나가 사용자의 git config를 조용히 바꾸면 안 된다"는
+                    // 이유로 추적 설정 자체를 하지 않았다. 지금 지키는 것은 그 원칙("조용히"
+                    // 바뀌면 안 된다)이지 "설정하지 않는다"가 아니다 - Push를 누른 것 자체가
+                    // 이 브랜치를 원격에 두고 싶다는 뜻이므로, 무엇이 바뀌는지 밝히고 동의를
+                    // 받은 뒤에만 두 번째 Push(setUpstream: true)로 이어간다.
+                    var branch = CurrentBranch ?? "현재 브랜치";
+                    var ok = _notifier.Confirm(
+                        "DBVC Push",
+                        $"'{branch}' 브랜치는 아직 원격에 없습니다." + Environment.NewLine +
+                        $"원격에 '{branch}'를 만들고 이 브랜치가 그것을 추적하도록 설정합니다." + Environment.NewLine +
+                        Environment.NewLine +
+                        "이 저장소의 .git/config만 바뀌며 다른 저장소에는 영향이 없습니다.");
+
+                    if (!ok) return;
+
+                    PushWithUpstream();
+                    return;
+
                 default:
                     // Pull()의 default와 같은 이유다 - 컴파일러가 놓친 case를 잡아주지 않으므로
                     // 새 열거값이 추가되면 조용히 지나치지 않고 여기서 드러나야 한다.
@@ -1171,6 +1190,29 @@ namespace DBVC.Vsix.ViewModels
             }
 
             RaiseActionCanExecuteChanged();
+        }
+
+        /// <summary>
+        /// 확인을 받은 뒤의 두 번째 Push. Push()와 같은 배선을 쓰되 setUpstream만 참이다 -
+        /// 여기서 다시 NoUpstream이 오는 일은 없으므로 그 갈래를 타지 않는다.
+        /// </summary>
+        private void PushWithUpstream()
+        {
+            var server = ServerName!;
+            var database = DatabaseName!;
+
+            IsBusy = true;
+            ProgressText = "원격에 브랜치를 만드는 중...";
+
+            _scheduler.Run(
+                () => _gitManager.PushChanges(server, database, setUpstream: true),
+                ApplyPushResult,
+                ex =>
+                {
+                    IsBusy = false;
+                    ProgressText = null;
+                    _notifier.ShowError("DBVC Push 실패", ex.Message);
+                });
         }
 
         // ---------- 브랜치 ----------
