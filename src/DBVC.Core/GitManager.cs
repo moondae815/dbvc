@@ -1054,6 +1054,42 @@ namespace DBVC.Core
             }
         }
 
+        /// <summary>
+        /// 로컬 브랜치와 원격 전용 브랜치를 한 벌로 낸다. 매핑이 없으면 빈 목록이다.
+        /// 마지막 fetch 기준의 로컬 값이며 네트워크를 쓰지 않는다 - '원격 확인'과 같은 규칙이다.
+        /// </summary>
+        public IReadOnlyList<BranchInfo> GetBranches(string serverName, string databaseName)
+        {
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null) return Array.Empty<BranchInfo>();
+
+            using var repo = new Repository(repoPath);
+
+            var locals = repo.Branches
+                .Where(b => !b.IsRemote)
+                .Select(b => new BranchInfo
+                {
+                    Name = b.FriendlyName,
+                    IsCurrent = b.IsCurrentRepositoryHead,
+                    IsRemoteOnly = false
+                })
+                .ToList();
+
+            var localNames = new HashSet<string>(locals.Select(b => b.Name), StringComparer.Ordinal);
+
+            // origin/HEAD는 실제 브랜치가 아니라 기본 브랜치를 가리키는 심볼릭 참조다.
+            // 목록에 넣으면 고를 수 없는 항목이 하나 생긴다.
+            var remotes = repo.Branches
+                .Where(b => b.IsRemote)
+                .Select(b => b.FriendlyName)
+                .Select(StripRemotePrefix)
+                .Where(name => name != null && name != "HEAD" && !localNames.Contains(name!))
+                .Distinct(StringComparer.Ordinal)
+                .Select(name => new BranchInfo { Name = name!, IsCurrent = false, IsRemoteOnly = true });
+
+            return locals.Concat(remotes).OrderBy(b => b.Name, StringComparer.Ordinal).ToList();
+        }
+
         private static string? ReadBlobText(Commit commit, string path)
         {
             var entry = commit?[path];
@@ -1071,6 +1107,13 @@ namespace DBVC.Core
             if (_configManager == null) return null;
             var repoPath = _configManager.GetMapping(serverName, databaseName);
             return string.IsNullOrWhiteSpace(repoPath) ? null : repoPath;
+        }
+
+        /// <summary>"origin/PROJ-1" → "PROJ-1". 슬래시가 없으면 null이다.</summary>
+        private static string? StripRemotePrefix(string friendlyName)
+        {
+            var slash = friendlyName.IndexOf('/');
+            return slash < 0 ? null : friendlyName.Substring(slash + 1);
         }
 
         private static bool IsValidRepository(string repoPath)

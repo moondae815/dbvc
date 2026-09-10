@@ -2352,5 +2352,33 @@ namespace DBVC.Core.Tests
             Assert.That(File.ReadAllText(full), Is.EqualTo("-- 잘못 추출된 내용"),
                 "잠금이 걸린 동안에는 파일이 바뀌지 않았어야 한다");
         }
+
+        // ---------- GetBranches ----------
+
+        [Test]
+        public void GetBranches_MarksCurrent_WhenRepositoryHasSeveralBranches()
+        {
+            var path = NewRepoWithCommit();
+            using (var repo = new Repository(path))
+            {
+                repo.CreateBranch("PROJ-123");
+            }
+            var git = NewGitManager("localhost", "testdb", path);
+
+            var branches = git.GetBranches("localhost", "testdb");
+
+            var current = branches.Single(b => b.IsCurrent);
+            Assert.That(branches.Select(b => b.Name), Does.Contain("PROJ-123"));
+            Assert.That(current.Name, Is.Not.EqualTo("PROJ-123"),
+                "CreateBranch는 체크아웃하지 않으므로 HEAD는 그대로여야 합니다");
+        }
+
+        [Test]
+        public void GetBranches_ReturnsEmpty_WhenDatabaseIsNotMapped()
+        {
+            var git = NewGitManager("localhost", "other", NewRepoWithCommit());
+
+            Assert.That(git.GetBranches("localhost", "testdb"), Is.Empty);
+        }
     }
 }

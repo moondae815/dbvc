@@ -132,6 +132,12 @@ namespace DBVC.Core
         /// </summary>
         DiscardResult DiscardChanges(string serverName, string databaseName, IEnumerable<string> relativePaths);
         PullResult PullChanges(string serverName, string databaseName);
+
+        /// <summary>
+        /// 로컬 브랜치와 원격 전용 브랜치를 한 벌로 낸다. 매핑이 없으면 빈 목록이다.
+        /// 마지막 fetch 기준의 로컬 값이며 네트워크를 쓰지 않는다 - '원격 확인'과 같은 규칙이다.
+        /// </summary>
+        IReadOnlyList<BranchInfo> GetBranches(string serverName, string databaseName);
         PushResult PushChanges(string serverName, string databaseName);
         bool HasCommitsToPush(string serverName, string databaseName);
 
