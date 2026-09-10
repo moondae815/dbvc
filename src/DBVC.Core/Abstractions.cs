@@ -150,7 +150,12 @@ namespace DBVC.Core
         /// 로컬에 없고 원격에만 있는 이름이면 그것을 추적하는 로컬 브랜치를 만들어 붙는다.
         /// </summary>
         BranchResult SwitchBranch(string serverName, string databaseName, string branchName);
-        PushResult PushChanges(string serverName, string databaseName);
+        /// <summary>
+        /// 로컬 커밋을 원격에 올린다. 추적 중인 원격 브랜치가 없으면
+        /// <see cref="PushResult.NoUpstream"/>을 돌려주고 아무것도 하지 않는다.
+        /// <paramref name="setUpstream"/>이 true이면 원격에 브랜치를 만들고 추적을 설정한다.
+        /// </summary>
+        PushResult PushChanges(string serverName, string databaseName, bool setUpstream = false);
         bool HasCommitsToPush(string serverName, string databaseName);
 
         /// <summary>

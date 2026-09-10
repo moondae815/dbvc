@@ -678,7 +678,7 @@ namespace DBVC.Core
         /// Push가 "올릴 커밋이 없습니다"를 정확히 판정하는 이유이기도 하다 - 실패하면 그마저도
         /// 바뀌지 않는다. 잃을 것이 없으므로 Pull의 AbortMerge에 해당하는 복구 경로가 없다.
         /// </summary>
-        public PushResult PushChanges(string serverName, string databaseName)
+        public PushResult PushChanges(string serverName, string databaseName, bool setUpstream = false)
         {
             var repoPath = ResolveRepoPath(serverName, databaseName);
             if (repoPath == null) return PushResult.NoMapping;
@@ -688,6 +688,30 @@ namespace DBVC.Core
             EnsureAllowed(serverName, databaseName, DbvcOperation.Push);
 
             using var repo = new Repository(repoPath);
+
+            // 공용 검사보다 먼저 본다. ValidateRemoteAndBuildGuidance는 추적이 없으면
+            // 예외를 던지는데, Push에서는 그것이 오류가 아니라 "첫 Push"라는 정상 상태다.
+            // Pull은 그대로 던진다 - 추적이 없으면 받아올 대상 자체가 없어 안내가 종착점이다.
+            if (!repo.Head.IsTracking && repo.Network.Remotes.Any())
+            {
+                if (!setUpstream) return PushResult.NoUpstream;
+
+                var remote = ResolvePushRemote(repo);
+                if (remote == null)
+                {
+                    throw new GitRemoteNotConfiguredException(
+                        $"'{repoPath}' 저장소에 원격이 여럿이라 어디에 올릴지 정할 수 없습니다. " +
+                        "Git 클라이언트에서 'git push -u <원격> " + repo.Head.FriendlyName + "'을 한 번 실행하세요.");
+                }
+
+                var branch = repo.Head;
+                var pushOptions = BuildPushOptions(() => { }, _ => { });
+                repo.Network.Push(remote, branch.CanonicalName + ":" + branch.CanonicalName, pushOptions);
+                repo.Branches.Update(branch,
+                    b => b.Remote = remote.Name,
+                    b => b.UpstreamBranch = branch.CanonicalName);
+                return PushResult.Pushed;
+            }
 
             var guidance = ValidateRemoteAndBuildGuidance(repo, repoPath, "Push");
 
@@ -765,6 +789,19 @@ namespace DBVC.Core
                 "원인은 보통 둘 중 하나입니다." + Environment.NewLine +
                 "- 원격에 로컬로 가져오지 않은 커밋이 있습니다. Pull을 먼저 하세요." + Environment.NewLine +
                 "- 이 브랜치가 보호되어 있거나 밀어넣을 권한이 없습니다.";
+        }
+
+        /// <summary>
+        /// 추적이 없는 브랜치를 올릴 원격을 고른다. origin이 있으면 그것, 없고 원격이 하나뿐이면
+        /// 그것, 여럿이면 null이다 - 도구가 임의로 고르면 엉뚱한 곳에 브랜치가 생긴다.
+        /// </summary>
+        private static Remote? ResolvePushRemote(Repository repo)
+        {
+            var origin = repo.Network.Remotes["origin"];
+            if (origin != null) return origin;
+
+            var all = repo.Network.Remotes.ToList();
+            return all.Count == 1 ? all[0] : null;
         }
 
         /// <summary>

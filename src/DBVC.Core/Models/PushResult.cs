@@ -13,6 +13,12 @@ namespace DBVC.Core.Models
         NothingToPush,
 
         /// <summary>커밋을 원격에 올렸다.</summary>
-        Pushed
+        Pushed,
+
+        /// <summary>
+        /// 현재 브랜치에 추적 중인 원격 브랜치가 없다. 오류가 아니라 새 브랜치의 첫 Push다.
+        /// 화면이 확인을 받아 setUpstream: true로 다시 부른다.
+        /// </summary>
+        NoUpstream
     }
 }

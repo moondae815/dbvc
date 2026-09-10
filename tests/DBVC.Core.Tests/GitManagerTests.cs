@@ -1345,28 +1345,45 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
-        public void PushChanges_ExplainsInKorean_WhenTheCurrentBranchHasNoUpstream()
+        public void PushChanges_ReturnsNoUpstream_WhenTheCurrentBranchHasNoUpstream()
         {
-            // git init한 폴더를 매핑하면 실제로 나오는 상태다. 추적을 대신 설정하지 않고 안내만 한다.
+            // 0.5.21까지는 GitRemoteNotConfiguredException으로 막고 터미널로 돌려보냈다.
+            // 첫 Push는 예외적 사건이 아니라 정상 흐름이므로 결과값으로 낸다 - 화면이 확인을
+            // 받아 setUpstream: true로 다시 부른다.
             var originPath = NewRepoWithCommit();
             var localPath = NewRepoWithCommit();
-
-            // 기본 브랜치 이름을 하드코딩하면 안 된다. init.defaultBranch가 설정되지 않은 환경
-            // (GitHub Actions 러너 등)에서는 master가 되어 개발 기계에서만 통과하는 테스트가 된다.
-            string branchName;
             using (var local = new Repository(localPath))
             {
                 local.Network.Remotes.Add("origin", originPath);
-                branchName = local.Head.FriendlyName;
             }
 
             var git = NewGitManager("localhost", "testdb", localPath);
 
-            var ex = Assert.Throws<GitRemoteNotConfiguredException>(() => git.PushChanges("localhost", "testdb"));
+            Assert.That(git.PushChanges("localhost", "testdb"), Is.EqualTo(PushResult.NoUpstream));
+        }
 
-            Assert.That(ex!.Message, Does.Contain("추적"));
-            Assert.That(ex.Message, Does.Contain($"git push -u origin {branchName}"),
-                "사용자가 그대로 실행할 수 있는 명령을 줘야 합니다");
+        [Test]
+        public void PushChanges_SetsUpstream_WhenSetUpstreamIsTrue()
+        {
+            var (localPath, originPath) = NewClonedRepoWithBareOrigin();
+            string branchName;
+            using (var local = new Repository(localPath))
+            {
+                var created = local.CreateBranch("PROJ-123");
+                Commands.Checkout(local, created);
+                branchName = created.FriendlyName;
+                Assert.That(local.Head.IsTracking, Is.False, "전제: 아직 추적이 없습니다");
+            }
+
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var result = git.PushChanges("localhost", "testdb", setUpstream: true);
+
+            Assert.That(result, Is.EqualTo(PushResult.Pushed));
+            using var after = new Repository(localPath);
+            Assert.That(after.Head.IsTracking, Is.True);
+            using var origin = new Repository(originPath);
+            Assert.That(origin.Branches[branchName], Is.Not.Null, "원격에 브랜치가 생겨야 합니다");
         }
 
         [Test]
