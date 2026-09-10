@@ -138,6 +138,12 @@ namespace DBVC.Core
         /// 마지막 fetch 기준의 로컬 값이며 네트워크를 쓰지 않는다 - '원격 확인'과 같은 규칙이다.
         /// </summary>
         IReadOnlyList<BranchInfo> GetBranches(string serverName, string databaseName);
+
+        /// <summary>
+        /// HEAD에서 브랜치를 만들고 체크아웃한다. 작업 트리는 바뀌지 않으므로
+        /// 미커밋 변경이 있어도 안전하다.
+        /// </summary>
+        BranchResult CreateBranch(string serverName, string databaseName, string branchName);
         PushResult PushChanges(string serverName, string databaseName);
         bool HasCommitsToPush(string serverName, string databaseName);
 

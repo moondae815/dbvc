@@ -685,11 +685,7 @@ namespace DBVC.Core
 
             // 커밋을 막아도 그 전에 만들어진 로컬 커밋이 남아 있을 수 있다 - Push까지 막지
             // 않으면 커밋 차단이 우회로를 하나 남기는 셈이다.
-            var mapping = _configManager?.TryGetMapping(serverName, databaseName);
-            if (mapping != null && !MappingPolicy.IsAllowed(mapping.Mode, DbvcOperation.Push))
-            {
-                throw new OperationNotAllowedException(mapping.Mode, DbvcOperation.Push);
-            }
+            EnsureAllowed(serverName, databaseName, DbvcOperation.Push);
 
             using var repo = new Repository(repoPath);
 
@@ -1095,6 +1091,53 @@ namespace DBVC.Core
             {
                 Debug.WriteLine($"GitManager.GetBranches failed for '{serverName}/{databaseName}': {ex.Message}");
                 return Array.Empty<BranchInfo>();
+            }
+        }
+
+        /// <summary>
+        /// HEAD에서 브랜치를 만들고 체크아웃한다. HEAD에 이름표를 하나 더 붙이는 것뿐이라
+        /// 작업 트리·인덱스를 건드리지 않는다 - 그래서 미커밋 변경이 있어도 안전하다.
+        /// </summary>
+        public BranchResult CreateBranch(string serverName, string databaseName, string branchName)
+        {
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null) return BranchResult.Fail("이 데이터베이스에 연결된 저장소가 없습니다.");
+
+            EnsureAllowed(serverName, databaseName, DbvcOperation.CreateBranch);
+
+            if (string.IsNullOrWhiteSpace(branchName))
+                return BranchResult.Fail("브랜치 이름을 입력하세요.");
+
+            using var repo = new Repository(repoPath);
+
+            if (repo.Branches[branchName] != null)
+                return BranchResult.Fail($"'{branchName}' 브랜치가 이미 있습니다. 다른 이름을 쓰거나 전환하세요.");
+
+            try
+            {
+                var created = repo.CreateBranch(branchName);
+                Commands.Checkout(repo, created);
+            }
+            catch (LibGit2SharpException ex)
+            {
+                // 이름 규칙 위반(공백, .. 등)은 libgit2가 영문으로 거부한다. 원문을 함께 싣는다 -
+                // 무엇이 잘못된 글자인지는 그쪽이 더 정확히 말한다.
+                return BranchResult.Fail($"'{branchName}' 브랜치를 만들지 못했습니다. {ex.Message}");
+            }
+
+            return BranchResult.Ok();
+        }
+
+        /// <summary>
+        /// 매핑의 mode가 이 연산을 허용하지 않으면 던진다. 화면의 CanExecute와 같은 함수를
+        /// 쓰는 것이 규약이다 - 판정이 두 곳에 생기면 언젠가 갈라진다.
+        /// </summary>
+        private void EnsureAllowed(string serverName, string databaseName, DbvcOperation operation)
+        {
+            var mapping = _configManager?.TryGetMapping(serverName, databaseName);
+            if (mapping != null && !MappingPolicy.IsAllowed(mapping.Mode, operation))
+            {
+                throw new OperationNotAllowedException(mapping.Mode, operation);
             }
         }
 

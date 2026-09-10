@@ -2432,5 +2432,48 @@ namespace DBVC.Core.Tests
             Assert.That(matches.Count, Is.EqualTo(1));
             Assert.That(matches[0].IsRemoteOnly, Is.True);
         }
+
+        // ---------- CreateBranch ----------
+
+        [Test]
+        public void CreateBranch_KeepsWorkingTree_WhenTreeIsDirty()
+        {
+            // HEAD에서 만드는 것은 같은 커밋에 이름표를 붙이는 일이라 트리를 건드리지 않는다.
+            var path = NewRepoWithCommit();
+            WriteRepoFile(path, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);");
+            var git = NewGitManager("localhost", "testdb", path);
+
+            var result = git.CreateBranch("localhost", "testdb", "PROJ-123");
+
+            Assert.That(result.Succeeded, Is.True, result.Message);
+            Assert.That(File.Exists(Path.Combine(path, "dbo", "Tables", "Orders.sql")), Is.True,
+                "미커밋 파일이 그대로 있어야 합니다");
+            using var repo = new Repository(path);
+            Assert.That(repo.Head.FriendlyName, Is.EqualTo("PROJ-123"));
+        }
+
+        [Test]
+        public void CreateBranch_Refuses_WhenBranchAlreadyExists()
+        {
+            var path = NewRepoWithCommit();
+            using (var repo = new Repository(path)) repo.CreateBranch("PROJ-123");
+            var git = NewGitManager("localhost", "testdb", path);
+
+            var result = git.CreateBranch("localhost", "testdb", "PROJ-123");
+
+            Assert.That(result.Succeeded, Is.False);
+            Assert.That(result.Message, Does.Contain("이미"));
+        }
+
+        [Test]
+        public void CreateBranch_Throws_WhenModeIsAudit()
+        {
+            // PushChanges_Throws_WhenModeIsAudit이 쓰는 헬퍼와 같은 것이다.
+            // 서버·DB 이름은 그 헬퍼가 정하므로 상수 Server/Database를 쓴다.
+            NewRepositoryWithCommit(out _, out var git, MappingMode.Audit);
+
+            Assert.Throws<OperationNotAllowedException>(
+                () => git.CreateBranch(Server, Database, "PROJ-123"));
+        }
     }
 }
