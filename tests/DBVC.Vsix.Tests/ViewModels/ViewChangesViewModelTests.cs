@@ -1678,10 +1678,14 @@ namespace DBVC.Vsix.Tests.ViewModels
         [Test]
         public void PushCommand_RaisesCanExecuteChanged_WhenUserDeclinesUpstreamPrompt()
         {
-            // RelayCommand는 CommandManager.RequerySuggested를 구독하지 않는다 - 거절 갈래가
-            // 다른 case들처럼 아래쪽 RaiseActionCanExecuteChanged()를 거치지 않고 곧장
-            // return하면, IsBusy는 이미 내려갔어도 그 사실이 버튼에 전해지지 않아
-            // Push·Pull·브랜치 버튼이 다른 동작이 있을 때까지 회색으로 남는다.
+            // RelayCommand는 CommandManager.RequerySuggested를 구독하지 않는다. 거절 갈래는
+            // switch의 공용 RaiseActionCanExecuteChanged() 호출 없이 곧장 return하지만, 그래도
+            // 버튼은 잠기지 않는다 - ApplyPushResult 맨 위의 IsBusy = false가 BusyState.Changed를
+            // 태우고, 그 이벤트를 생성자가 RaiseActionCanExecuteChanged()에 직접 묶어 두었기
+            // 때문이다(BusyState.cs, ViewChangesViewModel 생성자의 Busy.Changed 구독 참고).
+            // 이 테스트는 그 사용자 눈에 보이는 결과(거절 뒤에도 버튼을 다시 누를 수 있다)를
+            // 고정한다 - 나중에 그 재발행 경로가 BusyState 밖으로 옮겨지면 이 테스트가 조용히
+            // 깨지는 대신 시끄럽게 실패해야 한다.
             _git.Setup(g => g.PushChanges(Server, Database, false)).Returns(PushResult.NoUpstream);
             _notifier.ConfirmResult = false;
             var vm = NewConnectedViewModel();
