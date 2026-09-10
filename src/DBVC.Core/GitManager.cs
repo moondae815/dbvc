@@ -704,9 +704,56 @@ namespace DBVC.Core
                         "Git 클라이언트에서 'git push -u <원격> " + repo.Head.FriendlyName + "'을 한 번 실행하세요.");
                 }
 
+                // ValidateRemoteAndBuildGuidance는 못 쓴다 - !repo.Head.IsTracking에서 던지는데
+                // 그 상태가 바로 이 갈래의 존재 이유다. ssh 판정 로직만 떼어 재사용한다.
+                //
+                // 아래 변수들은 이름이 뒤(공용 경로)의 guidance/requiresUserCredentials/pushErrors와
+                // 겹친다. 두 if 갈래가 같은 메서드 몸체 블록 안에 있어 CS0136(범위 충돌)에 걸리므로
+                // upstream 접두사로 구분한다 - 의미가 갈라져서가 아니라 컴파일러 제약 때문이다.
+                var upstreamGuidance = BuildGuidanceForRemoteUrl(repo, remote.Url);
+
                 var branch = repo.Head;
-                var pushOptions = BuildPushOptions(() => { }, _ => { });
-                repo.Network.Push(remote, branch.CanonicalName + ":" + branch.CanonicalName, pushOptions);
+                var upstreamRequiresUserCredentials = false;
+                var upstreamPushErrors = new List<PushStatusError>();
+                var pushOptions = BuildPushOptions(
+                    () => upstreamRequiresUserCredentials = true,
+                    error => upstreamPushErrors.Add(error));
+
+                try
+                {
+                    repo.Network.Push(remote, branch.CanonicalName + ":" + branch.CanonicalName, pushOptions);
+                }
+                // 아래 세 catch의 순서는 기존 Push 경로와 같은 이유로 정확성이다 - NonFastForwardException은
+                // LibGit2SharpException의 파생 타입이므로 반드시 먼저 잡는다.
+                catch (NonFastForwardException ex)
+                {
+                    throw new GitPushRejectedException(
+                        BuildPushRejectionMessage(upstreamPushErrors.Count > 0 ? upstreamPushErrors[0] : null), ex);
+                }
+                catch (LibGit2SharpException ex) when (upstreamRequiresUserCredentials)
+                {
+                    throw new GitAuthenticationException(
+                        $"'{repoPath}' 저장소의 원격이 사용자 자격 증명을 요구합니다." +
+                        Environment.NewLine + Environment.NewLine +
+                        (upstreamGuidance ?? CredentialFallbackMessage), ex);
+                }
+                catch (LibGit2SharpException ex) when (upstreamGuidance != null)
+                {
+                    throw new GitRemoteException(
+                        ex.Message + Environment.NewLine + Environment.NewLine + upstreamGuidance, ex);
+                }
+
+                // 서버가 상태로 거부를 보고하는 경로다(smart 전송 - SSH·HTTPS). 이 검사가 없으면
+                // Network.Push가 정상 반환한 것을 성공으로 읽어, 존재하지 않는 원격 브랜치를
+                // 추적한다고 로컬 설정에 거짓을 남기게 된다.
+                if (upstreamPushErrors.Count > 0)
+                {
+                    throw new GitPushRejectedException(BuildPushRejectionMessage(upstreamPushErrors[0]));
+                }
+
+                // 추적은 Push가 실제로 성공했음을 확인한 뒤에만 설정한다 - 먼저 설정하면 거부된
+                // Push 뒤에도 존재하지 않는(또는 이 커밋을 담지 않은) 원격 브랜치를 추적한다고
+                // 거짓말하는 상태가 된다.
                 repo.Branches.Update(branch,
                     b => b.Remote = remote.Name,
                     b => b.UpstreamBranch = branch.CanonicalName);
@@ -843,6 +890,17 @@ namespace DBVC.Core
             var remoteName = repo.Head.RemoteName;
             var remoteUrl = string.IsNullOrEmpty(remoteName) ? null : repo.Network.Remotes[remoteName]?.Url;
 
+            return BuildGuidanceForRemoteUrl(repo, remoteUrl);
+        }
+
+        /// <summary>
+        /// ssh 가용성을 반영해 원격 URL 하나에 대한 안내를 만든다. <see cref="ValidateRemoteAndBuildGuidance"/>와
+        /// 첫 Push 경로(아직 추적이 없어 그 메서드의 선행조건 - <c>!repo.Head.IsTracking</c> - 을 통과하지
+        /// 못하는 경우)가 공유한다. ssh 판정 로직을 두 곳에 복제하면 한쪽만 core.sshCommand를 반영하고
+        /// 다른 쪽은 안 반영하는 식으로 갈라지는 일이 실제로 일어난다.
+        /// </summary>
+        private static string? BuildGuidanceForRemoteUrl(Repository repo, string? remoteUrl)
+        {
             // SshExecutableLocator만으로는 부족하다 - libgit2의 ssh_exec 전송은 GIT_SSH(_COMMAND) 외에
             // core.sshCommand 설정값도 읽는다. OpenSSH 선택적 기능이 꺼져 있어도 Git for Windows의
             // ssh.exe를 core.sshCommand로 가리키는 구성(사내 PC에서 흔함)은 실제로 SSH가 되므로 여기서 함께 본다.

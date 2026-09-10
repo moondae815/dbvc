@@ -1387,6 +1387,53 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void PushChanges_ThrowsGitPushRejectedException_WhenSetUpstreamAndTheRemoteBranchAlreadyDiverged()
+        {
+            // "첫 Push"라고 믿고 setUpstream: true로 올렸는데, 그 사이 같은 이름의 브랜치가 원격에
+            // 이미 생겨 갈라져 있는 경우다(같은 이름을 동시에 만든 경쟁, 보호 규칙이 강제하는
+            // 별도 커밋 등). 거부됐다면 Pushed를 보고해서도, 존재하지 않는(또는 이 커밋을 담지
+            // 않은) 원격 브랜치를 추적한다고 로컬 설정에 거짓을 남겨서도 안 된다.
+            var (localPath, originPath) = NewClonedRepoWithBareOrigin();
+
+            // 다른 사람이 같은 이름의 브랜치를 원격에 먼저 만든다.
+            var otherPath = NewTempDir();
+            Repository.Clone(originPath, otherPath);
+            SeedIdentity(otherPath);
+            using (var other = new Repository(otherPath))
+            {
+                Commands.Checkout(other, other.CreateBranch("PROJ-123"));
+            }
+            CommitOneFile(otherPath, "dbo/Tables/Other.sql", "CREATE TABLE Other (Id INT);", "other change");
+            using (var other = new Repository(otherPath))
+            {
+                // other도 추적 없이 만든 브랜치이므로 Push(Branch) 오버로드(추적 요구)는 못 쓴다 -
+                // 우리 구현이 첫 Push에 쓰는 것과 같은 원격+refspec 오버로드로 올린다.
+                other.Network.Push(other.Network.Remotes["origin"], "refs/heads/PROJ-123:refs/heads/PROJ-123");
+            }
+
+            // 우리는 같은 이름을 로컬에서 독립적으로 만들고(추적 없음), 원격의 존재를 모른 채 커밋한다.
+            using (var local = new Repository(localPath))
+            {
+                Commands.Checkout(local, local.CreateBranch("PROJ-123"));
+                Assert.That(local.Head.IsTracking, Is.False, "전제: 아직 추적이 없습니다");
+            }
+            var localSha = CommitOneFile(localPath, "dbo/Tables/Mine.sql", "CREATE TABLE Mine (Id INT);", "my change");
+
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var ex = Assert.Throws<GitPushRejectedException>(
+                () => git.PushChanges("localhost", "testdb", setUpstream: true));
+
+            Assert.That(ex!.Message, Does.Contain("거부"));
+
+            using var after = new Repository(localPath);
+            Assert.That(after.Head.IsTracking, Is.False,
+                "거부된 Push가 존재하지 않는 원격 상태를 추적한다고 거짓말해서는 안 됩니다");
+            Assert.That(after.Head.Tip.Sha, Is.EqualTo(localSha),
+                "Push는 실패해도 로컬 저장소를 변경하지 않아야 합니다");
+        }
+
+        [Test]
         public void PushChanges_ReturnsNothingToPush_WhenTheRemoteIsAlreadyUpToDate()
         {
             var (localPath, _) = NewClonedRepoWithBareOrigin();
@@ -1522,6 +1569,36 @@ namespace DBVC.Core.Tests
 
             Assert.That(ex!.Message, Does.Contain("자격 증명"),
                 "GitManager.ResolveCredentials가 실제로 Network.Push의 CredentialsProvider로 호출됐어야 이 경로에 도달합니다");
+        }
+
+        [Test]
+        // 위 PushChanges_ThrowsGitAuthenticationException_WhenTheRemoteChallengesWithBasicAuth와 같은 이유로
+        // 자동 실행에서 제외한다 - Windows net48에서 HTTP.sys 인증 왕복이 무기한 걸린 전례가 있다.
+        [Explicit("Windows net48에서 무한 대기한다. 수동 실행 전용.")]
+        public void PushChanges_ThrowsGitAuthenticationException_WhenSetUpstreamAndTheRemoteChallengesWithBasicAuth()
+        {
+            // setUpstream 갈래는 추적이 없는 상태에서 시작하므로 branch.<name>.remote/merge를 미리
+            // 심어 둘 필요가 없다 - ResolvePushRemote가 "origin" 하나만 보고 그것을 고른다.
+            // 이 테스트가 지키는 것은 이 갈래도 공용 경로와 같은 방식으로 requiresUserCredentials를
+            // 전파해 GitAuthenticationException(한국어 안내 포함)으로 감싸는지다 - 콜백을 no-op으로
+            // 남겨두면(고쳐지기 전 상태) 원본 영문 LibGit2SharpException이 그대로 새어나간다.
+            using var server = new BasicAuthChallengeServer();
+            var localPath = NewRepoWithCommit();
+            using (var repo = new Repository(localPath))
+            {
+                repo.Network.Remotes.Add("origin", server.Url);
+            }
+            var git = NewGitManager("localhost", "testdb", localPath);
+
+            var ex = Assert.Throws<GitAuthenticationException>(
+                () => git.PushChanges("localhost", "testdb", setUpstream: true));
+
+            Assert.That(ex!.Message, Does.Contain("자격 증명"),
+                "GitManager.ResolveCredentials가 실제로 Network.Push의 CredentialsProvider로 호출됐어야 이 경로에 도달합니다");
+
+            using var after = new Repository(localPath);
+            Assert.That(after.Head.IsTracking, Is.False,
+                "인증에 실패한 Push가 추적을 설정해서는 안 됩니다");
         }
 
         // ---------- BuildPushOptions (콜백 배선) ----------
