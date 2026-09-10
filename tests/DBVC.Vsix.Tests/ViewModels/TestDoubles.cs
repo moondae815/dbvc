@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DBVC.Core.Models;
 using DBVC.Vsix.Services;
 
 namespace DBVC.Vsix.Tests.ViewModels
@@ -104,6 +105,21 @@ namespace DBVC.Vsix.Tests.ViewModels
             SuggestedEmail = suggestedEmail;
             WhenPrompted?.Invoke();
             return Result;
+        }
+    }
+
+    internal sealed class RecordingBranchDialog : IBranchDialog
+    {
+        public string? NewNameToReturn { get; set; }
+        public string? ExistingToReturn { get; set; }
+        public IReadOnlyList<BranchInfo>? OfferedBranches { get; private set; }
+
+        public string? AskNewName() => NewNameToReturn;
+
+        public string? AskExisting(IReadOnlyList<BranchInfo> branches)
+        {
+            OfferedBranches = branches;
+            return ExistingToReturn;
         }
     }
 

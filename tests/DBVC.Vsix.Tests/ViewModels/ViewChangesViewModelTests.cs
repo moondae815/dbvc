@@ -30,6 +30,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         private Mock<IWorkingTreeCleaner> _cleaner = null!;
         private RecordingConnectDialog _connectDialog = null!;
         private RecordingIdentityDialog _identityDialog = null!;
+        private RecordingBranchDialog _branchDialog = null!;
         private Mock<ISqlCredentialStore> _credentials = null!;
         private Mock<ISsmsConnectionSource> _ssms = null!;
         private readonly List<string> _tempDirs = new List<string>();
@@ -53,6 +54,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             _saveDialog = new RecordingSaveDialog();
             _connectDialog = new RecordingConnectDialog();
             _identityDialog = new RecordingIdentityDialog();
+            _branchDialog = new RecordingBranchDialog();
             _config = new Mock<IConfigManager>();
             _stateTracker = new Mock<IStateTracker>();
             _git = new Mock<IGitManager>();
@@ -98,7 +100,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             return new ViewChangesViewModel(
                 _config.Object, _stateTracker.Object, _git.Object, _smo.Object, _notifier, _saveDialog,
                 _cleaner.Object, _connectDialog, _credentials.Object, _ssms.Object,
-                identityDialog: _identityDialog);
+                identityDialog: _identityDialog, branchDialog: _branchDialog);
         }
 
         /// <summary>
@@ -4067,6 +4069,89 @@ namespace DBVC.Vsix.Tests.ViewModels
             _smo.Verify(s => s.ScriptObjectsDetailed(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>(),
                 It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        // ---------- 브랜치 ----------
+
+        [Test]
+        public void CreateBranchCommand_CreatesAndRefreshes_WhenNameIsGiven()
+        {
+            _branchDialog.NewNameToReturn = "PROJ-123";
+            _git.Setup(g => g.CreateBranch(Server, Database, "PROJ-123")).Returns(BranchResult.Ok());
+            var vm = NewConnectedViewModel();
+
+            vm.CreateBranchCommand.Execute(null);
+
+            _git.Verify(g => g.CreateBranch(Server, Database, "PROJ-123"), Times.Once);
+        }
+
+        [Test]
+        public void CreateBranchCommand_DoesNothing_WhenDialogIsCancelled()
+        {
+            _branchDialog.NewNameToReturn = null;
+            var vm = NewConnectedViewModel();
+
+            vm.CreateBranchCommand.Execute(null);
+
+            _git.Verify(g => g.CreateBranch(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Test]
+        public void SwitchBranchCommand_ShowsBlockingPaths_WhenTreeIsDirty()
+        {
+            _branchDialog.ExistingToReturn = "develop";
+            _git.Setup(g => g.GetBranches(Server, Database))
+                .Returns(new[] { new BranchInfo { Name = "develop" } });
+            _git.Setup(g => g.SwitchBranch(Server, Database, "develop"))
+                .Returns(BranchResult.Fail("커밋되지 않은 변경이 있어 브랜치를 바꿀 수 없습니다.",
+                    new[] { "dbo/Tables/Orders.sql" }));
+            var vm = NewConnectedViewModel();
+
+            vm.SwitchBranchCommand.Execute(null);
+
+            Assert.That(_notifier.Errors.Single(), Does.Contain("dbo/Tables/Orders.sql"),
+                "무엇이 막았는지 사용자가 바로 보여야 합니다");
+        }
+
+        [Test]
+        public void SwitchBranchCommand_SwitchesAndRefreshes_WhenSelectionIsGiven()
+        {
+            _branchDialog.ExistingToReturn = "develop";
+            _git.Setup(g => g.GetBranches(Server, Database))
+                .Returns(new[] { new BranchInfo { Name = "develop" } });
+            _git.Setup(g => g.SwitchBranch(Server, Database, "develop")).Returns(BranchResult.Ok());
+            _git.Setup(g => g.GetRepositoryState(Server, Database))
+                .Returns(new RepositoryState { CurrentBranch = "develop", BlockReason = RepositoryBlockReason.None });
+            var vm = NewConnectedViewModel();
+
+            vm.SwitchBranchCommand.Execute(null);
+
+            _git.Verify(g => g.SwitchBranch(Server, Database, "develop"), Times.Once);
+            Assert.That(vm.CurrentBranch, Is.EqualTo("develop"),
+                "브랜치가 바뀌었는데 화면이 옛 브랜치 이름을 보여주면 Diff를 오독합니다");
+        }
+
+        [Test]
+        public void SwitchBranchCommand_ShowsError_WhenNoBranchesCanBeRead()
+        {
+            _git.Setup(g => g.GetBranches(Server, Database)).Returns(Array.Empty<BranchInfo>());
+            var vm = NewConnectedViewModel();
+
+            vm.SwitchBranchCommand.Execute(null);
+
+            Assert.That(_notifier.Errors, Is.Not.Empty);
+            Assert.That(_branchDialog.OfferedBranches, Is.Null,
+                "고를 것이 없는데 대화상자를 띄우면 빈 목록만 보여줍니다");
+        }
+
+        [TestCase(MappingMode.Deploy)]
+        [TestCase(MappingMode.Audit)]
+        public void BranchCommands_CannotExecute_WhenCloneIsPinned(MappingMode mode)
+        {
+            var vm = NewViewModelForMappedTarget(mode);
+
+            Assert.That(vm.CreateBranchCommand.CanExecute(null), Is.False);
+            Assert.That(vm.SwitchBranchCommand.CanExecute(null), Is.False);
         }
     }
 }

@@ -35,6 +35,7 @@ namespace DBVC.Vsix.ViewModels
         private readonly IFileSaveDialog _saveDialog;
         private readonly IRepositoryConnectDialog _connectDialog;
         private readonly ICommitIdentityDialog _identityDialog;
+        private readonly IBranchDialog? _branchDialog;
         private readonly IWorkingTreeCleaner _cleaner;
         private readonly ScriptExporter _scriptExporter;
         private readonly IBackgroundScheduler _scheduler;
@@ -83,7 +84,8 @@ namespace DBVC.Vsix.ViewModels
             ISqlCredentialStore? credentialStore = null,
             ISsmsConnectionSource? ssmsConnectionSource = null,
             IBackgroundScheduler? scheduler = null,
-            ICommitIdentityDialog? identityDialog = null)
+            ICommitIdentityDialog? identityDialog = null,
+            IBranchDialog? branchDialog = null)
         {
             // 기본값이 인라인인 이유: 단위 테스트와 셸 밖 실행이 이 경로다.
             // 실제 도구 창에는 DbvcServices가 UI 스레드를 비우는 구현을 넣어 준다.
@@ -101,6 +103,9 @@ namespace DBVC.Vsix.ViewModels
             _cleaner = cleaner ?? new WorkingTreeCleaner();
             _connectDialog = connectDialog ?? new RepositoryConnectDialogAdapter();
             _identityDialog = identityDialog ?? new CommitIdentityDialogAdapter();
+            // 어댑터를 기본값으로 두지 않는다 - WPF 창(Task 8)이 아직 없으므로, null이면
+            // CanChangeBranch가 명령을 그냥 꺼 둔다. identityDialog와 자리는 같지만 뜻은 다르다.
+            _branchDialog = branchDialog;
             _scriptExporter = new ScriptExporter(_configManager, _gitManager);
             Deployment = new DeploymentViewModel(
                 _configManager, _gitManager, _smoManager, _scriptExporter,
@@ -124,6 +129,8 @@ namespace DBVC.Vsix.ViewModels
             ConnectRepositoryCommand = new RelayCommand(ConnectRepository, CanConnectRepository);
             PullCommand = new RelayCommand(Pull, CanPull);
             PushCommand = new RelayCommand(Push, CanPush);
+            CreateBranchCommand = new RelayCommand(CreateBranch, () => CanChangeBranch(DbvcOperation.CreateBranch));
+            SwitchBranchCommand = new RelayCommand(SwitchBranch, () => CanChangeBranch(DbvcOperation.SwitchBranch));
             GenerateDeploymentScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Deployment), CanGenerateScript);
             GenerateRollbackScriptCommand = new RelayCommand(() => GenerateScript(ScriptKind.Rollback), CanGenerateScript);
             CheckRemoteCommand = new RelayCommand(CheckRemote, CanCheckRemote);
@@ -894,6 +901,12 @@ namespace DBVC.Vsix.ViewModels
         /// <summary>로컬 저장소의 커밋을 원격 저장소에 올린다.</summary>
         public ICommand PushCommand { get; }
 
+        /// <summary>HEAD에서 새 브랜치를 만들고 체크아웃한다.</summary>
+        public ICommand CreateBranchCommand { get; }
+
+        /// <summary>기존 브랜치로 갈아탄다.</summary>
+        public ICommand SwitchBranchCommand { get; }
+
         public ICommand CheckRemoteCommand { get; }
 
         private string? _remoteStatusText;
@@ -1158,6 +1171,116 @@ namespace DBVC.Vsix.ViewModels
             }
 
             RaiseActionCanExecuteChanged();
+        }
+
+        // ---------- 브랜치 ----------
+
+        /// <summary>
+        /// 고정 브랜치가 있는 클론에서는 아예 누를 수 없다. 판정은 Core와 같은 함수를 쓴다 -
+        /// 화면이 따로 판정하면 언젠가 갈라지고, 갈라진 쪽이 이기는 날 사고가 난다.
+        /// 대화상자가 없으면(WPF 창을 아직 심지 않았으면) 눌러도 아무것도 할 수 없으므로 꺼 둔다.
+        /// </summary>
+        private bool CanChangeBranch(DbvcOperation operation) =>
+            HasContext && IsMapped && !IsBusy && _branchDialog != null
+            && MappingPolicy.IsAllowed(Mode, operation);
+
+        /// <summary>브랜치 조작의 결과와, 그 뒤 화면이 새로 그려야 할 저장소 상태를 함께 나른다.</summary>
+        private sealed class BranchOutcome
+        {
+            public BranchResult Result { get; set; } = BranchResult.Ok();
+            public RepositoryState? State { get; set; }
+        }
+
+        private void CreateBranch()
+        {
+            if (!CanChangeBranch(DbvcOperation.CreateBranch)) return;
+
+            var name = _branchDialog!.AskNewName();
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            RunBranchOperation("브랜치를 만드는 중...",
+                (server, database) => _gitManager.CreateBranch(server, database, name!));
+        }
+
+        private void SwitchBranch()
+        {
+            if (!CanChangeBranch(DbvcOperation.SwitchBranch)) return;
+
+            // 목록 읽기도 libgit2가 도는 일이지만, 대화상자를 띄우려면 UI 스레드에 값이 있어야
+            // 한다. 로컬 참조만 훑는 짧은 작업이라 여기서만 예외로 둔다 - 네트워크는 타지 않는다.
+            var branches = _gitManager.GetBranches(ServerName!, DatabaseName!);
+            if (branches.Count == 0)
+            {
+                _notifier.ShowError("DBVC 브랜치 전환", "이 저장소에서 브랜치를 읽지 못했습니다.");
+                return;
+            }
+
+            var name = _branchDialog!.AskExisting(branches);
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            RunBranchOperation("브랜치를 바꾸는 중...",
+                (server, database) => _gitManager.SwitchBranch(server, database, name!));
+        }
+
+        /// <summary>
+        /// 브랜치 조작을 UI 스레드 밖에서 돌린다. libgit2가 도는 일을 UI 스레드에서 부르면
+        /// 개체 탐색기를 붙잡는다 - 접속 판정과 저장소 상태 읽기를 백그라운드로 뺀 이유와 같다.
+        /// 상태 읽기를 같은 작업에 묶는 이유는, 성공하면 CurrentBranch가 반드시 함께 바뀌어야
+        /// 하는데 그것을 읽는 것도 저장소를 여는 일이기 때문이다.
+        /// </summary>
+        private void RunBranchOperation(string progress, Func<string, string, BranchResult> operation)
+        {
+            var server = ServerName!;
+            var database = DatabaseName!;
+
+            IsBusy = true;
+            ProgressText = progress;
+
+            _scheduler.Run(
+                () =>
+                {
+                    var result = operation(server, database);
+                    return new BranchOutcome
+                    {
+                        Result = result,
+                        State = result.Succeeded ? _gitManager.GetRepositoryState(server, database) : null
+                    };
+                },
+                ApplyBranchOutcome,
+                ex =>
+                {
+                    IsBusy = false;
+                    ProgressText = null;
+                    _notifier.ShowError("DBVC 브랜치", ex.Message);
+                });
+        }
+
+        /// <summary>
+        /// 브랜치가 바뀌면 비교 기준이 통째로 바뀐다. 변경 목록을 그대로 두면 옛 브랜치 기준의
+        /// 상태가 새 브랜치의 것인 척 남는다 - 그래서 성공하면 반드시 다시 읽는다.
+        /// UI 스레드에서만 불린다.
+        /// </summary>
+        private void ApplyBranchOutcome(BranchOutcome outcome)
+        {
+            IsBusy = false;
+            ProgressText = null;
+
+            if (!outcome.Result.Succeeded)
+            {
+                var detail = outcome.Result.BlockingPaths.Count == 0
+                    ? outcome.Result.Message
+                    : outcome.Result.Message + Environment.NewLine + Environment.NewLine +
+                      string.Join(Environment.NewLine, outcome.Result.BlockingPaths);
+                _notifier.ShowError("DBVC 브랜치", detail ?? "브랜치를 바꾸지 못했습니다.");
+                return;
+            }
+
+            // CurrentBranch는 연결 직후 한 곳에서만 대입된다. 브랜치를 바꿔 놓고 여기서
+            // 갱신하지 않으면 화면이 옛 브랜치 이름을 계속 보여 준다.
+            CurrentBranch = outcome.State?.CurrentBranch;
+
+            // 인자 없는 Refresh()는 전체 추출이 아니라 로그가 아는 것만 다시 뽑는다.
+            Refresh(fullExtraction: false);
         }
 
         // ---------- 저장소 매핑 ----------
@@ -2467,6 +2590,8 @@ namespace DBVC.Vsix.ViewModels
             (ConnectRepositoryCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (PullCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (PushCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (CreateBranchCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (SwitchBranchCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CheckRemoteCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
 
