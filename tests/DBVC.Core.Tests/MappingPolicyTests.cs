@@ -37,6 +37,23 @@ namespace DBVC.Core.Tests
             Assert.That(MappingPolicy.IsAllowed(mode, operation), Is.False);
         }
 
+        [TestCase(DbvcOperation.CreateBranch)]
+        [TestCase(DbvcOperation.SwitchBranch)]
+        public void IsAllowed_ReturnsTrue_WhenModeIsWriteAndOperationIsBranch(DbvcOperation operation)
+        {
+            Assert.That(MappingPolicy.IsAllowed(MappingMode.Write, operation), Is.True);
+        }
+
+        [TestCase(MappingMode.Deploy, DbvcOperation.CreateBranch)]
+        [TestCase(MappingMode.Deploy, DbvcOperation.SwitchBranch)]
+        [TestCase(MappingMode.Audit, DbvcOperation.CreateBranch)]
+        [TestCase(MappingMode.Audit, DbvcOperation.SwitchBranch)]
+        public void IsAllowed_ReturnsFalse_WhenBranchOperationOnPinnedClone(MappingMode mode, DbvcOperation operation)
+        {
+            // 배포·감사 클론은 고정 브랜치가 필수다. 옮기는 순간 비교 기준이 무너진다.
+            Assert.That(MappingPolicy.IsAllowed(mode, operation), Is.False);
+        }
+
         [Test]
         public void IsAllowed_DeniesCompare_WhenModeIsWrite()
         {

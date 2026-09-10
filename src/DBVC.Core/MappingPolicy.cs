@@ -21,6 +21,12 @@ namespace DBVC.Core
         /// <summary>작업 트리의 변경을 저장소의 마지막 커밋 내용으로 되돌린다.</summary>
         Discard,
 
+        /// <summary>HEAD에서 새 브랜치를 만들고 체크아웃한다.</summary>
+        CreateBranch,
+
+        /// <summary>다른 브랜치로 갈아탄다.</summary>
+        SwitchBranch,
+
         GenerateScript
     }
 
@@ -50,6 +56,13 @@ namespace DBVC.Core
                     // 배포·감사 클론이 더럽다는 것은 DBVC 밖의 무언가가 만졌다는 뜻이다
                     // (그쪽은 Extract가 금지되어 있고 CompareWithRepository는 아무것도 쓰지 않는다).
                     // 남이 만든 상태를 DBVC가 말없이 치우지 않는다.
+                    return mode == MappingMode.Write;
+
+                case DbvcOperation.CreateBranch:
+                case DbvcOperation.SwitchBranch:
+                    // 배포·감사 클론은 고정 브랜치가 필수다(MappingConfig.Branch). 브랜치를 옮기는
+                    // 순간 비교 기준이 무너지고 RepositoryStateEvaluator가 BranchMismatch로 화면을
+                    // 덮는다. 허용해도 곧바로 막히는 동작이라 표에서 먼저 끊는다.
                     return mode == MappingMode.Write;
 
                 case DbvcOperation.Compare:
@@ -92,6 +105,8 @@ namespace DBVC.Core
                 case DbvcOperation.Push: return "Push";
                 case DbvcOperation.Compare: return "차이 검사";
                 case DbvcOperation.Discard: return "작업 트리 되돌리기";
+                case DbvcOperation.CreateBranch: return "브랜치 만들기";
+                case DbvcOperation.SwitchBranch: return "브랜치 전환";
                 case DbvcOperation.GenerateScript: return "배포 스크립트 생성";
                 default: throw new InvalidOperationException($"처리되지 않은 {nameof(DbvcOperation)}: {operation}");
             }
