@@ -1063,31 +1063,39 @@ namespace DBVC.Core
             var repoPath = ResolveRepoPath(serverName, databaseName);
             if (repoPath == null) return Array.Empty<BranchInfo>();
 
-            using var repo = new Repository(repoPath);
+            try
+            {
+                using var repo = new Repository(repoPath);
 
-            var locals = repo.Branches
-                .Where(b => !b.IsRemote)
-                .Select(b => new BranchInfo
-                {
-                    Name = b.FriendlyName,
-                    IsCurrent = b.IsCurrentRepositoryHead,
-                    IsRemoteOnly = false
-                })
-                .ToList();
+                var locals = repo.Branches
+                    .Where(b => !b.IsRemote)
+                    .Select(b => new BranchInfo
+                    {
+                        Name = b.FriendlyName,
+                        IsCurrent = b.IsCurrentRepositoryHead,
+                        IsRemoteOnly = false
+                    })
+                    .ToList();
 
-            var localNames = new HashSet<string>(locals.Select(b => b.Name), StringComparer.Ordinal);
+                var localNames = new HashSet<string>(locals.Select(b => b.Name), StringComparer.Ordinal);
 
-            // origin/HEAD는 실제 브랜치가 아니라 기본 브랜치를 가리키는 심볼릭 참조다.
-            // 목록에 넣으면 고를 수 없는 항목이 하나 생긴다.
-            var remotes = repo.Branches
-                .Where(b => b.IsRemote)
-                .Select(b => b.FriendlyName)
-                .Select(StripRemotePrefix)
-                .Where(name => name != null && name != "HEAD" && !localNames.Contains(name!))
-                .Distinct(StringComparer.Ordinal)
-                .Select(name => new BranchInfo { Name = name!, IsCurrent = false, IsRemoteOnly = true });
+                // origin/HEAD는 실제 브랜치가 아니라 기본 브랜치를 가리키는 심볼릭 참조다.
+                // 목록에 넣으면 고를 수 없는 항목이 하나 생긴다.
+                var remotes = repo.Branches
+                    .Where(b => b.IsRemote)
+                    .Select(b => b.FriendlyName)
+                    .Select(StripRemotePrefix)
+                    .Where(name => name != null && name != "HEAD" && !localNames.Contains(name!))
+                    .Distinct(StringComparer.Ordinal)
+                    .Select(name => new BranchInfo { Name = name!, IsCurrent = false, IsRemoteOnly = true });
 
-            return locals.Concat(remotes).OrderBy(b => b.Name, StringComparer.Ordinal).ToList();
+                return locals.Concat(remotes).OrderBy(b => b.Name, StringComparer.Ordinal).ToList();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"GitManager.GetBranches failed for '{serverName}/{databaseName}': {ex.Message}");
+                return Array.Empty<BranchInfo>();
+            }
         }
 
         private static string? ReadBlobText(Commit commit, string path)

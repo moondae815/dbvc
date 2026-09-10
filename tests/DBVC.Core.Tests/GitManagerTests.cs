@@ -2380,5 +2380,57 @@ namespace DBVC.Core.Tests
 
             Assert.That(git.GetBranches("localhost", "testdb"), Is.Empty);
         }
+
+        [Test]
+        public void GetBranches_ExcludesOriginHead_WhenTheRemoteExposesItsSymbolicHeadReference()
+        {
+            // 일반 clone은 refs/remotes/origin/HEAD를 자동으로 만든다 - 실제 브랜치가 아니라
+            // 원격의 기본 브랜치를 가리키는 심볼릭 참조라 목록에 넣으면 고를 수 없는 항목이 하나 생긴다.
+            var (localPath, _) = NewClonedRepoWithBareOrigin();
+            var git = NewGitManager(Server, Database, localPath);
+
+            var branches = git.GetBranches(Server, Database);
+
+            Assert.That(branches.Select(b => b.Name), Does.Not.Contain("HEAD"));
+        }
+
+        [Test]
+        public void GetBranches_ReturnsBranchOnce_WhenItExistsBothLocallyAndOnTheRemote()
+        {
+            var (localPath, _) = NewClonedRepoWithBareOrigin();
+            string defaultBranch;
+            using (var local = new Repository(localPath))
+            {
+                defaultBranch = local.Head.FriendlyName;
+            }
+            var git = NewGitManager(Server, Database, localPath);
+
+            var branches = git.GetBranches(Server, Database);
+
+            var matches = branches.Where(b => b.Name == defaultBranch).ToList();
+            Assert.That(matches.Count, Is.EqualTo(1), "로컬과 원격에 같은 이름이 있으면 한 번만 나와야 합니다");
+            Assert.That(matches[0].IsRemoteOnly, Is.False);
+        }
+
+        [Test]
+        public void GetBranches_MarksRemoteOnly_WhenTheBranchExistsOnlyOnTheRemote()
+        {
+            var (localPath, originPath) = NewClonedRepoWithBareOrigin();
+            using (var origin = new Repository(originPath))
+            {
+                origin.CreateBranch("PROJ-9");
+            }
+            using (var local = new Repository(localPath))
+            {
+                Commands.Fetch(local, "origin", Array.Empty<string>(), null, null);
+            }
+            var git = NewGitManager(Server, Database, localPath);
+
+            var branches = git.GetBranches(Server, Database);
+
+            var matches = branches.Where(b => b.Name == "PROJ-9").ToList();
+            Assert.That(matches.Count, Is.EqualTo(1));
+            Assert.That(matches[0].IsRemoteOnly, Is.True);
+        }
     }
 }
