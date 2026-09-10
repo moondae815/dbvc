@@ -103,9 +103,10 @@ namespace DBVC.Vsix.ViewModels
             _cleaner = cleaner ?? new WorkingTreeCleaner();
             _connectDialog = connectDialog ?? new RepositoryConnectDialogAdapter();
             _identityDialog = identityDialog ?? new CommitIdentityDialogAdapter();
-            // 어댑터를 기본값으로 두지 않는다 - WPF 창(Task 8)이 아직 없으므로, null이면
-            // CanChangeBranch가 명령을 그냥 꺼 둔다. identityDialog와 자리는 같지만 뜻은 다르다.
-            _branchDialog = branchDialog;
+            // identityDialog와 같은 이유로 기본값을 둔다 - BranchDialogAdapter도 생성 시점에는
+            // WPF 창을 열지 않고 AskNewName/AskExisting이 불릴 때만 띄운다. null을 받는 것은
+            // 이제 단위 테스트와 비SSMS 실행뿐이고, 그 경로에서는 CanChangeBranch가 명령을 꺼 둔다.
+            _branchDialog = branchDialog ?? new BranchDialogAdapter();
             _scriptExporter = new ScriptExporter(_configManager, _gitManager);
             Deployment = new DeploymentViewModel(
                 _configManager, _gitManager, _smoManager, _scriptExporter,
@@ -1282,11 +1283,24 @@ namespace DBVC.Vsix.ViewModels
                 () =>
                 {
                     var result = operation(server, database);
-                    return new BranchOutcome
+                    RepositoryState? state = null;
+                    if (result.Succeeded)
                     {
-                        Result = result,
-                        State = result.Succeeded ? _gitManager.GetRepositoryState(server, database) : null
-                    };
+                        try
+                        {
+                            state = _gitManager.GetRepositoryState(server, database);
+                        }
+                        catch (LibGit2Sharp.LibGit2SharpException)
+                        {
+                            // 브랜치 전환 자체는 이미 끝났다. GetRepositoryState는(Pull·Push의
+                            // 형제 메서드들과 달리) 예외를 삼키지 않으므로, 동시에 도는 다른 Git
+                            // 프로세스가 쥔 index.lock 같은 일시적 오류가 여기서 그대로 올라오면
+                            // ApplyBranchOutcome이 완료된 작업을 실패로 보고하게 된다 - State가
+                            // null이면 이전 화면 값을 그대로 두고 Refresh만 돌려, 최소한 변경
+                            // 목록이 옛 브랜치 기준에 머무는 일은 없게 한다.
+                        }
+                    }
+                    return new BranchOutcome { Result = result, State = state };
                 },
                 ApplyBranchOutcome,
                 ex =>
@@ -1317,9 +1331,30 @@ namespace DBVC.Vsix.ViewModels
                 return;
             }
 
-            // CurrentBranch는 연결 직후 한 곳에서만 대입된다. 브랜치를 바꿔 놓고 여기서
-            // 갱신하지 않으면 화면이 옛 브랜치 이름을 계속 보여 준다.
-            CurrentBranch = outcome.State?.CurrentBranch;
+            // State가 null인 것은 RunBranchOperation의 상태 재조회가 일시적으로 실패했을 때뿐이다
+            // (위 주석 참고) - 그때는 이전 화면 값을 그대로 둔다. CurrentBranch만 옮기고
+            // BlockMessage를 두면, ApplyContextProbe가 같은 RepositoryState에서 늘 함께 세우는
+            // 이 둘이 여기서만 갈라져 고정 브랜치가 있는 Write 클론에서 차단 사유 없이 차단된
+            // 화면(BlockMessage=null인데 실제로는 BranchMismatch)이 정상처럼 보인다.
+            if (outcome.State != null)
+            {
+                CurrentBranch = outcome.State.CurrentBranch;
+                BlockMessage = outcome.State.BlockMessage;
+            }
+
+            // 원격 확인 숫자는 이전 브랜치의 것이다. 브랜치가 바뀌면 Pull이 줄이는 것과 달리
+            // 기준 자체가 다른 브랜치로 바뀌므로, ApplyPullResult·ApplyPushResult와 같은 이유로
+            // 지운다 - 남기면 "브랜치: PROJ-123" 옆에 develop의 앞섬·뒤처짐이 뜬다.
+            RemoteStatusText = null;
+
+            if (IsBlocked)
+            {
+                // ApplyContextProbe와 같은 이유다 - 차단 상태에서 Refresh를 돌리면 틀린 기준으로
+                // 비교한 목록이 만들어진다. 여기로 오는 것은 고정 브랜치가 있는 Write 클론에서
+                // 새 브랜치·전환이 성공한 직후 그 자체로 고정 브랜치와 어긋나게 된 경우다.
+                Changes.Clear();
+                return;
+            }
 
             // 인자 없는 Refresh()는 전체 추출이 아니라 로그가 아는 것만 다시 뽑는다.
             Refresh(fullExtraction: false);

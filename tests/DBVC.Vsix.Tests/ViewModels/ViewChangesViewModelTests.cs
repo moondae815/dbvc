@@ -4131,10 +4131,14 @@ namespace DBVC.Vsix.Tests.ViewModels
             _branchDialog.NewNameToReturn = "PROJ-123";
             _git.Setup(g => g.CreateBranch(Server, Database, "PROJ-123")).Returns(BranchResult.Ok());
             var vm = NewConnectedViewModel();
+            // Connect가 이미 한 번 RefreshState를 부른다 - 그것과 구분하려면 여기서 지운다.
+            _stateTracker.Invocations.Clear();
 
             vm.CreateBranchCommand.Execute(null);
 
             _git.Verify(g => g.CreateBranch(Server, Database, "PROJ-123"), Times.Once);
+            _stateTracker.Verify(s => s.RefreshState(Server, Database, false), Times.Once,
+                "이름 자체는 이름표일 뿐이다 - 실제로 다시 읽어야 새 브랜치 기준의 변경 목록이 뜬다");
         }
 
         [Test]
@@ -4168,19 +4172,105 @@ namespace DBVC.Vsix.Tests.ViewModels
         [Test]
         public void SwitchBranchCommand_SwitchesAndRefreshes_WhenSelectionIsGiven()
         {
+            var offeredBranches = new[] { new BranchInfo { Name = "develop" } };
             _branchDialog.ExistingToReturn = "develop";
-            _git.Setup(g => g.GetBranches(Server, Database))
-                .Returns(new[] { new BranchInfo { Name = "develop" } });
+            _git.Setup(g => g.GetBranches(Server, Database)).Returns(offeredBranches);
             _git.Setup(g => g.SwitchBranch(Server, Database, "develop")).Returns(BranchResult.Ok());
             _git.Setup(g => g.GetRepositoryState(Server, Database))
                 .Returns(new RepositoryState { CurrentBranch = "develop", BlockReason = RepositoryBlockReason.None });
             var vm = NewConnectedViewModel();
+            // Connect가 이미 한 번 RefreshState를 부른다 - 그것과 구분하려면 여기서 지운다.
+            _stateTracker.Invocations.Clear();
 
             vm.SwitchBranchCommand.Execute(null);
 
             _git.Verify(g => g.SwitchBranch(Server, Database, "develop"), Times.Once);
             Assert.That(vm.CurrentBranch, Is.EqualTo("develop"),
                 "브랜치가 바뀌었는데 화면이 옛 브랜치 이름을 보여주면 Diff를 오독합니다");
+            Assert.That(_branchDialog.OfferedBranches, Is.SameAs(offeredBranches),
+                "GetBranches가 낸 목록을 그대로 골라야 합니다");
+            _stateTracker.Verify(s => s.RefreshState(Server, Database, false), Times.Once,
+                "브랜치를 바꿔 놓고 다시 읽지 않으면 옛 브랜치 기준의 목록이 그대로 남습니다");
+        }
+
+        [Test]
+        public void SwitchBranchCommand_ClearsStaleRemoteStatus_AfterASuccessfulSwitch()
+        {
+            // CheckRemote가 이전 브랜치에서 남긴 숫자다. 브랜치가 바뀌면 Pull이 뒤처짐을 줄이는
+            // 것과 달리 비교 기준 자체가 다른 브랜치로 바뀌므로, ApplyPullResult·ApplyPushResult와
+            // 같은 이유로 지워야 한다 - 남으면 "브랜치: develop" 옆에 이전 브랜치의 앞섬·뒤처짐이
+            // 최신인 척 그대로 뜬다.
+            _branchDialog.ExistingToReturn = "develop";
+            _git.Setup(g => g.GetBranches(Server, Database))
+                .Returns(new[] { new BranchInfo { Name = "develop" } });
+            _git.Setup(g => g.SwitchBranch(Server, Database, "develop")).Returns(BranchResult.Ok());
+            _git.Setup(g => g.GetRepositoryState(Server, Database))
+                .Returns(new RepositoryState { CurrentBranch = "develop", BlockReason = RepositoryBlockReason.None });
+            _git.Setup(g => g.FetchRemoteStatus(Server, Database)).Returns(new RemoteStatus(2, 1));
+            var vm = NewConnectedViewModel();
+            vm.CheckRemoteCommand.Execute(null);
+            Assert.That(vm.HasRemoteStatus, Is.True, "전제: 확인한 숫자가 이미 떠 있어야 합니다");
+
+            vm.SwitchBranchCommand.Execute(null);
+
+            Assert.That(vm.RemoteStatusText, Is.Null,
+                "낡은 숫자를 최신인 척 보여주면 안 됩니다 - 브랜치가 바뀌면 그 숫자는 다른 브랜치의 것입니다");
+        }
+
+        [Test]
+        public void CreateBranchCommand_ShowsBlockOverlay_WhenTheNewBranchMismatchesThePinnedBranch()
+        {
+            // Write 클론도 고정 브랜치를 가질 수 있다(초기화 필수가 아닐 뿐 - 연결 대화상자가
+            // Deploy/Audit에만 강제한다). 전환이 성공한 뒤 새 브랜치가 그 고정과 어긋나면
+            // ApplyContextProbe가 늘 하는 대로 BlockMessage까지 함께 옮겨야 한다 - CurrentBranch만
+            // 옮기면 도구 스스로 "이 비교 기준은 못 믿는다"고 판정한 화면이 평소처럼 보인다.
+            // 그리고 차단된 기준으로는 Refresh(SMO 추출)도 돌면 안 된다 - ApplyContextProbe의
+            // IsBlocked 조기 반환과 같은 이유다.
+            _branchDialog.NewNameToReturn = "PROJ-123";
+            _git.Setup(g => g.CreateBranch(Server, Database, "PROJ-123")).Returns(BranchResult.Ok());
+            _git.Setup(g => g.GetRepositoryState(Server, Database))
+                .Returns(new RepositoryState
+                {
+                    CurrentBranch = "PROJ-123",
+                    BlockReason = RepositoryBlockReason.BranchMismatch,
+                    BlockMessage = "저장소가 고정된 브랜치와 다릅니다."
+                });
+            var vm = NewConnectedViewModel();
+            _smo.Invocations.Clear();
+
+            vm.CreateBranchCommand.Execute(null);
+
+            Assert.That(vm.IsBlocked, Is.True);
+            Assert.That(vm.BlockMessage, Does.Contain("고정된 브랜치"));
+            _smo.Verify(s => s.ScriptObjectsDetailed(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>(),
+                It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.Never,
+                "차단된 기준으로 추출하면 틀린 비교가 만들어집니다 - Refresh가 돌면 안 됩니다");
+        }
+
+        [Test]
+        public void SwitchBranchCommand_DoesNotReportFailure_WhenStateReReadThrowsAfterASuccessfulSwitch()
+        {
+            // GetRepositoryState는(Pull·Push의 형제 메서드들과 달리) 예외를 삼키지 않는다. 전환
+            // 자체는 이미 끝난 뒤이므로, 상태를 다시 읽다가 만난 일시적 오류(동시 Git 프로세스가
+            // 쥔 index.lock 등)가 "브랜치를 바꾸지 못했다"로 보고되면 안 된다 - 체크아웃은 이미
+            // 됐는데 화면만 옛 기준에 머무는 것이 정확히 이 결함이 만드는 결과다.
+            _branchDialog.ExistingToReturn = "develop";
+            _git.Setup(g => g.GetBranches(Server, Database))
+                .Returns(new[] { new BranchInfo { Name = "develop" } });
+            _git.Setup(g => g.SwitchBranch(Server, Database, "develop")).Returns(BranchResult.Ok());
+            var vm = NewConnectedViewModel();
+            _stateTracker.Invocations.Clear();
+            _notifier.Errors.Clear();
+            // Connect 때는 정상 응답을 쓰고, 브랜치 전환 뒤의 재조회만 실패하게 한다.
+            _git.Setup(g => g.GetRepositoryState(Server, Database))
+                .Throws(new LibGit2Sharp.LibGit2SharpException("index.lock exists"));
+
+            vm.SwitchBranchCommand.Execute(null);
+
+            Assert.That(_notifier.Errors, Is.Empty, "체크아웃은 이미 끝났으므로 실패로 보고하면 안 됩니다");
+            _stateTracker.Verify(s => s.RefreshState(Server, Database, false), Times.Once,
+                "상태 재조회가 실패해도 변경 목록은 새 브랜치 기준으로 다시 읽어야 합니다");
         }
 
         [Test]
