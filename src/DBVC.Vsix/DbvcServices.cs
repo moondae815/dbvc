@@ -101,7 +101,7 @@ namespace DBVC.Vsix
                 ssmsConnectionSource: ssmsConnectionSource ?? new ObjectExplorerConnectionSource(),
                 scheduler: BackgroundScheduler,
                 identityDialog: new CommitIdentityDialogAdapter(),
-                branchDialog: new UI.BranchDialog());
+                branchDialog: new BranchDialogAdapter());
         }
 
         public DiffService CreateDiffService()
