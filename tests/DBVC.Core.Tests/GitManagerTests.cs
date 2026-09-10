@@ -2555,15 +2555,22 @@ namespace DBVC.Core.Tests
         public void CreateBranch_KeepsWorkingTree_WhenTreeIsDirty()
         {
             // HEAD에서 만드는 것은 같은 커밋에 이름표를 붙이는 일이라 트리를 건드리지 않는다.
-            var path = NewRepoWithCommit();
-            WriteRepoFile(path, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);");
+            //
+            // 미커밋 상태는 미추적 파일이 아니라 이미 커밋된 추적 파일을 고친 것이어야 한다 -
+            // libgit2의 checkout은 새 브랜치가 워크트리와 겹치지 않는 파일은 건드리지 않으므로
+            // 미추적 파일로는 "건드리지 않는다"는 것과 "겹칠 수 있는데도 건드리지 않는다"는 것을
+            // 구분하지 못한다. DBVC의 실제 더러운 상태(재추출된 .sql이 마지막 커밋과 다른 경우)와
+            // 같은 모양으로 만든다.
+            var path = NewRepoWithCommit("dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT);");
+            WriteRepoFile(path, "dbo/Tables/Users.sql", "CREATE TABLE Users (Id INT, Name NVARCHAR(50));");
             var git = NewGitManager("localhost", "testdb", path);
 
             var result = git.CreateBranch("localhost", "testdb", "PROJ-123");
 
             Assert.That(result.Succeeded, Is.True, result.Message);
-            Assert.That(File.Exists(Path.Combine(path, "dbo", "Tables", "Orders.sql")), Is.True,
-                "미커밋 파일이 그대로 있어야 합니다");
+            Assert.That(File.ReadAllText(Path.Combine(path, "dbo", "Tables", "Users.sql")),
+                Is.EqualTo("CREATE TABLE Users (Id INT, Name NVARCHAR(50));"),
+                "미커밋 수정 내용이 그대로 있어야 합니다");
             using var repo = new Repository(path);
             Assert.That(repo.Head.FriendlyName, Is.EqualTo("PROJ-123"));
         }
@@ -2627,6 +2634,31 @@ namespace DBVC.Core.Tests
             Assert.That(result.Succeeded, Is.False);
             Assert.That(result.BlockingPaths, Does.Contain("dbo/Tables/Orders.sql"),
                 "무엇이 막았는지 파일 이름으로 말해야 합니다");
+            using var after = new Repository(path);
+            Assert.That(after.Head.FriendlyName, Is.Not.EqualTo("PROJ-123"),
+                "거부했으면 브랜치도 그대로여야 합니다");
+        }
+
+        [Test]
+        public void SwitchBranch_Refuses_WhenChangesAreStagedOnly()
+        {
+            // 거부 판정은 RetrieveStatus로 워크트리 전체를 보는데, 스테이징만 하고 커밋하지
+            // 않은 변경도 그 안에 잡혀야 한다 - 인덱스에만 있고 워크트리에는 없는 특별한 경우가
+            // 이 검사를 우회하면, "커밋되지 않은 변경이 있어 브랜치를 바꿀 수 없다"는 이 기능의
+            // 안전 규약 전체가 반쪽만 지켜지는 셈이다.
+            var path = NewRepoWithCommit();
+            using (var repo = new Repository(path)) repo.CreateBranch("PROJ-123");
+            WriteRepoFile(path, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);");
+            using (var repo = new Repository(path))
+            {
+                Commands.Stage(repo, "dbo/Tables/Orders.sql");
+            }
+            var git = NewGitManager("localhost", "testdb", path);
+
+            var result = git.SwitchBranch("localhost", "testdb", "PROJ-123");
+
+            Assert.That(result.Succeeded, Is.False);
+            Assert.That(result.BlockingPaths, Does.Contain("dbo/Tables/Orders.sql"));
             using var after = new Repository(path);
             Assert.That(after.Head.FriendlyName, Is.Not.EqualTo("PROJ-123"),
                 "거부했으면 브랜치도 그대로여야 합니다");
