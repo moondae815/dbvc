@@ -598,8 +598,16 @@ namespace DBVC.Core
         }
 
         /// <summary>
-        /// 로컬 브랜치에 원격 브랜치로 푸시할 커밋이 남아 있는지 확인한다.
-        /// 원격이 없거나 추적 브랜치가 설정되지 않은 경우 false를 반환한다.
+        /// Push 버튼을 눌러 의미 있는 일이 일어날 수 있는지 확인한다. 화면의 CanPush가
+        /// CanExecute가 평가될 때마다 이것을 부르므로 저장소를 한 번 여는 것 이상은 하지 않는다.
+        ///
+        /// 원격이 없으면 언제나 false다. 원격이 있으면 두 상태를 모두 참으로 본다 - 추적 중인
+        /// 브랜치가 원격보다 앞선 일반적인 경우, 그리고 <see cref="CreateBranch"/> 직후처럼
+        /// 추적 자체가 아직 없는 경우. 후자를 걸러내면 새 브랜치의 첫 Push가 버튼 단계에서부터
+        /// 막힌다 - <c>git push -u origin &lt;branch&gt;</c>는 새 커밋이 없어도(부모와 커밋이
+        /// 같은 갓 만든 브랜치라도) 정당한 동작이므로, AheadBy 하나로 좁히지 않는다. 실제 결과는
+        /// <see cref="PushChanges"/>가 <see cref="Models.PushResult.NoUpstream"/>으로 갈라 사용자의
+        /// 확인을 받는다.
         /// </summary>
         public bool HasCommitsToPush(string serverName, string databaseName)
         {
@@ -610,8 +618,11 @@ namespace DBVC.Core
             {
                 using var repo = new Repository(repoPath);
 
-                // 원격이 없거나 추적 중인 브랜치가 없으면 올릴 수 없다(libgit2 예외와 일치).
-                if (!repo.Network.Remotes.Any() || !repo.Head.IsTracking) return false;
+                if (!repo.Network.Remotes.Any()) return false;
+
+                // 추적이 없으면 첫 Push 상태다 - AheadBy는 애초에 잴 기준(추적 중인 원격 ref)이
+                // 없으므로 참으로 본다.
+                if (!repo.Head.IsTracking) return true;
 
                 return repo.Head.TrackingDetails.AheadBy > 0;
             }
@@ -671,7 +682,10 @@ namespace DBVC.Core
         /// 원격이 ref 갱신을 거부하면 <see cref="GitPushRejectedException"/>을,
         /// 원격이 사용자 자격 증명을 요구하면 <see cref="GitAuthenticationException"/>을,
         /// 그 외에 원격과 통신하지 못했고 안내할 원인이 있으면 <see cref="GitRemoteException"/>을 던진다.
-        /// 원격이 없거나 현재 브랜치에 추적 중인 원격 브랜치가 없으면 <see cref="InvalidOperationException"/>을 던진다.
+        /// 원격이 없으면 <see cref="GitRemoteNotConfiguredException"/>(<see cref="InvalidOperationException"/>의
+        /// 파생)을 던진다. 원격은 있는데 현재 브랜치에 추적 중인 원격 브랜치가 없으면 던지지 않고
+        /// <see cref="Models.PushResult.NoUpstream"/>을 반환한다 - 첫 Push는 예외가 아니라 정상
+        /// 흐름이고, 화면이 확인을 받아 <paramref name="setUpstream"/>: true로 다시 부른다.
         ///
         /// 이 메서드는 작업 트리·인덱스·로컬 브랜치 이력을 바꾸지 않는다. 성공하면 원격 추적
         /// ref(<c>refs/remotes/...</c>)만 갱신되고(libgit2의 git_remote_update_tips) - 두 번째
@@ -867,13 +881,18 @@ namespace DBVC.Core
 
             // 원격만 있고 추적 브랜치가 없으면 libgit2가 영문 원문으로 거부한다. DBVC 온보딩이 실제로
             // 만들어내는 상태다 - 사용자가 clone하지 않고 직접 git init한 폴더를 매핑하면 여기 걸린다.
-            // 추적을 대신 설정해 주지는 않는다. 버튼 하나가 사용자의 git config를 조용히 바꾸면 안 된다.
+            // 이 검사는 Pull과 원격 확인만 거친다 - Push는 추적이 없고 원격이 있으면 이 함수 앞에서
+            // 먼저 갈라져(PushResult.NoUpstream) 여기까지 오지 않는다. Pull·원격 확인은 추적을 대신
+            // 설정해 주지 않는다 - 지키는 것은 "조용히 바뀌면 안 된다"이지 "설정할 수 없다"가
+            // 아니다(Push는 확인을 거쳐 실제로 설정한다). 그래서 안내도 터미널 명령과 함께
+            // 이미 확인 절차를 갖춘 Push 버튼을 대안으로 알려준다.
             if (!repo.Head.IsTracking)
             {
                 var branchName = repo.Head.FriendlyName;
                 throw new GitRemoteNotConfiguredException(
                     $"'{repoPath}' 저장소의 현재 브랜치 '{branchName}'에 추적 중인 원격 브랜치가 없어 {operationName}할 수 없습니다. " +
-                    $"Git 클라이언트에서 'git push -u origin {branchName}'을 한 번 실행해 추적을 설정한 뒤 다시 시도하세요.");
+                    $"Git 클라이언트에서 'git push -u origin {branchName}'을 실행하거나, DBVC의 Push 버튼을 눌러 " +
+                    "이 브랜치를 원격에 올리면 추적이 설정됩니다. 그 뒤 다시 시도하세요.");
             }
 
             // Explain은 예외가 아니라 원격 URL과 ssh 실행 파일 유무만 보므로 통신 이전에 한 번 계산한다.

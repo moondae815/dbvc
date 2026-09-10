@@ -151,11 +151,20 @@ namespace DBVC.Core
         /// </summary>
         BranchResult SwitchBranch(string serverName, string databaseName, string branchName);
         /// <summary>
-        /// 로컬 커밋을 원격에 올린다. 추적 중인 원격 브랜치가 없으면
-        /// <see cref="PushResult.NoUpstream"/>을 돌려주고 아무것도 하지 않는다.
+        /// 로컬 커밋을 원격에 올린다. 원격은 있는데 추적 중인 원격 브랜치가 없으면
+        /// <see cref="PushResult.NoUpstream"/>을 돌려주고 아무것도 하지 않는다 - 원격 자체가
+        /// 없으면 이 갈래를 타지 못하고 <see cref="InvalidOperationException"/>(그 파생인
+        /// <c>GitRemoteNotConfiguredException</c>)을 던진다.
         /// <paramref name="setUpstream"/>이 true이면 원격에 브랜치를 만들고 추적을 설정한다.
         /// </summary>
         PushResult PushChanges(string serverName, string databaseName, bool setUpstream = false);
+
+        /// <summary>
+        /// Push 버튼을 눌러 의미 있는 일이 일어날 수 있는지. 원격이 없으면 false, 추적 중인
+        /// 브랜치가 원격보다 앞서 있으면 true, 추적 자체가 아직 없어도(갓 만든 브랜치의 첫
+        /// Push) 원격이 있으면 true다 - 그 상태의 Push는 <see cref="PushResult.NoUpstream"/>으로
+        /// 갈라 확인을 받을 뿐 정당한 동작이기 때문이다.
+        /// </summary>
         bool HasCommitsToPush(string serverName, string databaseName);
 
         /// <summary>

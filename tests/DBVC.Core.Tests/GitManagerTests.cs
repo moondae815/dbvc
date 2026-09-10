@@ -1304,9 +1304,31 @@ namespace DBVC.Core.Tests
 
             // 매핑은 있지만 원격이 없으므로 false
             Assert.That(git.HasCommitsToPush("ServerA", "DB1"), Is.False);
-            
+
             // 매핑이 없으면 false
             Assert.That(git.HasCommitsToPush("ServerB", "DB2"), Is.False);
+        }
+
+        [Test]
+        public void HasCommitsToPush_ReturnsTrue_WhenBranchHasNoUpstreamButARemoteExists()
+        {
+            // 전체 브랜치 리뷰가 찾은 결함의 유일하게 정직한 증인이다. ViewChangesViewModelTests의
+            // 픽스처는 이 메서드를 늘 true로 목 처리해 두는데, CreateBranch 직후의 실제 상태
+            // (추적 없음)에서는 그 값이 나올 수 없었다 - 목이 존재할 수 없는 상태를 흉내 내
+            // CanPush가 항상 열려 있는 것처럼 통과시켰다. 여기서는 목을 쓰지 않고 실제 저장소로
+            // CreateBranch + Checkout까지 재현해, 고치기 전에는 반드시 실패해야 한다.
+            var (localPath, _) = NewClonedRepoWithBareOrigin();
+            using (var local = new Repository(localPath))
+            {
+                Commands.Checkout(local, local.CreateBranch("PROJ-123"));
+                Assert.That(local.Head.IsTracking, Is.False, "전제: 아직 추적이 없습니다");
+            }
+            CommitOneFile(localPath, "dbo/Tables/Orders.sql", "CREATE TABLE Orders (Id INT);", "new commit");
+
+            var git = NewGitManager(Server, Database, localPath);
+
+            Assert.That(git.HasCommitsToPush(Server, Database), Is.True,
+                "원격이 있고 추적만 없는 새 브랜치의 첫 Push는 정당한 동작이므로 버튼이 눌려야 합니다");
         }
 
         // ---------- PushChanges ----------
