@@ -1656,8 +1656,10 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             vm.PushCommand.Execute(null);
 
-            Assert.That(_notifier.ConfirmCalls.Single().Message, Does.Contain("추적"),
-                "무엇을 바꾸는지 먼저 말해야 합니다");
+            var message = _notifier.ConfirmCalls.Single().Message;
+            Assert.That(message, Does.Contain("추적"), "무엇을 바꾸는지 먼저 말해야 합니다");
+            Assert.That(message, Does.Contain(".git/config"),
+                "이 저장소만 바뀐다는 범위를 밝혀야 이 설계가 추적 설정을 허용받은 전제가 유지됩니다");
             _git.Verify(g => g.PushChanges(Server, Database, true), Times.Once);
         }
 
@@ -1671,6 +1673,25 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.PushCommand.Execute(null);
 
             _git.Verify(g => g.PushChanges(Server, Database, true), Times.Never);
+        }
+
+        [Test]
+        public void PushCommand_RaisesCanExecuteChanged_WhenUserDeclinesUpstreamPrompt()
+        {
+            // RelayCommand는 CommandManager.RequerySuggested를 구독하지 않는다 - 거절 갈래가
+            // 다른 case들처럼 아래쪽 RaiseActionCanExecuteChanged()를 거치지 않고 곧장
+            // return하면, IsBusy는 이미 내려갔어도 그 사실이 버튼에 전해지지 않아
+            // Push·Pull·브랜치 버튼이 다른 동작이 있을 때까지 회색으로 남는다.
+            _git.Setup(g => g.PushChanges(Server, Database, false)).Returns(PushResult.NoUpstream);
+            _notifier.ConfirmResult = false;
+            var vm = NewConnectedViewModel();
+            int pushCanExecuteChangedCount = 0;
+            vm.PushCommand.CanExecuteChanged += (_, __) => pushCanExecuteChangedCount++;
+
+            vm.PushCommand.Execute(null);
+
+            Assert.That(pushCanExecuteChangedCount, Is.GreaterThan(0),
+                "확인을 거절해도 이벤트가 오지 않으면 버튼이 잠긴 채로 남습니다");
         }
 
         // ---------- 원격 확인 ----------

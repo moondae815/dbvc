@@ -1178,7 +1178,17 @@ namespace DBVC.Vsix.ViewModels
                         Environment.NewLine +
                         "이 저장소의 .git/config만 바뀌며 다른 저장소에는 영향이 없습니다.");
 
-                    if (!ok) return;
+                    if (!ok)
+                    {
+                        // 이 return은 아래쪽 공용 RaiseActionCanExecuteChanged() 호출을 건너뛴다.
+                        // 그래도 버튼은 잠기지 않는다 - 이 메서드 맨 위의 IsBusy = false가 이미
+                        // Busy.Changed를 통해 모든 case보다 먼저 같은 호출을 한 번 태웠다(생성자의
+                        // Busy.Changed 구독 참고). 그 경로에 기대지 않고 여기서도 명시적으로
+                        // 올리는 이유는 방어적 중복이다 - 훗날 누군가 그 IsBusy 대입을
+                        // switch 내부로 옮기면 이 갈래만 조용히 버튼을 잠근 채 남길 수 있다.
+                        RaiseActionCanExecuteChanged();
+                        return;
+                    }
 
                     PushWithUpstream();
                     return;
