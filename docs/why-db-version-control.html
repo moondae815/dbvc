@@ -577,14 +577,14 @@
     font-weight: 600;
     margin-bottom: 2px;
   }
-  .settled li b { color: var(--accent); }
+  /* 자식 결합자를 쓴다 — 정해진 항목이 .record를 달고 오면 그 안의 값까지 제목 색으로
+     칠해져, 값과 항목 이름이 한 덩어리로 보인다. */
+  .settled li > b { color: var(--accent); }
   .open li::before {
     content: "☐ ";
     font-family: var(--mono);
     color: var(--alert);
   }
-  /* 빈칸만 채우고 ☐를 그대로 두면 아직 논의 중인 항목으로 읽힌다. */
-  .open li.done::before { content: "☑ "; color: var(--accent); }
 
   /* 누가 답해야 하는 결정인지 — 회의 진행이 여기서 갈린다 */
   .who {
@@ -1512,6 +1512,15 @@
               메신저로 받은 파일은 쓰지 않는다.
             </li>
             <li>
+              <b>배포 프로젝트 경로 · 릴리스 담당자 · 공지 채널</b>
+              릴리스는 이 프로젝트에서만 내고 공지는 메일로 보낸다. 세 값이 비어 있으면
+              규칙만 있고 공지를 보낼 곳이 없으므로 여기 적어 둔다.
+              <span class="record">
+                경로 <b>http://poq-github.payletter.com/tools/dbvc</b><br>
+                담당 <b>페이먼츠플랫폼</b> · 채널 <b>메일</b> · 날짜 <b>2026-09-11</b>
+              </span>
+            </li>
+            <li>
               <b>갱신은 5영업일 기한부</b>
               그 뒤의 문의는 최신 버전 기준으로만 답한다. 문의 첫 줄에 도구 창의 버전
               숫자를 적는다.
@@ -1549,14 +1558,6 @@
         <div class="open">
           <h3>오늘 정해야 하는 것</h3>
           <ul>
-            <li class="done">
-              <b>GitLab 배포 프로젝트 경로 · 릴리스 담당자 · 공지 채널 <span class="who who-both">공동</span></b>
-              세 값이 비어 있는 동안은 규칙만 있고 공지를 보낼 곳이 없다.
-              <span class="record">
-                경로 <b>http://poq-github.payletter.com/tools/dbvc</b><br>
-                담당 <b>페이먼츠플랫폼</b> · 채널 <b>메일</b> · 날짜 <b>2026-09-11</b>
-              </span>
-            </li>
             <li>
               <b>[차이 검사] 주기와 책임자 <span class="who who-dba">DBA</span></b>
               예: 테스트는 배포 직후와 매일 아침, 운영은 매주 월요일 DBA가 확인한다.
