@@ -577,9 +577,7 @@
     font-weight: 600;
     margin-bottom: 2px;
   }
-  /* 자식 결합자를 쓴다 — 정해진 항목이 .record를 달고 오면 그 안의 값까지 제목 색으로
-     칠해져, 값과 항목 이름이 한 덩어리로 보인다. */
-  .settled li > b { color: var(--accent); }
+  .settled li b { color: var(--accent); }
   .open li::before {
     content: "☐ ";
     font-family: var(--mono);
@@ -614,8 +612,6 @@
     color: var(--muted);
   }
   .record span { color: var(--rule-strong); }
-  /* 채워 넣은 값은 빈칸보다 진하게 — 정해진 것과 아직 빈 것이 한눈에 갈려야 한다. */
-  .record b { color: var(--ink); font-weight: 600; }
 
   /* ── 꼬리 ─────────────────────────────────────── */
 
@@ -1512,13 +1508,9 @@
               메신저로 받은 파일은 쓰지 않는다.
             </li>
             <li>
-              <b>배포 프로젝트 경로 · 릴리스 담당자 · 공지 채널</b>
-              릴리스는 이 프로젝트에서만 내고 공지는 메일로 보낸다. 세 값이 비어 있으면
-              규칙만 있고 공지를 보낼 곳이 없으므로 여기 적어 둔다.
-              <span class="record">
-                경로 <b>http://poq-github.payletter.com/tools/dbvc</b><br>
-                담당 <b>페이먼츠플랫폼</b> · 채널 <b>메일</b> · 날짜 <b>2026-09-11</b>
-              </span>
+              <b>릴리스는 페이먼츠플랫폼이 내고 메일로 알린다</b>
+              그 프로젝트는 <code>http://poq-github.payletter.com/tools/dbvc</code>이고,
+              새 버전이 나오면 페이먼츠플랫폼이 메일로 공지한다.
             </li>
             <li>
               <b>갱신은 5영업일 기한부</b>
