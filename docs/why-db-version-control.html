@@ -583,6 +583,8 @@
     font-family: var(--mono);
     color: var(--alert);
   }
+  /* 빈칸만 채우고 ☐를 그대로 두면 아직 논의 중인 항목으로 읽힌다. */
+  .open li.done::before { content: "☑ "; color: var(--accent); }
 
   /* 누가 답해야 하는 결정인지 — 회의 진행이 여기서 갈린다 */
   .who {
@@ -612,6 +614,8 @@
     color: var(--muted);
   }
   .record span { color: var(--rule-strong); }
+  /* 채워 넣은 값은 빈칸보다 진하게 — 정해진 것과 아직 빈 것이 한눈에 갈려야 한다. */
+  .record b { color: var(--ink); font-weight: 600; }
 
   /* ── 꼬리 ─────────────────────────────────────── */
 
@@ -1545,12 +1549,12 @@
         <div class="open">
           <h3>오늘 정해야 하는 것</h3>
           <ul>
-            <li>
+            <li class="done">
               <b>GitLab 배포 프로젝트 경로 · 릴리스 담당자 · 공지 채널 <span class="who who-both">공동</span></b>
               세 값이 비어 있는 동안은 규칙만 있고 공지를 보낼 곳이 없다.
               <span class="record">
-                경로 <span>________________________</span><br>
-                담당 <span>__________</span> · 채널 <span>__________</span> · 날짜 <span>__________</span>
+                경로 <b>http://poq-github.payletter.com/tools/dbvc</b><br>
+                담당 <b>페이먼츠플랫폼</b> · 채널 <b>메일</b> · 날짜 <b>2026-09-11</b>
               </span>
             </li>
             <li>
