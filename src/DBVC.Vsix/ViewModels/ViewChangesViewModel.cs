@@ -39,6 +39,8 @@ namespace DBVC.Vsix.ViewModels
         private readonly IWorkingTreeCleaner _cleaner;
         private readonly ScriptExporter _scriptExporter;
         private readonly IBackgroundScheduler _scheduler;
+        private readonly IAiCommitMessageGenerator? _aiGenerator;
+        private readonly IAiSettingsStore _aiSettingsStore;
 
         /// <summary>
         /// 진행 중인 취소 가능 작업(추출 또는 저장소 받기)을 멈추기 위한 것. 작업이 없으면 null이다.
@@ -85,7 +87,9 @@ namespace DBVC.Vsix.ViewModels
             ISsmsConnectionSource? ssmsConnectionSource = null,
             IBackgroundScheduler? scheduler = null,
             ICommitIdentityDialog? identityDialog = null,
-            IBranchDialog? branchDialog = null)
+            IBranchDialog? branchDialog = null,
+            IAiCommitMessageGenerator? aiGenerator = null,
+            IAiSettingsStore? aiSettingsStore = null)
         {
             // 기본값이 인라인인 이유: 단위 테스트와 셸 밖 실행이 이 경로다.
             // 실제 도구 창에는 DbvcServices가 UI 스레드를 비우는 구현을 넣어 준다.
@@ -107,6 +111,8 @@ namespace DBVC.Vsix.ViewModels
             // WPF 창을 열지 않고 AskNewName/AskExisting이 불릴 때만 띄운다. null을 받는 것은
             // 이제 단위 테스트와 비SSMS 실행뿐이고, 그 경로에서는 CanChangeBranch가 명령을 꺼 둔다.
             _branchDialog = branchDialog ?? new BranchDialogAdapter();
+            _aiGenerator = aiGenerator;
+            _aiSettingsStore = aiSettingsStore ?? new AiSettingsStore();
             _scriptExporter = new ScriptExporter(_configManager, _gitManager);
             Deployment = new DeploymentViewModel(
                 _configManager, _gitManager, _smoManager, _scriptExporter,
@@ -124,6 +130,7 @@ namespace DBVC.Vsix.ViewModels
                 () => IsRepositoryEncodingLegacy && !IsBusy && MappingPolicy.IsAllowed(Mode, DbvcOperation.Extract));
             SetCommitIdentityCommand = new RelayCommand(SetCommitIdentity, () => !IsBusy);
             CommitCommand = new RelayCommand(Commit, CanCommit);
+            GenerateCommitMessageCommand = new RelayCommand(GenerateCommitMessage, CanGenerateCommitMessage);
             DiscardCommand = new RelayCommand(Discard, CanDiscard);
             IgnoreCommand = new RelayCommand(Ignore, CanDiscard);
             ConnectCommand = new RelayCommand(Connect, () => _ssmsConnectionSource != null && !IsBusy);
@@ -875,6 +882,9 @@ namespace DBVC.Vsix.ViewModels
         public ICommand SetCommitIdentityCommand { get; }
 
         public ICommand CommitCommand { get; }
+
+        /// <summary>선택한 변경의 내용을 AI에게 보내 커밋 메시지 초안을 만든다. 커밋 자체는 하지 않는다.</summary>
+        public ICommand GenerateCommitMessageCommand { get; }
 
         /// <summary>
         /// 선택한 파일을 마지막 커밋 내용으로 되돌린다. DDL 로그는 건드리지 않으므로
@@ -2139,6 +2149,89 @@ namespace DBVC.Vsix.ViewModels
                 + Environment.NewLine + Environment.NewLine + "그대로 커밋할까요?");
         }
 
+        // ---------- AI 커밋 메시지 ----------
+
+        /// <summary>
+        /// 설정 유무는 조건이 아니다. 설정이 없다고 버튼을 잠그면 사용자는 이유를 알 수 없다 —
+        /// 눌렀을 때 어디서 설정하는지 알려 주는 편이 낫다.
+        /// </summary>
+        private bool CanGenerateCommitMessage()
+        {
+            if (IsBlocked) return false;
+
+            return HasContext
+                && IsMapped
+                && IsInitialized
+                && !IsBusy
+                && Changes.Any(c => c.IsSelected)
+                && MappingPolicy.IsAllowed(Mode, DbvcOperation.Commit);
+        }
+
+        private void GenerateCommitMessage()
+        {
+            if (!CanGenerateCommitMessage() || _aiGenerator == null) return;
+
+            var settings = _aiSettingsStore.Load();
+            if (!settings.IsConfigured)
+            {
+                _notifier.ShowInfo(
+                    "AI 커밋 메시지",
+                    "AI 설정이 없습니다.\n도구 > 옵션 > DBVC > AI 커밋 메시지에서 프로바이더 주소와 모델을 설정하세요.");
+                return;
+            }
+
+            // 손으로 적던 문장이 클릭 한 번에 사라지면 안 된다.
+            if (!string.IsNullOrWhiteSpace(CommitMessage)
+                && !_notifier.Confirm("AI 커밋 메시지", "입력한 커밋 메시지를 AI가 만든 문장으로 바꿉니다. 계속하시겠습니까?"))
+            {
+                return;
+            }
+
+            if (AiConsent.NeedsConsent(settings))
+            {
+                var destination = AiConsent.DestinationOf(settings.BaseUrl);
+                if (!_notifier.Confirm(
+                        "AI 커밋 메시지",
+                        $"선택한 변경의 SQL diff가 {destination}로 전송됩니다. 계속하시겠습니까?"))
+                {
+                    return;
+                }
+
+                // 동의한 목적지를 남긴다. DestinationOf가 돌려준 값 그대로 저장해야 한다 —
+                // 원문 BaseUrl을 저장하면 다음 비교에서 정규화된 값과 어긋나 매번 다시 묻는다.
+                settings.ConsentedHost = destination;
+                _aiSettingsStore.Save(settings);
+            }
+
+            var selectedPaths = Changes
+                .Where(c => c.IsSelected && !string.IsNullOrWhiteSpace(c.RelativePath))
+                .Select(c => c.RelativePath!)
+                .ToList();
+
+            var server = ServerName!;
+            var database = DatabaseName!;
+
+            IsBusy = true;
+            ProgressText = "AI가 커밋 메시지를 만드는 중...";
+            _scheduler.Run<string>(
+                () => _aiGenerator.Generate(server, database, selectedPaths, CancellationToken.None),
+                message =>
+                {
+                    ProgressText = null;
+                    IsBusy = false;
+                    CommitMessage = message;
+                    RaiseActionCanExecuteChanged();
+                },
+                ex =>
+                {
+                    ProgressText = null;
+                    IsBusy = false;
+                    // 실패해도 CommitMessage는 건드리지 않는다. 빈칸으로 만들면 적던 것까지 잃는다.
+                    _notifier.ShowError("AI 커밋 메시지", ex.Message);
+                    RaiseActionCanExecuteChanged();
+                });
+        }
+
         // ---------- 되돌리기 ----------
 
         /// <summary>확인 문구에 이름을 적는 삭제 파일의 상한.</summary>
@@ -2660,6 +2753,7 @@ namespace DBVC.Vsix.ViewModels
             (SetCommitIdentityCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (ConnectCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CommitCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (GenerateCommitMessageCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (DiscardCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (IgnoreCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GenerateDeploymentScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();

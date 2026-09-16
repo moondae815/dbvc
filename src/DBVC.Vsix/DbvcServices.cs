@@ -23,6 +23,14 @@ namespace DBVC.Vsix
         /// </summary>
         public IBackgroundScheduler BackgroundScheduler { get; }
 
+        public IAiSettingsStore AiSettingsStore { get; }
+
+        /// <summary>
+        /// 커밋 메시지 초안 생성기. 설정 저장소를 화면과 공유해야 한다 —
+        /// 따로 만들면 옵션 화면에서 저장한 값이 생성기에 보이지 않는다.
+        /// </summary>
+        public IAiCommitMessageGenerator AiCommitMessageGenerator { get; }
+
         /// <summary>
         /// 확장 전체가 공유하는 인스턴스.
         /// 도구 창과 패키지가 각자 <see cref="ConfigManager"/>를 만들면 같은 mappings.json에
@@ -56,6 +64,8 @@ namespace DBVC.Vsix
             GitManager = git;
             SmoManager = new SmoManager(ConfigManager, CredentialStore);
             StateTracker = new StateTracker(ConfigManager, git, CredentialStore);
+            AiSettingsStore = new AiSettingsStore();
+            AiCommitMessageGenerator = new CommitMessageGenerator(GitManager, AiSettingsStore, new OpenAiCompatibleClient());
         }
 
         public DbvcServices(IConfigManager configManager, IGitManager gitManager, ISmoManager smoManager, IStateTracker stateTracker)
@@ -77,6 +87,8 @@ namespace DBVC.Vsix
             StateTracker = stateTracker ?? throw new ArgumentNullException(nameof(stateTracker));
             CredentialStore = credentialStore ?? new SessionCredentialStore();
             BackgroundScheduler = backgroundScheduler ?? new VsBackgroundScheduler();
+            AiSettingsStore = new AiSettingsStore();
+            AiCommitMessageGenerator = new CommitMessageGenerator(GitManager, AiSettingsStore, new OpenAiCompatibleClient());
         }
 
         private ViewChangesViewModel? _sharedViewModel;
@@ -101,7 +113,9 @@ namespace DBVC.Vsix
                 ssmsConnectionSource: ssmsConnectionSource ?? new ObjectExplorerConnectionSource(),
                 scheduler: BackgroundScheduler,
                 identityDialog: new CommitIdentityDialogAdapter(),
-                branchDialog: new BranchDialogAdapter());
+                branchDialog: new BranchDialogAdapter(),
+                aiGenerator: AiCommitMessageGenerator,
+                aiSettingsStore: AiSettingsStore);
         }
 
         public DiffService CreateDiffService()

@@ -195,6 +195,8 @@
                     <TextBox Text="{Binding CommitMessage, UpdateSourceTrigger=PropertyChanged}"
                              Width="240" Margin="0,0,10,4"
                              IsEnabled="{Binding IsMapped}"/>
+                    <Button Content="AI 생성" Command="{Binding GenerateCommitMessageCommand}" Width="70" Margin="0,0,10,4"
+                            ToolTip="선택한 변경의 내용을 AI에게 보내 커밋 메시지 초안을 만듭니다.&#10;커밋하지는 않습니다 - 내용을 확인하고 고친 뒤 Commit을 누르세요." />
                     <Button Content="Commit" Command="{Binding CommitCommand}" Width="70" Margin="0,0,10,4" />
                     <Button Content="되돌리기" Command="{Binding DiscardCommand}" Width="70" Margin="0,0,10,4"
                             ToolTip="선택한 파일을 저장소의 마지막 커밋 내용으로 되돌립니다. 데이터베이스의 변경은 남아 다음 새로고침에서 다시 추출됩니다." />
