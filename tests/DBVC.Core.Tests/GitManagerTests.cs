@@ -2768,6 +2768,48 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void GetUnifiedDiff_OnlyReturnsRequestedPaths_WhenOtherFilesAlsoChanged()
+        {
+            // "선택한 객체만 나간다"가 이 기능의 핵심 보안 속성이다. 파일을 하나만 바꾸는
+            // 픽스처로는 paths 스코프가 실제로 동작하는지 증명하지 못한다 — 두 개를 바꾸고
+            // 하나만 요청해 나머지가 결과에 없는지 본다.
+            var repoPath = NewTempDir();
+            Repository.Init(repoPath);
+            SeedIdentity(repoPath);
+
+            var wantedRelative = "dbo/Tables/Orders.sql";
+            var otherRelative = "dbo/Tables/Secret.sql";
+            var wantedFull = Path.Combine(repoPath, "dbo", "Tables", "Orders.sql");
+            var otherFull = Path.Combine(repoPath, "dbo", "Tables", "Secret.sql");
+            Directory.CreateDirectory(Path.GetDirectoryName(wantedFull)!);
+            File.WriteAllText(wantedFull, "CREATE TABLE dbo.Orders (Id INT);\n");
+            File.WriteAllText(otherFull, "CREATE TABLE dbo.Secret (Id INT);\n");
+
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "*");
+                repo.Commit("init", TestSignature, TestSignature);
+            }
+
+            File.WriteAllText(wantedFull, "CREATE TABLE dbo.Orders (Id INT, Memo NVARCHAR(50));\n");
+            File.WriteAllText(otherFull, "CREATE TABLE dbo.Secret (Id INT, Password NVARCHAR(50));\n");
+
+            var config = new ConfigManager(Path.Combine(NewTempDir(), "mappings.json"));
+            config.AddMapping(Server, Database, repoPath);
+            var manager = new GitManager(config);
+
+            var changes = manager.GetUnifiedDiff(Server, Database, new[] { wantedRelative });
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(changes, Has.Count.EqualTo(1));
+                Assert.That(changes[0].RelativePath, Is.EqualTo(wantedRelative));
+                Assert.That(changes.Any(c => c.RelativePath == otherRelative), Is.False);
+                Assert.That(changes.Any(c => c.Patch.Contains("Secret") || c.Patch.Contains("Password")), Is.False);
+            });
+        }
+
+        [Test]
         public void GetUnifiedDiff_ReturnsEmpty_WhenMappingMissing()
         {
             var config = new ConfigManager(Path.Combine(NewTempDir(), "mappings.json"));
