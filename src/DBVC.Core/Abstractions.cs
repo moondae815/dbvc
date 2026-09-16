@@ -37,6 +37,18 @@ namespace DBVC.Core
         void Set(string serverName, string databaseName, SqlAuthMode authMode, string? userName, string? password);
     }
 
+    /// <summary>
+    /// 선택한 변경으로 커밋 메시지 초안을 만든다. UI가 네트워크 없이 테스트되도록 하는 이음매다.
+    /// </summary>
+    public interface IAiCommitMessageGenerator
+    {
+        /// <summary>
+        /// 실패는 전부 <see cref="AiRequestException"/>이고, 메시지가 그대로 화면에 뜨는 한국어 사유다.
+        /// </summary>
+        string Generate(
+            string serverName, string databaseName, IEnumerable<string> relativePaths, CancellationToken cancellationToken);
+    }
+
     public interface IStateTracker
     {
         /// <summary>설치된 스키마 버전. 0이면 미설치다.</summary>
