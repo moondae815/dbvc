@@ -86,7 +86,13 @@ namespace DBVC.Core.Tests
         [Test]
         public void Generate_Throws_WhenSettingsIncomplete()
         {
-            var store = new StubSettingsStore { Settings = new AiSettings() };
+            // 주소·모델을 명시적으로 비운다. AiSettings에 기본값이 생긴 뒤로
+            // new AiSettings()는 "설정이 없는 상태"가 아니다 — 이 갈래가 살아 있는지 보려면
+            // 사용자가 일부러 비운 상태를 만들어야 한다.
+            var store = new StubSettingsStore
+            {
+                Settings = new AiSettings { BaseUrl = string.Empty, Model = string.Empty },
+            };
             var client = new StubClient();
 
             var ex = Assert.Throws<AiRequestException>(() =>

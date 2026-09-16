@@ -56,6 +56,10 @@ namespace DBVC.Core
 
                     return new AiSettings
                     {
+                        // 파일이 있으면 그 내용이 권위다. 기본값(AiSettings.DefaultBaseUrl)으로
+                        // 되돌리지 않는 이유는, 주소를 일부러 비운 사용자는 AI를 쓰지 않겠다고
+                        // 정한 것이기 때문이다 — 기본값은 아직 정하지 않은 사람을 위한 것이지
+                        // 정한 사람의 선택을 덮는 것이 아니다.
                         BaseUrl = payload.BaseUrl ?? string.Empty,
                         Model = payload.Model ?? string.Empty,
                         // 복원하지 못해도 나머지 설정은 살린다. 키만 다시 넣으면 되는 상황에서

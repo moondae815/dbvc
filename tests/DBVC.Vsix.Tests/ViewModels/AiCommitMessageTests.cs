@@ -276,8 +276,15 @@ namespace DBVC.Vsix.Tests.ViewModels
         public void GenerateCommitMessage_ShowsGuidance_WhenSettingsMissing()
         {
             // 버튼을 잠그지 않는 대신, 누르면 어디서 설정하는지 알려 준다.
+            //
+            // 주소·모델을 명시적으로 비운다. AiSettings의 기본값이 채워져 있으므로
+            // new AiSettings()는 더 이상 "설정이 없는 상태"가 아니다 — 이 경로가 살아 있는지
+            // 보려면 사용자가 일부러 비운 상태를 만들어야 한다.
             var generator = new StubGenerator();
-            var store = new StubSettingsStore { Settings = new AiSettings() };
+            var store = new StubSettingsStore
+            {
+                Settings = new AiSettings { BaseUrl = string.Empty, Model = string.Empty },
+            };
             var notifier = new RecordingNotifier();
             var vm = BuildViewModel(generator, store, notifier);
 

@@ -89,10 +89,25 @@ namespace DBVC.Core.Tests
 
             Assert.Multiple(() =>
             {
-                Assert.That(loaded.BaseUrl, Is.Empty);
+                Assert.That(loaded.BaseUrl, Is.EqualTo(AiSettings.DefaultBaseUrl));
+                Assert.That(loaded.Model, Is.EqualTo(AiSettings.DefaultModel));
                 Assert.That(loaded.TimeoutSeconds, Is.EqualTo(30));
                 Assert.That(loaded.MaxDiffLines, Is.EqualTo(400));
-                Assert.That(loaded.IsConfigured, Is.False);
+                Assert.That(loaded.IsConfigured, Is.True);
+            });
+        }
+
+        [Test]
+        public void Load_RequiresConsentAgain_WhenFileMissing()
+        {
+            // 기본 주소가 채워져 있다고 동의까지 채워지지는 않는다. 설치 직후 누구도
+            // 아직 전송에 동의한 적이 없으므로, 첫 생성에서 반드시 목적지를 보여 주고 물어야 한다.
+            var loaded = new AiSettingsStore(_path, new ReversibleProtector()).Load();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(loaded.ConsentedHost, Is.Null);
+                Assert.That(AiConsent.NeedsConsent(loaded), Is.True);
             });
         }
 
@@ -124,12 +139,16 @@ namespace DBVC.Core.Tests
             {
                 var loaded = new AiSettingsStore(_path, new ReversibleProtector()).Load();
 
+                // 읽지 못한 파일은 "설정이 없는 것"과 같게 다룬다 — 기본값으로 돌아간다.
+                // 사용자가 다른 프로바이더를 지정해 두었더라도 이 순간에는 그것을 알 수 없고,
+                // 기본 목적지로 조용히 보내지도 않는다. ConsentedHost도 함께 비므로
+                // 첫 전송 전에 목적지를 보여 주고 다시 묻는다.
                 Assert.Multiple(() =>
                 {
-                    Assert.That(loaded.BaseUrl, Is.Empty);
+                    Assert.That(loaded.BaseUrl, Is.EqualTo(AiSettings.DefaultBaseUrl));
                     Assert.That(loaded.TimeoutSeconds, Is.EqualTo(30));
                     Assert.That(loaded.MaxDiffLines, Is.EqualTo(400));
-                    Assert.That(loaded.IsConfigured, Is.False);
+                    Assert.That(loaded.ConsentedHost, Is.Null);
                 });
             }
         }
@@ -161,10 +180,10 @@ namespace DBVC.Core.Tests
 
                 Assert.Multiple(() =>
                 {
-                    Assert.That(loaded.BaseUrl, Is.Empty);
+                    Assert.That(loaded.BaseUrl, Is.EqualTo(AiSettings.DefaultBaseUrl));
                     Assert.That(loaded.TimeoutSeconds, Is.EqualTo(30));
                     Assert.That(loaded.MaxDiffLines, Is.EqualTo(400));
-                    Assert.That(loaded.IsConfigured, Is.False);
+                    Assert.That(loaded.ConsentedHost, Is.Null);
                 });
             }
             finally
@@ -183,6 +202,23 @@ namespace DBVC.Core.Tests
             var settings = new AiSettings { BaseUrl = "https://x/v1", Model = "m" };
 
             Assert.That(settings.IsConfigured, Is.True);
+        }
+
+        [Test]
+        public void Load_KeepsClearedBaseUrl_WhenFileSaysItIsEmpty()
+        {
+            // 기본값은 "아직 정하지 않은 사람"을 위한 것이지, 정한 사람을 덮는 것이 아니다.
+            // 주소를 일부러 비운 사용자는 AI를 쓰지 않겠다는 뜻이므로 그 선택이 남아야 한다.
+            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+            File.WriteAllText(_path, "{\"baseUrl\":\"\",\"model\":\"\"}");
+
+            var loaded = new AiSettingsStore(_path, new ReversibleProtector()).Load();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(loaded.BaseUrl, Is.Empty);
+                Assert.That(loaded.IsConfigured, Is.False);
+            });
         }
     }
 }
