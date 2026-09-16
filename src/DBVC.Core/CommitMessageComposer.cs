@@ -126,17 +126,21 @@ namespace DBVC.Core
                 text = string.Join("\n", fenceLines).Trim();
             }
 
+            // 목록 기호(-, *)와 감싸는 인용부호·백틱·볼드(**)는 접두어 판정 전에 벗겨야 한다.
+            // 안내문 한 줄 + 인용된 메시지 한 줄이 같이 오는 경우가 흔한데, 벗기기를 뒤로
+            // 미루면 인용부호에 감싸인 진짜 메시지("feat: ...")가 접두어 판정을 통과하지
+            // 못해 안내문이 chore로 감싸여 그 자리를 차지해 버린다.
             var lines = text.Split('\n')
                 .Select(line => line.Trim())
                 .Where(line => !string.IsNullOrWhiteSpace(line))
+                .Select(StripListMarker)
+                .Select(UnwrapQuotes)
                 .ToList();
             if (lines.Count == 0) return string.Empty;
 
             // 모델이 안내문을 앞에 덧붙이는 경우가 있다 — 그럴 때 그냥 첫 줄을 집으면 안내문이
             // chore로 감싸여 진짜 메시지를 밀어낸다. 접두어가 이미 있는 줄을 먼저 찾는다.
             var firstLine = lines.FirstOrDefault(HasAllowedPrefix) ?? lines[0];
-
-            firstLine = UnwrapQuotes(firstLine);
 
             if (!HasAllowedPrefix(firstLine))
             {
@@ -168,6 +172,7 @@ namespace DBVC.Core
                 value = TrimWrapper(value, '"');
                 value = TrimWrapper(value, '\'');
                 value = TrimWrapper(value, '`');
+                value = TrimBoldMarker(value);
                 if (value == before) break;
             }
             return value;
@@ -180,6 +185,31 @@ namespace DBVC.Core
                 return value.Substring(1, value.Length - 2).Trim();
             }
             return value;
+        }
+
+        /// <summary>마크다운 볼드(<c>**...**</c>)로 감싼 줄에서 표시만 벗긴다.</summary>
+        private static string TrimBoldMarker(string value)
+        {
+            if (value.Length >= 4
+                && value.StartsWith("**", StringComparison.Ordinal)
+                && value.EndsWith("**", StringComparison.Ordinal))
+            {
+                return value.Substring(2, value.Length - 4).Trim();
+            }
+            return value;
+        }
+
+        /// <summary>
+        /// 줄머리 목록 기호(<c>- </c>, <c>* </c>)를 지운다. 볼드 표시(<c>**</c>)는 공백이 없어
+        /// 이 조건과 겹치지 않는다.
+        /// </summary>
+        private static string StripListMarker(string line)
+        {
+            if (line.Length >= 2 && (line[0] == '-' || line[0] == '*') && line[1] == ' ')
+            {
+                return line.Substring(2).TrimStart();
+            }
+            return line;
         }
 
         /// <summary>

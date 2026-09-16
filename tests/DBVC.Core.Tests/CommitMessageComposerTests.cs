@@ -110,6 +110,41 @@ namespace DBVC.Core.Tests
 
             Assert.That(CommitMessageComposer.Clean(raw), Is.EqualTo("feat: 주문 뷰를 더한다"));
         }
+
+        [Test]
+        public void Clean_SelectsQuotedMessage_WhenPreambleAndQuotedMessageBothPresent()
+        {
+            // 안내문과 인용된 메시지가 같이 오는 흔한 조합. UnwrapQuotes가 줄 선택 뒤에
+            // 돌아가면 인용부호에 감싸인 진짜 메시지가 접두어 판정을 통과하지 못해
+            // 안내문이 chore로 감싸여 버린다.
+            var raw = "다음은 커밋 메시지입니다:\n\"feat: 주문 조회에 필터를 더한다\"";
+
+            Assert.That(CommitMessageComposer.Clean(raw), Is.EqualTo("feat: 주문 조회에 필터를 더한다"));
+        }
+
+        [Test]
+        public void Clean_SelectsBacktickedMessage_WhenPreambleAndBacktickedMessageBothPresent()
+        {
+            var raw = "다음은 커밋 메시지입니다:\n`feat: 주문 조회에 필터를 더한다`";
+
+            Assert.That(CommitMessageComposer.Clean(raw), Is.EqualTo("feat: 주문 조회에 필터를 더한다"));
+        }
+
+        [Test]
+        public void Clean_SelectsMessage_WhenLinePrefixedWithListMarker()
+        {
+            var raw = "다음은 커밋 메시지입니다:\n- feat: 주문 조회에 필터를 더한다";
+
+            Assert.That(CommitMessageComposer.Clean(raw), Is.EqualTo("feat: 주문 조회에 필터를 더한다"));
+        }
+
+        [Test]
+        public void Clean_SelectsMessage_WhenLineWrappedInBoldMarker()
+        {
+            var raw = "다음은 커밋 메시지입니다:\n**feat: 주문 조회에 필터를 더한다**";
+
+            Assert.That(CommitMessageComposer.Clean(raw), Is.EqualTo("feat: 주문 조회에 필터를 더한다"));
+        }
     }
 
     [TestFixture]
