@@ -66,12 +66,20 @@ rebase가 필요하고, 이 팀의 대상은 그것을 하지 않는다. 둘째,
 
 ### 2.4 어디로 나가는지 모른 채 나가지 않는다
 
-새 호스트로 처음 보내기 직전에 한 번 확인받는다.
+새 목적지로 처음 보내기 직전에 한 번 확인받는다.
 
-> 선택한 변경의 SQL diff가 `{호스트}`로 전송됩니다. 계속하시겠습니까?
+> 선택한 변경의 SQL diff가 `{목적지}`로 전송됩니다. 계속하시겠습니까?
 
-동의한 호스트를 `consentedHost`에 남기고 다시 묻지 않는다. **URL이 바뀌면 다시 묻는다** —
+동의한 목적지를 `consentedHost`에 남기고 다시 묻지 않는다. **목적지가 바뀌면 다시 묻는다** —
 동의는 "AI를 쓰는 것"이 아니라 "이 목적지로 보내는 것"에 대한 것이기 때문이다.
+
+**목적지는 호스트가 아니라 출처(스킴+호스트+포트)다.** 처음 설계는 호스트만 비교했는데, 구현
+리뷰에서 그 구멍이 드러났다 — `https`에 동의한 사용자가 같은 호스트의 `http`로 바뀌어도 다시
+묻지 않아, 운영 DDL이 평문으로 나가는 순간을 사용자가 알 길이 없었다. 같은 조직의 서버라도
+평문 전송은 다른 목적지다. 기본 포트는 정규화한다(`https://h:443`과 `https://h`는 같다).
+`AiConsent.DestinationOf`가 비교값과 저장값을 모두 만든다 — 저장값을 원본 URL로 넣으면 정규화가
+어긋나 매번 다시 묻는다. 속성 이름 `consentedHost`는 옛 이름 그대로 두었다(바꿀 때 이미 파일을
+가진 사용자가 없었고, 이름을 바꾸면 얻는 것 없이 이전 절차만 생긴다).
 
 ### 2.5 생성되는 메시지는 한국어 본문 + 영문 접두어, 스코프 없음
 
@@ -97,6 +105,29 @@ CLAUDE.md의 "인증 정보는 디스크에 쓰지 않는다"는 **SSMS 개체 �
 **`mappings.json`과 별도 파일인 것이 중요하다.** 매핑은 (서버, DB)마다 다르고 팀원끼리
 내용을 주고받는 일이 실제로 있다. 같은 파일에 키가 들어 있으면 그때 딸려 나간다.
 
+**`Save`는 실패를 삼키지 않는다** — `ConfigManager.Save`와 일부러 다르다. 키를 넣고 확인을
+눌렀는데 조용히 저장되지 않으면 사용자는 다음 커밋까지 모른다. 부르는 쪽이 잡아 한국어로
+알린다. 부르는 자리는 둘이다(옵션 페이지, ViewModel의 동의 기록) — 처음 구현은 옵션 페이지만
+잡아, 동의를 수락하는 순간 쓰기 실패가 UI 스레드에서 도구 창을 내릴 수 있었다. 최종 리뷰가
+잡았다. 동의 기록이 실패해도 생성은 계속한다 — 사용자는 그 클릭에서 이미 동의했다.
+
+### 2.7 주소와 모델에 사내 서버 기본값을 둔다 (0.7.1)
+
+처음 설계는 기본값 없이 비워 두었다. 실기 확인 뒤 사내 서버(`http://172.20.100.40`,
+`pelly:latest`)를 기본값으로 심었다. 개발자 20명이 각자 주소를 받아 적어 넣게 하면 그 단계에서
+대부분 멈추기 때문이다.
+
+- **기본값은 목적지를 정해 줄 뿐 동의를 대신하지 않는다.** `consentedHost`는 비어 있으므로 첫
+  생성에서 목적지를 보여 주고 묻는다(2.4). 기본값이 동의까지 채우면 이 기능의 안전장치가
+  사라진다.
+- **설정 파일이 있으면 파일이 권위다.** 주소를 일부러 비운 사용자는 AI를 쓰지 않겠다고 정한
+  것이므로 기본값으로 덮지 않는다. 그래서 4.1의 "설정 없음" 안내는 이제 사용자가 주소나 모델을
+  비웠을 때만 나온다.
+- **값이 빌드에 들어 있다는 비용이 있다.** 서버를 옮기면 새 릴리스가 필요하고, 이미 파일을 가진
+  사람은 따라오지도 않는다. `docs/team-rollout-backlog.md`에 기록했다.
+- 기본 주소 끝에 `/v1`이 없는 것은 오타가 아니다 — 그 서버는 앞단 프록시가 `/chat/completions`를
+  그대로 받는다. 기준 주소가 어디까지인지는 서버가 정한다.
+
 ## 3. 구성요소
 
 나누는 기준은 **테스트가 볼 수 있는가**다. 네트워크와 Git과 셸을 각각 이음매 뒤로 밀어
@@ -111,13 +142,22 @@ CLAUDE.md의 "인증 정보는 디스크에 쓰지 않는다"는 **SSMS 개체 �
 | `ISecretProtector` / `DpapiSecretProtector` | 문자열 보호·복원. 이 이음매가 있어야 테스트가 진짜 DPAPI 없이 파일 형식을 검증한다 |
 | `IChatCompletionClient` / `OpenAiCompatibleClient` | `POST {BaseUrl}/chat/completions`. `HttpClient` + `System.Text.Json`뿐이라 새 패키지가 없다 |
 | `CommitMessageComposer` | 프롬프트 조립과 응답 정제. 정적·순수 |
-| `IAiCommitMessageGenerator` / `CommitMessageGenerator` | 위의 것들을 엮어 `Generate(server, database, relativePaths, ct)` → 메시지 한 줄 |
+| `AiConsent` | `DestinationOf(baseUrl)`로 목적지(출처)를 만들고 `NeedsConsent(settings)`로 물어야 하는지 정한다. 묻는 대화상자는 화면의 몫이다. 정적·순수 |
+| `IAiCommitMessageGenerator` / `CommitMessageGenerator` | 위의 것들을 엮어 `Generate(server, database, relativePaths, ct)` → 메시지 한 줄. **동의를 묻지 않는다** — 게이트는 호출자에 있다 |
+
+`AiConsent`는 처음 설계 표에 없었다. 동의 판정을 ViewModel 안에 두면 네트워크도 셸도 없이
+검증할 방법이 없어서 구현 계획 단계에서 따로 뺐다 — 이 기능에서 가장 값진 판정이 그것이다.
 
 **DPAPI 하나만 타깃을 가린다.** `ProtectedData`는 net48에서는 프레임워크의 `System.Security`에
 있지만 netstandard2.0에는 없다. Core는 두 타깃을 함께 내므로 조건부로 다뤄야 한다 —
 net48은 프레임워크 참조, netstandard2.0은 `System.Security.Cryptography.ProtectedData`
-패키지를 **그 타깃에만** 건다. net48 쪽 참조가 바뀌지 않으므로 `IncludeCoreDependenciesInVsix`
-목록은 재계산 대상이 아니다(CLAUDE.md의 그 규칙이 걸리는 경우인지 먼저 확인할 것).
+패키지를 **그 타깃에만** 건다.
+
+처음 이 문단은 "net48 쪽 참조가 바뀌지 않으므로 재계산 대상이 아니다"라고 적었는데, **틀렸다.**
+net48 `DBVC.Core.dll`은 `System.Security`와 (클라이언트가 쓰는) `System.Net.Http`를 새로
+참조한다. 결론은 여전히 맞다 — 둘 다 GAC 프레임워크 어셈블리라 `IncludeCoreDependenciesInVsix`
+목록에 넣을 대상이 아니다. 근거가 틀린 채로 두면 다음 사람이 그 문장을 들어 정작 필요한 재계산을
+건너뛴다. `System.Net.Http`가 SSMS 21 프로세스 안에서 해결되는 것은 2026-09-16 실기로 확인했다.
 
 `IAiCommitMessageGenerator`는 `Abstractions.cs`에 둔다 — UI를 네트워크 없이 테스트 가능하게
 하는 이음매이므로 그 파일의 기존 인터페이스들과 성격이 같다.
@@ -128,8 +168,15 @@ net48은 프레임워크 참조, netstandard2.0은 `System.Security.Cryptography
 
 ### 3.2 diff는 `GitManager`가 낸다
 
-`IGitManager.GetUnifiedDiff(serverName, databaseName, relativePaths, maxLines)`를 더한다.
-LibGit2Sharp의 `Diff.Compare<Patch>()`로 작업 트리와 HEAD를 비교한다.
+`IGitManager.GetUnifiedDiff(serverName, databaseName, relativePaths)`를 더한다. 파일별
+`DiffFileChange`(경로·상태·patch)를 돌려준다. LibGit2Sharp의 `Diff.Compare<Patch>()`로 작업
+트리와 HEAD를 비교한다. 줄 수 상한은 여기가 아니라 `CommitMessageComposer`가 건다 — 파일별로
+받아 두어야 객체마다 균등하게 자를 수 있다.
+
+**넘긴 경로만 나온다.** `ExplicitPathsOptions`가 비교 범위를 묶어, 목록에 다른 변경 파일이 있어도
+결과에 섞이지 않는다. 이것이 "체크한 객체만 나간다"는 성질의 실체이고, 인자 두 개에 걸려 있다.
+미추적 파일(새로 만든 객체)도 명시적 경로를 넘기면 `Added`로 잡힌다 — 구현 전에는 확인되지 않았던
+LibGit2Sharp 0.32.0의 동작이라, 라이브러리를 올리면 다시 확인한다.
 
 새 클래스를 만들지 않는 이유가 둘이다. "Git 저장소를 읽는 일은 `GitManager`가 한다"가 이미
 이 저장소의 규칙이고, 화면이 보여 주는 diff(`DiffService`)와 AI가 보는 diff가 **같은
@@ -163,7 +210,7 @@ DPAPI 암호화가 통째로 무의미해진다. 그 자리에 이 사유를 주
 AI 생성 클릭
   → 설정 확인 (비었으면 안내하고 끝)
   → 기존 메시지가 있으면 덮어쓰기 확인
-  → 새 호스트면 전송 동의 확인 (2.4)
+  → 새 목적지면 전송 동의 확인 (2.4)
   → IBackgroundScheduler.Run
        GitManager.GetUnifiedDiff → CommitMessageComposer.BuildPrompt
        → OpenAiCompatibleClient → CommitMessageComposer.Clean
@@ -186,8 +233,19 @@ HTTP는 수 초가 걸린다. UI 스레드에서 하면 그동안 SSMS 전체가
 번에 사라지면 안 된다.
 
 실패는 전부 한국어 사유로 바꾼다 — 연결 실패 / 타임아웃 / 401·403(키가 거부됨) /
-404(URL 또는 모델 이름) / 429(호출 한도) / 그 외. 서버가 돌려준 영문 본문은 인용으로만
-덧붙인다(CLAUDE.md의 UI 문구 규칙).
+404(URL 또는 모델 이름) / 429(호출 한도) / 형식이 잘못된 주소 / 형식이 어긋난 200 응답 / 그 외.
+서버가 돌려준 영문 본문은 인용으로만 덧붙인다(CLAUDE.md의 UI 문구 규칙).
+
+마지막 세 갈래는 구현 리뷰에서 더했다. 스킴이 없는 주소(`llm.example.com/v1` — 사내 서버 주소를
+붙여 넣을 때 흔한 형태)는 `HttpClient`가 `InvalidOperationException`을 영문 그대로 던졌고, 객체가
+아니거나 `choices`가 배열이 아닌 200 응답은 `InvalidOperationException`이 대화상자까지 올라왔다.
+
+**인용하는 본문에서 API 키를 가린다.** 클라이언트는 키를 메시지에 넣지 않지만, 게이트웨이가
+`Authorization` 헤더를 오류 본문에 되비추는 일이 있고 그러면 키가 대화상자에 뜬 뒤 버그 리포트에
+붙는다. 가린 뒤에 자른다 — 순서가 뒤집히면 잘린 경계에 키 일부가 남는다.
+
+**취소는 감싸지 않는다.** 취소된 토큰은 `OperationCanceledException` 그대로 올라간다 — 취소는
+보고할 실패가 아니라 사용자의 의사이고, 감싸면 자기가 누른 취소를 "AI 오류"로 읽는다.
 
 **실패해도 `CommitMessage`는 건드리지 않는다.** 빈칸으로 만들면 사용자가 적던 것까지 잃는다.
 
@@ -196,10 +254,17 @@ HTTP는 수 초가 걸린다. UI 스레드에서 하면 그동안 SSMS 전체가
 AI가 코드펜스를 씌우거나, 여러 줄을 뱉거나, 접두어를 빠뜨리는 일은 정상적으로 일어난다.
 `CommitMessageComposer.Clean`이 처리한다.
 
-- 코드펜스(```)와 감싼 따옴표·백틱을 벗긴다
-- 첫 줄만 취한다
-- 접두어가 2.5의 집합에 없으면 `chore:`를 붙인다
+- 코드펜스(```)를 벗긴다
+- 각 줄에서 감싼 따옴표·백틱·굵게(`**`)와 목록 표시(`- `)를 **안정될 때까지** 벗긴다
+- **접두어가 있는 첫 줄**을 고른다. 그런 줄이 없으면 비지 않은 첫 줄을 쓰고 `chore:`를 붙인다
+- 끝의 마침표(`.`, `。`)를 지운다 — 2.5의 형식이 마침표를 금한다
 - 72자를 넘으면 잘라낸다
+
+처음 설계는 "첫 줄만 취한다"였다. 모델이 `다음은 커밋 메시지입니다:` 같은 머리말을 붙이면 진짜
+메시지를 버리고 머리말에 `chore:`를 붙였다 — 사람이 고친다는 것이 쓰레기를 내도 된다는 뜻은
+아니다. 벗기는 순서도 중요했다: 줄을 고른 **뒤에** 따옴표를 벗기면, 머리말과 따옴표가 함께
+오는 흔한 경우(`다음은…:\n"feat: …"`)에 접두어 검사가 따옴표에 막혀 같은 실패가 되풀이된다.
+그래서 줄마다 먼저 벗기고 고른다.
 
 system 프롬프트에 형식을 적고 예시를 두어 개 넣는다. 설명만으로는 형식 준수율이 잘 오르지
 않는다. 그럼에도 정제 단계를 두는 이유는, **형식 위반이 드물어도 0이 되지는 않기 때문**이다.
@@ -210,16 +275,23 @@ system 프롬프트에 형식을 적고 예시를 두어 개 넣는다. 설명�
 
 | 대상 | 무엇을 증언하는가 |
 | --- | --- |
-| `CommitMessageComposer` | 코드펜스·따옴표·여러 줄 정제, 접두어 없는 응답에 `chore:` 부여, 72자 초과 처리, `MaxDiffLines` 초과 시 잘라내되 객체 목록은 남는지 |
-| `AiSettingsStore` | 가짜 `ISecretProtector`로 저장·복원 왕복. 그리고 **저장된 파일 본문에 키 원문이 없다** |
-| `OpenAiCompatibleClient` | 가짜 `HttpMessageHandler`로 URL 조합(끝 슬래시 유무), `Authorization: Bearer`, 요청 JSON 형태, 상태 코드별 한국어 예외 |
-| `GitManager.GetUnifiedDiff` | 임시 저장소로 검증(기존 `GitManagerTests` 방식) |
+| `CommitMessageComposer` | 코드펜스·따옴표·여러 줄 정제, 머리말+감싼 메시지 조합에서 진짜 줄 선택, 마침표 제거, 접두어 없는 응답에 `chore:` 부여, 72자 초과 처리, `MaxDiffLines` 초과 시 잘라내되 객체 목록은 남는지 |
+| `AiSettingsStore` | 가짜 `ISecretProtector`로 저장·복원 왕복. 그리고 **저장된 파일 본문에 키 원문이 없다**. 파일이 없으면 기본값이 들되 동의는 비어 있고, 주소를 비운 파일은 기본값으로 덮이지 않는다 |
+| `AiConsent` | 스킴·포트가 바뀌면 다시 묻고, 같은 출처는 경로·대소문자·기본 포트가 달라도 묻지 않는다 |
+| `OpenAiCompatibleClient` | 가짜 `HttpMessageHandler`로 URL 조합(끝 슬래시 유무), `Authorization: Bearer`, 요청 JSON 형태, 상태 코드별·잘못된 주소·어긋난 응답의 한국어 예외, **인용 본문에서 키가 가려지는지** |
+| `GitManager.GetUnifiedDiff` | 임시 저장소로 검증(기존 `GitManagerTests` 방식). **변경 파일 둘 중 하나만 요청하면 다른 하나가 결과에 없다** |
 
 `DBVC.Vsix.Tests` — 가짜 생성기로 ViewModel을 검증한다: 성공 시 채움, 실패 시 기존 메시지
-보존, 설정 미비 안내, **동의를 거절하면 호출 자체가 일어나지 않음**.
+보존, 설정 미비 안내, **동의를 거절하면 호출 자체가 일어나지 않음**, **생성기가 받은 경로가
+체크한 것과 정확히 같음**, 동의 기록 실패에도 생성이 계속됨.
 
 `AiSettingsStore` 테스트가 이 기능에서 가장 값지다. 키가 평문으로 디스크에 닿지 않는다는
 것은 눈으로 봐서는 확인되지 않고, 한번 깨지면 조용히 깨진다.
+
+**두 파일 중 하나만 요청하는 테스트가 두 번째로 값지다.** "체크한 객체만 나간다"는 성질은
+`ExplicitPathsOptions` 인자 두 개에 걸려 있는데, 처음 테스트는 전부 변경 파일 하나짜리 저장소를
+써서 그 인자를 지워도 모두 초록이었다 — 선택하지 않은 모든 변경이 외부로 나가는 회귀를 아무것도
+잡지 못했다. 최종 리뷰가 찾았고, 인자를 실제로 지워 테스트가 빨개지는 것을 본 뒤 들였다.
 
 ### 5.1 CI가 검증하지 못하는 것
 

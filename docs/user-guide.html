@@ -618,7 +618,7 @@
 
 <header class="masthead">
   <div class="wrap">
-    <p class="kicker">사용 설명서 &nbsp;/&nbsp; 개발자 · DBA &nbsp;/&nbsp; DBVC 0.6.0 &nbsp;/&nbsp; 2026-09-10</p>
+    <p class="kicker">사용 설명서 &nbsp;/&nbsp; 개발자 · DBA &nbsp;/&nbsp; DBVC 0.7.1 &nbsp;/&nbsp; 2026-09-16</p>
     <h1>스키마를 바꿨으면<br>커밋한다</h1>
     <p class="lede">
       DBVC는 SSMS 21 안에서 도는 확장입니다. 데이터베이스에 가한 스키마 변경을 <em>자동으로
@@ -733,6 +733,11 @@
             <td>폴링을 붙이면 23명이 쓰는 공용 DB를 도구가 계속 두드리게 됩니다</td>
           </tr>
           <tr>
+            <td class="q">AI가 커밋하지 않는다</td>
+            <td><span class="b">AI 생성</span>은 메시지 칸을 채우기만 합니다. 읽고 고친 뒤 <span class="b">Commit</span>은 사람이 누릅니다</td>
+            <td>커밋 메시지는 고치려면 이력을 다시 써야 합니다. 검토하지 않은 문장이 영구히 남으면 안 됩니다</td>
+          </tr>
+          <tr>
             <td class="q">DDL 자체를 막지 않는다</td>
             <td>같은 객체를 둘이 만져도 막지 못합니다. 커밋 직전에 <strong>알릴</strong> 뿐입니다</td>
             <td>공용 개발 DB가 하나뿐이라 막을 자리가 없습니다. 권한은 SQL Server 계정이 담당합니다</td>
@@ -789,7 +794,7 @@
       <p>
         폐쇄망에는 마켓플레이스도 자동 업데이트도 없습니다. <code>.vsix</code>를 받는 곳은
         <strong>사내 GitLab 배포 프로젝트의 Releases 하나뿐</strong>입니다. 태그가 곧
-        버전(<code>v0.6.0</code>)이고, 릴리스 노트가 공지 본문입니다.
+        버전(<code>v0.7.1</code>)이고, 릴리스 노트가 공지 본문입니다.
       </p>
       <p>
         메신저로 받은 파일, 옆자리에서 복사한 파일, 예전에 받아 둔 파일은 쓰지 않습니다.
@@ -943,7 +948,7 @@
           <rect class="btn" x="360" y="18" width="46" height="20" rx="2"></rect>
           <text class="t-mono" x="383" y="32" text-anchor="middle">연결</text>
           <text class="t-mono" x="592" y="26" text-anchor="end">브랜치: develop</text>
-          <text class="t-mono" x="592" y="42" text-anchor="end">DBVC 0.6.0</text>
+          <text class="t-mono" x="592" y="42" text-anchor="end">DBVC 0.7.1</text>
 
           <!-- 배너 -->
           <rect class="box-accent" x="16" y="60" width="584" height="26" rx="2"></rect>
@@ -955,12 +960,13 @@
             <rect class="btn" x="26"  y="104" width="52" height="19" rx="2"></rect><text x="52"  y="117" text-anchor="middle">새로고침</text>
             <rect class="btn" x="84"  y="104" width="70" height="19" rx="2"></rect><text x="119" y="117" text-anchor="middle">전체 다시 추출</text>
             <rect class="btn" x="160" y="104" width="96" height="19" rx="2"></rect><text x="208" y="117" text-anchor="middle">커밋 메시지…</text>
-            <rect class="btn" x="262" y="104" width="46" height="19" rx="2"></rect><text x="285" y="117" text-anchor="middle">Commit</text>
-            <rect class="btn" x="314" y="104" width="50" height="19" rx="2"></rect><text x="339" y="117" text-anchor="middle">되돌리기</text>
-            <rect class="btn" x="370" y="104" width="34" height="19" rx="2"></rect><text x="387" y="117" text-anchor="middle">무시</text>
-            <rect class="btn" x="410" y="104" width="34" height="19" rx="2"></rect><text x="427" y="117" text-anchor="middle">Pull</text>
-            <rect class="btn" x="450" y="104" width="34" height="19" rx="2"></rect><text x="467" y="117" text-anchor="middle">Push</text>
-            <rect class="btn" x="490" y="104" width="52" height="19" rx="2"></rect><text x="516" y="117" text-anchor="middle">원격 확인</text>
+            <rect class="btn" x="262" y="104" width="44" height="19" rx="2"></rect><text x="284" y="117" text-anchor="middle">AI 생성</text>
+            <rect class="btn" x="312" y="104" width="46" height="19" rx="2"></rect><text x="335" y="117" text-anchor="middle">Commit</text>
+            <rect class="btn" x="364" y="104" width="50" height="19" rx="2"></rect><text x="389" y="117" text-anchor="middle">되돌리기</text>
+            <rect class="btn" x="420" y="104" width="34" height="19" rx="2"></rect><text x="437" y="117" text-anchor="middle">무시</text>
+            <rect class="btn" x="460" y="104" width="34" height="19" rx="2"></rect><text x="477" y="117" text-anchor="middle">Pull</text>
+            <rect class="btn" x="500" y="104" width="34" height="19" rx="2"></rect><text x="517" y="117" text-anchor="middle">Push</text>
+            <rect class="btn" x="540" y="104" width="52" height="19" rx="2"></rect><text x="566" y="117" text-anchor="middle">원격 확인</text>
             <rect class="btn" x="26" y="131" width="10" height="10" rx="1"></rect>
             <text x="42" y="139">다른 사람 변경도 보기</text>
             <text x="592" y="139" text-anchor="end">받을 커밋 0개 · 올릴 커밋 2개</text>
@@ -1153,6 +1159,10 @@
         <p>
           체크된 객체의 <code>.sql</code>만 커밋됩니다. 커밋된 항목은 변경 로그에서 닫혀 다음
           새로고침 때 목록에서 사라집니다.
+        </p>
+        <p>
+          메시지는 직접 적어도 되고, <span class="b">AI 생성</span>으로 초안을 받아 고쳐 써도
+          됩니다 → <a href="#dev">2.9</a>.
         </p>
         <p><strong>여기서 경고가 뜨면 멈춥니다</strong> — 아래 2.2를 보세요.</p>
       </div>
@@ -1481,6 +1491,58 @@
         배포·감사 클론은 <strong>고정 브랜치가 필수</strong>입니다 — 브랜치를 옮기는 순간
         비교 기준이 무너지므로, <span class="b">새 브랜치</span>·<span class="b">브랜치 전환</span>
         둘 다 그 클론에서는 처음부터 비활성화되어 있습니다.
+      </p>
+    </div>
+
+    <h3>2.9 AI로 커밋 메시지 초안 만들기</h3>
+
+    <div class="prose">
+      <p>
+        메시지 칸 오른쪽의 <span class="b">AI 생성</span>은 체크한 객체의 변경 내용을 사내
+        LLM 서버에 보내 <code>feat: 주문 조회 프로시저에 취소일자 필터를 더한다</code> 같은
+        한 줄을 받아 칸에 채웁니다. <strong>채우기만 합니다</strong> — 커밋은 여전히 읽고
+        고친 뒤 <span class="b">Commit</span>을 누를 때 만들어집니다. 실패해도 적던 문장은
+        그대로 남고, 직접 적는 길은 언제나 열려 있습니다.
+      </p>
+      <p>
+        <code>수정</code>, <code>.</code>, <code>재추출</code> 같은 메시지가 쌓인 이력은
+        6개월 뒤 아무것도 말해 주지 않습니다. 이 버튼은 규칙을 지키는 쪽을 지키지 않는
+        쪽보다 쉽게 만들려고 있습니다.
+      </p>
+    </div>
+
+    <ul class="plain wide-list">
+      <li>
+        <strong>설정은 따로 하지 않아도 됩니다.</strong> 도구 &gt; 옵션 &gt; DBVC &gt; AI 커밋
+        메시지에 사내 서버 주소와 모델이 기본으로 들어 있습니다. 다른 서버를 쓸 때만
+        바꾸고, <span class="b">연결 테스트</span>로 바로 확인합니다.
+      </li>
+      <li>
+        <strong>처음 한 번은 전송 여부를 묻습니다.</strong> 어느 주소로 보내는지 보여 주고
+        동의를 받은 뒤에야 보냅니다. 주소가 바뀌면 — 같은 서버라도 <code>https</code>에서
+        <code>http</code>로, 또는 포트가 바뀌면 — 다시 묻습니다.
+      </li>
+      <li>
+        <strong>나가는 것은 체크한 객체의 바뀐 줄뿐입니다.</strong> 체크하지 않은 항목은 목록에
+        있어도 보내지 않고, 객체 전체 DDL도 보내지 않습니다. 바뀐 줄이 많으면 객체별로 잘라
+        보내되 어떤 객체가 바뀌었는지 목록은 전부 보냅니다.
+      </li>
+      <li>
+        <strong>이미 적던 메시지가 있으면</strong> 덮어쓰기 전에 한 번 확인합니다.
+      </li>
+      <li>
+        <strong>API 키를 넣었다면</strong> <code>%APPDATA%\DBVC\ai-settings.json</code>에 Windows
+        계정 단위로 암호화되어 저장되며, 같은 PC의 다른 계정은 읽지 못합니다. 매핑 파일
+        (<code>mappings.json</code>)과 다른 파일이라 매핑을 동료에게 넘겨도 키는 따라가지 않습니다.
+      </li>
+    </ul>
+
+    <div class="caution">
+      <h4>초안은 초안입니다</h4>
+      <p>
+        형식(접두어·한 줄·72자)은 DBVC가 맞추지만 <strong>내용이 맞는지는 사람이 봅니다.</strong>
+        모델은 diff만 보고 짐작하므로 "왜 바꿨는지"는 모릅니다 — 티켓 번호나 이유를 덧붙일
+        자리는 여전히 여러분의 몫입니다.
       </p>
     </div>
   </div>

@@ -57,6 +57,23 @@ WPF/MVVM)는 SSMS 21(VS 2022 셸) 안에서 그것을 띄운다. Core는 VS 셸�
 4. `WorkingTreeCleaner`가 DROP된 객체의 `.sql`을 지우고, `GitManager`(LibGit2Sharp)가 스테이징·
    커밋·Pull·Push·이력 조회를 한다. 커밋에 성공하면 `StateTracker.MarkProcessed`로 로그를 닫는다.
 
+**AI 커밋 메시지 (0.7.0~)** — 커밋 경로 밖의 곁가지다. 실패해도 최대 피해는 "메시지를 직접 적는다"다.
+
+`AI 생성` → `AiConsent`(목적지 동의) → `CommitMessageGenerator` → `GitManager.GetUnifiedDiff`
+(**체크한 경로만** — `ExplicitPathsOptions`가 범위를 묶는다) → `CommitMessageComposer`(프롬프트·
+응답 정제) → `OpenAiCompatibleClient`(`/chat/completions`). 결과는 메시지 칸을 채울 뿐 커밋하지 않는다.
+설계와 판단 근거는 `docs/superpowers/specs/2026-09-16-dbvc-ai-commit-message-design.md`.
+
+- **동의는 출처(스킴+호스트+포트) 단위다.** 호스트만 비교하면 `https`에 동의한 사용자가 같은
+  호스트의 `http`로 바뀌어도 다시 묻지 않는다. 저장값은 반드시 `AiConsent.DestinationOf`의 반환값이다
+  — 원본 URL을 넣으면 정규화가 깨져 매번 다시 묻는다.
+- 동의 게이트는 **호출자(ViewModel)에만** 있다. `CommitMessageGenerator.Generate`는 묻지 않으므로
+  두 번째 호출자를 만들면 게이트도 함께 만든다.
+- 기본 주소·모델은 `AiSettings.DefaultBaseUrl`/`DefaultModel`이다. 기본값은 목적지를 정할 뿐
+  **동의를 대신하지 않는다**(`ConsentedHost`는 비어 있다). 설정 파일이 있으면 파일이 권위다.
+- 프로바이더 주소는 기준(base) 주소다. `/chat/completions`를 붙이는 것은 클라이언트이고, 이미 붙은
+  주소를 도구가 고쳐 쓰지 않는다(404가 나며 한국어 안내가 원인을 가리킨다) — 의도된 판단이다.
+
 **핵심 규약**
 
 - 저장소 경로는 `ObjectPathConvention` 한 곳에서만 정한다: `[Schema]/[ObjectType]/[Name].sql`,
@@ -64,14 +81,21 @@ WPF/MVVM)는 SSMS 21(VS 2022 셸) 안에서 그것을 띄운다. Core는 VS 셸�
   역파싱(`TryParseRelativePath`)과 배포 스크립트 정렬 순서도 여기에 있다.
 - DB↔저장소 매핑은 `%APPDATA%\DBVC\mappings.json`(`ConfigManager`). 모든 Core API가
   `(serverName, databaseName)`를 받아 이 매핑으로 저장소 경로를 찾는다.
-- **인증 정보는 디스크에 쓰지 않는다.** `SessionCredentialStore`는 메모리 전용이고, 값의 유일한
+- **SQL 인증 정보는 디스크에 쓰지 않는다.** `SessionCredentialStore`는 메모리 전용이고, 값의 유일한
   출처는 SSMS 개체 탐색기(`ObjectExplorerConnectionSource`)다. DBVC 창에 입력란은 없다.
+  이 규칙이 성립하는 이유는 값을 언제든 SSMS에서 다시 얻을 수 있기 때문이다.
+- **AI API 키는 예외로 디스크에 쓴다** — 다시 얻을 출처가 없어서다. `AiSettingsStore`가
+  `%APPDATA%\DBVC\ai-settings.json`에 DPAPI(CurrentUser)로 암호화해 두고, **`mappings.json`과
+  반드시 다른 파일이다**(매핑 파일은 팀원끼리 주고받으므로 같은 파일이면 키가 딸려 나간다).
+  위 규칙을 근거로 이 저장을 "고치지" 않는다.
 - Git 인증은 **SSH만** 지원한다. libgit2가 시스템 `ssh`에 위임하므로 자격증명 콜백을 타지 않는다.
   HTTPS 원격은 `RemoteDiagnostics`가 사유를 만들어 안내한다.
 - `Abstractions.cs`의 인터페이스(`IConfigManager`, `IStateTracker`, `IGitManager`, `ISmoManager`,
-  `ISqlCredentialStore`, `IWorkingTreeCleaner`)가 UI를 DB·Git 없이 테스트 가능하게 하는 이음매다.
-  `DbvcServices`가 조립 루트이며, 하나의 `ConfigManager`와 자격증명 저장소를 모든 매니저가 공유한다
-  (따로 만들면 SQL 인증 암호가 매니저에 전달되지 않는다).
+  `ISqlCredentialStore`, `IWorkingTreeCleaner`, `IAiCommitMessageGenerator`)가 UI를 DB·Git·네트워크
+  없이 테스트 가능하게 하는 이음매다. `DbvcServices`가 조립 루트이며, 하나의 `ConfigManager`와
+  자격증명 저장소를 모든 매니저가 공유한다(따로 만들면 SQL 인증 암호가 매니저에 전달되지 않는다).
+  `AiSettingsStore`도 같은 이유로 하나다 — 옵션 페이지는 `DbvcServices.Default.AiSettingsStore`를
+  쓴다. 따로 만들면 옵션에서 저장한 값이 생성기에 보이지 않는다.
 - 무거운 작업은 `IBackgroundScheduler`로 UI 스레드 밖에서 돈다. 인라인으로 되돌리면 새로고침이
   다시 SSMS를 붙잡는다. 반대로 `ObjectExplorerConnectionSource`는 **UI 스레드에서만** 부른다.
 - SSMS 어셈블리는 컴파일 타임에 참조하지 않는다 — 리플렉션으로 읽는다(설치 폴더에만 있고 GAC에
@@ -92,7 +116,19 @@ WPF/MVVM)는 SSMS 21(VS 2022 셸) 안에서 그것을 띄운다. Core는 VS 셸�
   뒤 런타임에 조용히** 깨진다(메뉴 미등록, 저장 실패, SSMS 아닌 VS에 설치됨). 각 자리의 주석에
   실제 증상이 기록되어 있으니 바꾸기 전에 읽는다.
 - 참조가 바뀌면 `IncludeCoreDependenciesInVsix` 목록을 `DBVC.Core.dll`의 AssemblyRef 폐포에서 다시
-  계산한다. 예외 메시지를 보고 하나씩 이름을 보태는 방식은 쓰지 않는다.
+  계산한다. 예외 메시지를 보고 하나씩 이름을 보태는 방식은 쓰지 않는다. 0.7.0에서 net48 Core가
+  `System.Security`와 `System.Net.Http`를 새로 참조했지만 둘 다 GAC 프레임워크 어셈블리라 목록은
+  그대로다 — `System.Net.Http`가 SSMS 21 프로세스 안에서 해결되는 것은 2026-09-16 실기로 확인했다.
+- **`DBVC.Core.csproj`의 `ProtectedData` 조건부 참조.** net48은 프레임워크 `System.Security`,
+  netstandard2.0만 `System.Security.Cryptography.ProtectedData` 패키지다. 패키지를 조건 없이 걸면
+  net48 참조 폐포가 바뀌어 위 목록을 다시 계산해야 한다.
+- **`AiOptionPage`의 `LoadSettingsFromStorage`/`SaveSettingsToStorage`에서 `base`를 부르지 않는다.**
+  기본 구현은 속성을 VS 설정 저장소(레지스트리)에 **평문으로** 남긴다 — 부르는 순간 DPAPI 암호화가
+  통째로 무의미해지고, 빌드도 테스트도 그것을 잡지 못한다. 같은 이유로 이 페이지는 PropertyGrid를
+  그리는 `DialogPage`가 아니라 `UIElementDialogPage` + `PasswordBox`다.
+- **`AiSettingsStore.Save`는 예외를 삼키지 않는다** — `ConfigManager.Save`와 일부러 다르다. 키를
+  넣고 확인했는데 조용히 저장되지 않으면 다음 커밋까지 모른다. 부르는 쪽(옵션 페이지, ViewModel의
+  동의 기록)이 잡아 한국어로 알린다. 새 호출자도 반드시 잡는다.
 
 ## 작업 방식
 
@@ -107,8 +143,9 @@ WPF/MVVM)는 SSMS 21(VS 2022 셸) 안에서 그것을 띄운다. Core는 VS 셸�
   구현 순서로 진행한다. 새 작업을 시작하기 전에 관련 문서를 먼저 읽는다.
 - 사용자 눈에 보이는 동작이 바뀌면 `README.md`와 `docs/setup-checklist.md`를 함께 고치고,
   `src/DBVC.Vsix/source.extension.vsixmanifest`의 버전을 올린다.
-- **CI가 검증하지 않는 것:** WPF 렌더링, VS 패키지 로딩, `.vsct` 메뉴 등록, SSMS 통합, 실제 DB 연결.
-  이 영역을 건드렸다면 SSMS 21에서 직접 눌러 보기 전에는 "동작한다"고 말할 수 없다.
+- **CI가 검증하지 않는 것:** WPF 렌더링, VS 패키지 로딩, `.vsct` 메뉴 등록, 옵션 페이지 등록
+  (`ProvideOptionPage`), SSMS 통합, 실제 DB 연결, 실제 AI 프로바이더 호출. 이 영역을 건드렸다면
+  SSMS 21에서 직접 눌러 보기 전에는 "동작한다"고 말할 수 없다.
 - 미구현 기능은 Object Explorer 아이콘 오버레이(Feature 10) 하나다. 2026-09-09 실기 실험에서
   구현 가능함이 확인되었고, 그럼에도 보류하는 사유(펼친 노드만 칠해져 상태를 반쪽만 보여 준다)와
   착수 시 감당할 것들은 `docs/superpowers/plans/2026-08-01-dbvc-object-explorer-overlay.md`에 있다.
