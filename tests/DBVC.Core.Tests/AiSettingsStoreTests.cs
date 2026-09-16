@@ -111,6 +111,28 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void Load_ReturnsDefaults_WhenFileIsLockedByAnotherProcess()
+        {
+            // UnauthorizedAccessException/IOException 계열은 JsonException이 아니다 —
+            // 다른 프로세스가 파일을 배타적으로 잠그고 있을 때도 예외로 죽으면 안 된다.
+            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+            File.WriteAllText(_path, "{\"baseUrl\":\"https://x/v1\",\"model\":\"m\"}");
+
+            using (new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                var loaded = new AiSettingsStore(_path, new ReversibleProtector()).Load();
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(loaded.BaseUrl, Is.Empty);
+                    Assert.That(loaded.TimeoutSeconds, Is.EqualTo(30));
+                    Assert.That(loaded.MaxDiffLines, Is.EqualTo(400));
+                    Assert.That(loaded.IsConfigured, Is.False);
+                });
+            }
+        }
+
+        [Test]
         public void IsConfigured_ReturnsTrue_WhenBaseUrlAndModelPresent()
         {
             // 키는 필수가 아니다 — 사내 LLM 서버는 인증 없이 열려 있는 경우가 있다.

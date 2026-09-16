@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -67,18 +68,22 @@ namespace DBVC.Core
                         ConsentedHost = payload.ConsentedHost,
                     };
                 }
-                catch (JsonException)
+                catch (Exception ex)
                 {
-                    // 손상된 파일로 화면 전체가 열리지 않는 일은 없어야 한다.
-                    return new AiSettings();
-                }
-                catch (IOException)
-                {
+                    // 손상된 파일, 다른 프로세스의 잠금, 권한 거부(UnauthorizedAccessException은
+                    // IOException이 아니다) — 무엇이든 설정 파일 하나 때문에 도구 창이 열리지
+                    // 않는 일은 없어야 한다. 실제 버그를 삼키지는 않도록 자취는 남긴다.
+                    Debug.WriteLine($"AiSettingsStore.Load failed for '{_filePath}': {ex.Message}");
                     return new AiSettings();
                 }
             }
         }
 
+        // ConfigManager.Save()와 다르게 여기서는 예외를 삼키지 않는다 — 의도한 비대칭이다.
+        // 사용자가 옵션 화면에서 API 키를 입력하고 확인을 눌렀는데 쓰기가 조용히 실패하면,
+        // 다음 커밋 때가 되어서야 (혹은 영영) 그 사실을 알게 된다. 호출자(옵션 화면, 다른
+        // 작업에서 구현)가 이 예외를 잡아 한국어로 사유를 보여줘야 한다. 여기서 삼켜 조용한
+        // 실패로 되돌리지 않는다.
         public void Save(AiSettings settings)
         {
             if (settings == null) throw new ArgumentNullException(nameof(settings));
