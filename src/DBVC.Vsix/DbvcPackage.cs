@@ -19,6 +19,7 @@ namespace DBVC.Vsix
     [ProvideAutoLoad(Microsoft.VisualStudio.VSConstants.UICONTEXT.SolutionExists_string, PackageAutoLoadFlags.BackgroundLoad)]
     [ProvideMenuResource("Menus.ctmenu", 1)]
     [ProvideToolWindow(typeof(ViewChangesToolWindow), Style = VsDockStyle.Tabbed, Window = "3ae79031-e1bc-11d0-8f78-00a0c9110057")]
+    [ProvideOptionPage(typeof(UI.AiOptionPage), "DBVC", "AI 커밋 메시지", 0, 0, true)]
     public sealed class DbvcPackage : AsyncPackage
     {
         public const string PackageGuidString = "3f2a1c40-8b16-4d1e-9a5e-2b7c6d4e9f01";
