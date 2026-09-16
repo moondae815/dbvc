@@ -29,26 +29,35 @@ namespace DBVC.Core
             // 코드펜스를 씌워 돌려주는 모델이 있다. 여는 줄에 ```sql 같은 언어 표시가 붙기도 한다.
             if (text.StartsWith("```", StringComparison.Ordinal))
             {
-                var lines = text.Split('\n').ToList();
-                lines.RemoveAt(0);
-                if (lines.Count > 0 && lines[lines.Count - 1].TrimEnd().StartsWith("```", StringComparison.Ordinal))
+                var fenceLines = text.Split('\n').ToList();
+                fenceLines.RemoveAt(0);
+                if (fenceLines.Count > 0 && fenceLines[fenceLines.Count - 1].TrimEnd().StartsWith("```", StringComparison.Ordinal))
                 {
-                    lines.RemoveAt(lines.Count - 1);
+                    fenceLines.RemoveAt(fenceLines.Count - 1);
                 }
-                text = string.Join("\n", lines).Trim();
+                text = string.Join("\n", fenceLines).Trim();
             }
 
-            var firstLine = text.Split('\n').FirstOrDefault(line => !string.IsNullOrWhiteSpace(line))?.Trim();
-            if (string.IsNullOrWhiteSpace(firstLine)) return string.Empty;
+            var lines = text.Split('\n')
+                .Select(line => line.Trim())
+                .Where(line => !string.IsNullOrWhiteSpace(line))
+                .ToList();
+            if (lines.Count == 0) return string.Empty;
 
-            firstLine = TrimWrapper(firstLine!, '"');
-            firstLine = TrimWrapper(firstLine, '\'');
-            firstLine = TrimWrapper(firstLine, '`');
+            // 모델이 안내문을 앞에 덧붙이는 경우가 있다 — 그럴 때 그냥 첫 줄을 집으면 안내문이
+            // chore로 감싸여 진짜 메시지를 밀어낸다. 접두어가 이미 있는 줄을 먼저 찾는다.
+            var firstLine = lines.FirstOrDefault(HasAllowedPrefix) ?? lines[0];
+
+            firstLine = UnwrapQuotes(firstLine);
 
             if (!HasAllowedPrefix(firstLine))
             {
                 firstLine = "chore: " + firstLine;
             }
+
+            // 형식이 마침표 없음을 요구한다. 하나만 지우면 말줄임표가 비대칭으로 남아
+            // (".", "..") 오히려 더 헷갈리므로 끝에 이어진 마침표는 통째로 없앤다.
+            firstLine = firstLine.TrimEnd('.', '。');
 
             if (firstLine.Length > MaxLength)
             {
@@ -56,6 +65,24 @@ namespace DBVC.Core
             }
 
             return firstLine;
+        }
+
+        /// <summary>
+        /// 감싸는 인용부호를 한 겹만 벗기면 그 안에 다른 종류로 한 번 더 감싼 경우
+        /// (예: <c>'"..."'</c>) 안쪽 인용부호가 남는다. 바뀌지 않을 때까지 반복한다 —
+        /// 반복 상한은 사람이 실수로라도 무한 루프에 들어가지 않게 하는 안전판이다.
+        /// </summary>
+        private static string UnwrapQuotes(string value)
+        {
+            for (var i = 0; i < 10; i++)
+            {
+                var before = value;
+                value = TrimWrapper(value, '"');
+                value = TrimWrapper(value, '\'');
+                value = TrimWrapper(value, '`');
+                if (value == before) break;
+            }
+            return value;
         }
 
         private static string TrimWrapper(string value, char wrapper)
