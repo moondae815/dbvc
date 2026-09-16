@@ -79,8 +79,9 @@ namespace DBVC.Core
             request.Content = new StringContent(
                 JsonSerializer.Serialize(payload, PayloadOptions), Encoding.UTF8, "application/json");
 
+            var effectiveTimeoutSeconds = ResolveTimeoutSeconds(settings.TimeoutSeconds);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(settings.TimeoutSeconds > 0 ? settings.TimeoutSeconds : 30));
+            timeout.CancelAfter(TimeSpan.FromSeconds(effectiveTimeoutSeconds));
 
             HttpResponseMessage response;
             try
@@ -90,7 +91,7 @@ namespace DBVC.Core
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 throw new AiRequestException(
-                    $"AI 서버가 {settings.TimeoutSeconds}초 안에 응답하지 않았습니다. 주소와 네트워크를 확인하세요.");
+                    $"AI 서버가 {effectiveTimeoutSeconds}초 안에 응답하지 않았습니다. 주소와 네트워크를 확인하세요.");
             }
             catch (HttpRequestException ex)
             {
@@ -112,6 +113,12 @@ namespace DBVC.Core
         }
 
         /// <summary>
+        /// 설정값이 0 이하면 실제로 적용되는 대체값을 돌려준다. 타임아웃 메시지가 이 값을
+        /// 인용해야 한다 — 원본 설정값을 인용하면 실제로 기다린 시간과 다른 숫자를 보여준다.
+        /// </summary>
+        internal static int ResolveTimeoutSeconds(int configuredSeconds) => configuredSeconds > 0 ? configuredSeconds : 30;
+
+        /// <summary>
         /// 끝 슬래시 유무와 무관하게 같은 URL이 되게 한다. 사용자가 붙여 넣는 값이라
         /// 두 형태가 모두 온다.
         /// </summary>
@@ -121,7 +128,22 @@ namespace DBVC.Core
             {
                 throw new AiRequestException("AI 프로바이더 주소가 설정되지 않았습니다.");
             }
-            return baseUrl.TrimEnd('/') + "/chat/completions";
+
+            var endpoint = baseUrl.TrimEnd('/') + "/chat/completions";
+
+            // 스킴이 없거나(예: "llm.example.com/v1") http/https가 아니면(예: "htp://...")
+            // HttpClient.SendAsync가 InvalidOperationException/NotSupportedException을 영문
+            // 원문 그대로 던진다 — 보내기 전에 걸러 한국어 사유로 바꾼다. 이미
+            // /chat/completions로 끝나는 주소를 그대로 두 번 붙이는 동작(404가 나는 것)은
+            // 여기서 건드리지 않는다 — 그건 별도로 내린 판단이다.
+            if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri)
+                || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                throw new AiRequestException(
+                    "AI 프로바이더 주소가 올바르지 않습니다. http:// 또는 https://로 시작하는 주소인지 확인하세요.");
+            }
+
+            return endpoint;
         }
 
         /// <summary>서버가 돌려준 영문 본문은 인용으로만 싣는다.</summary>

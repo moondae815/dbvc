@@ -196,5 +196,59 @@ namespace DBVC.Core.Tests
 
             Assert.That(ex!.Message, Does.Contain("응답"));
         }
+
+        // 스킴이 없는 주소(예: 내부망 서버 주소를 스킴 없이 붙여 넣은 경우)는 HttpClient가
+        // InvalidOperationException을 영문 그대로 던진다 — BuildEndpoint가 미리 걸러야 한다.
+        [Test]
+        public void CompleteAsync_ThrowsKoreanReason_WhenBaseUrlHasNoScheme()
+        {
+            var client = new OpenAiCompatibleClient(new StubHandler(HttpStatusCode.OK, SuccessBody));
+
+            var ex = Assert.ThrowsAsync<AiRequestException>(async () =>
+                await client.CompleteAsync(Settings("llm.example.com/v1"), "sys", "user", CancellationToken.None));
+
+            Assert.That(ex!.Message, Does.Contain("주소"));
+        }
+
+        // 오타로 흔한 htp:// 같은 스킴은 Uri 파싱은 통과하지만 HttpClient가
+        // NotSupportedException을 영문 그대로 던진다.
+        [Test]
+        public void CompleteAsync_ThrowsKoreanReason_WhenSchemeIsNotHttpOrHttps()
+        {
+            var client = new OpenAiCompatibleClient(new StubHandler(HttpStatusCode.OK, SuccessBody));
+
+            var ex = Assert.ThrowsAsync<AiRequestException>(async () =>
+                await client.CompleteAsync(Settings("htp://llm.example.com/v1"), "sys", "user", CancellationToken.None));
+
+            Assert.That(ex!.Message, Does.Contain("주소"));
+        }
+
+        // 이미 /chat/completions로 끝나는 주소를 그대로 두 번 이어 붙이는 동작(결과적으로 404가
+        // 나는 것)은 별도로 내린 판단이다 — URL 형식 검증을 더한다고 이 경로가 바뀌면 안 된다.
+        [Test]
+        public void CompleteAsync_StillAppendsPath_WhenBaseUrlAlreadyEndsWithChatCompletions()
+        {
+            var handler = new StubHandler(HttpStatusCode.OK, SuccessBody);
+            var client = new OpenAiCompatibleClient(handler);
+
+            client.CompleteAsync(
+                    Settings("https://llm.example.com/v1/chat/completions"), "sys", "user", CancellationToken.None)
+                .GetAwaiter().GetResult();
+
+            Assert.That(
+                handler.LastRequest!.RequestUri!.ToString(),
+                Is.EqualTo("https://llm.example.com/v1/chat/completions/chat/completions"));
+        }
+
+        // 타임아웃 안내는 실제로 적용된 값을 말해야 한다 — 설정값이 0 이하면 30으로
+        // 대체되는데, 메시지가 여전히 원래 설정값을 인용하면 사용자가 엉뚱한 숫자를 본다.
+        // 실제로 30초를 기다리게 하지 않고, 대체값을 계산하는 순수 함수만 검증한다.
+        [TestCase(0, 30)]
+        [TestCase(-5, 30)]
+        [TestCase(45, 45)]
+        public void ResolveTimeoutSeconds_FallsBackTo30_WhenConfiguredValueIsNotPositive(int configured, int expected)
+        {
+            Assert.That(OpenAiCompatibleClient.ResolveTimeoutSeconds(configured), Is.EqualTo(expected));
+        }
     }
 }
