@@ -80,7 +80,10 @@ namespace DBVC.Core
             {
                 return $"{schema}.{objectName} ({objectType})";
             }
-            return relativePath;
+
+            // 빈 경로를 그대로 돌려주면 목록 줄이 통째로 비어 그 객체를 골라낼 수 없다 —
+            // 규약 밖이라도 자리는 남겨야 한다는 원칙을 공백에도 지킨다.
+            return string.IsNullOrWhiteSpace(relativePath) ? "알 수 없는 경로" : relativePath;
         }
 
         private static string StateText(string? status) => status switch

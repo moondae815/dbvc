@@ -142,6 +142,15 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void BuildUserMessage_ShowsPlaceholder_WhenPathIsBlank()
+        {
+            // 빈 경로를 그대로 두면 목록 줄이 "-  (수정)"처럼 비어 그 객체를 식별할 수 없게 된다.
+            var changes = new[] { Change("   ", "Modified", "@@ -1 +1 @@\n-old\n+new") };
+
+            Assert.That(CommitMessageComposer.BuildUserMessage(changes, 400), Does.Contain("알 수 없는 경로"));
+        }
+
+        [Test]
         public void BuildUserMessage_TranslatesStates_WhenAddedOrDeleted()
         {
             var changes = new[]
