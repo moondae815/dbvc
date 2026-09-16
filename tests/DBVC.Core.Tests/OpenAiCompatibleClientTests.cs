@@ -131,5 +131,70 @@ namespace DBVC.Core.Tests
 
             Assert.That(ex!.Message, Does.Contain("응답"));
         }
+
+        // FIX 1: 200 본문이 유효한 JSON이지만 예상한 모양(객체, choices 배열)이 아닐 때
+        // TryGetProperty/GetArrayLength가 InvalidOperationException을 던지던 것을 막는다.
+        [TestCase("\"hello\"")]
+        [TestCase("[1,2,3]")]
+        [TestCase("42")]
+        public void CompleteAsync_ThrowsAiRequestException_WhenBodyIsNotJsonObject(string body)
+        {
+            var client = new OpenAiCompatibleClient(new StubHandler(HttpStatusCode.OK, body));
+
+            Assert.ThrowsAsync<AiRequestException>(async () =>
+                await client.CompleteAsync(Settings(), "sys", "user", CancellationToken.None));
+        }
+
+        [Test]
+        public void CompleteAsync_ThrowsAiRequestException_WhenChoicesIsNotArray()
+        {
+            var client = new OpenAiCompatibleClient(new StubHandler(HttpStatusCode.OK, "{\"choices\":\"oops\"}"));
+
+            Assert.ThrowsAsync<AiRequestException>(async () =>
+                await client.CompleteAsync(Settings(), "sys", "user", CancellationToken.None));
+        }
+
+        // FIX 2: 게이트웨이가 Authorization 헤더를 오류 본문에 그대로 반사하는 경우, 그 본문을
+        // 인용하는 예외 메시지에 API 키가 그대로 남아서는 안 된다.
+        [Test]
+        public void CompleteAsync_RedactsApiKey_WhenServerEchoesItInErrorBody()
+        {
+            var client = new OpenAiCompatibleClient(
+                new StubHandler(HttpStatusCode.InternalServerError, "{\"error\":\"rejected token sk-test\"}"));
+
+            var ex = Assert.ThrowsAsync<AiRequestException>(async () =>
+                await client.CompleteAsync(Settings(), "sys", "user", CancellationToken.None));
+
+            Assert.That(ex!.Message, Does.Not.Contain("sk-test"));
+        }
+
+        [Test]
+        public void CompleteAsync_LeavesErrorBodyIntact_WhenApiKeyEmpty()
+        {
+            // 빈 문자열을 Replace의 old value로 쓰면 모든 문자 사이에 마스크가 끼어 본문이
+            // 깨진다. 키가 없을 때는 치환 자체를 건너뛰어야 한다.
+            var client = new OpenAiCompatibleClient(
+                new StubHandler(HttpStatusCode.InternalServerError, "{\"error\":\"boom\"}"));
+
+            var ex = Assert.ThrowsAsync<AiRequestException>(async () =>
+                await client.CompleteAsync(Settings(apiKey: string.Empty), "sys", "user", CancellationToken.None));
+
+            Assert.That(ex!.Message, Does.Contain("boom"));
+        }
+
+        // FIX 3: content가 null이면 choices가 비어 있을 때와 같은 취급이어야 한다 —
+        // "내용을 돌려주거나, 한국어 사유로 던지거나" 둘 중 하나만 허용한다.
+        [Test]
+        public void CompleteAsync_Throws_WhenContentIsNull()
+        {
+            var client = new OpenAiCompatibleClient(new StubHandler(
+                HttpStatusCode.OK,
+                "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":null}}]}"));
+
+            var ex = Assert.ThrowsAsync<AiRequestException>(async () =>
+                await client.CompleteAsync(Settings(), "sys", "user", CancellationToken.None));
+
+            Assert.That(ex!.Message, Does.Contain("응답"));
+        }
     }
 }

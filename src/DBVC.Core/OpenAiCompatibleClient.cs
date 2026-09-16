@@ -33,8 +33,10 @@ namespace DBVC.Core
     {
         private readonly HttpClient _httpClient;
 
-        // 기본 인코더는 한글을 \uXXXX로 이스케이프한다. 요청 본문 자체는 순수 전송용이라
-        // 굳이 아스키로 좁힐 이유가 없고, 오히려 diff 원문이 그대로 실려야 서버가 읽기 쉽다.
+        // \uXXXX 이스케이프도 유효한 JSON이라 규약을 지키는 서버라면 어느 쪽이든 같은 문자열로
+        // 디코드한다 — 그래서 이 옵션은 동작을 고치는 게 아니다. 본문을 사람이 그대로 읽을 수
+        // 있게 하고, 그 덕에 이 테스트 파일의 부분 문자열 단언들이 원문과 그대로 맞아떨어지게
+        // 할 뿐이다.
         private static readonly JsonSerializerOptions PayloadOptions = new JsonSerializerOptions
         {
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
@@ -102,10 +104,10 @@ namespace DBVC.Core
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    throw new AiRequestException(DescribeFailure(response.StatusCode, body));
+                    throw new AiRequestException(DescribeFailure(response.StatusCode, body, settings.ApiKey));
                 }
 
-                return ExtractContent(body);
+                return ExtractContent(body, settings.ApiKey);
             }
         }
 
@@ -123,7 +125,7 @@ namespace DBVC.Core
         }
 
         /// <summary>서버가 돌려준 영문 본문은 인용으로만 싣는다.</summary>
-        private static string DescribeFailure(HttpStatusCode status, string body)
+        private static string DescribeFailure(HttpStatusCode status, string body, string apiKey)
         {
             var reason = status switch
             {
@@ -134,32 +136,57 @@ namespace DBVC.Core
                 _ => $"AI 서버가 요청에 응답하지 못했습니다 (HTTP {(int)status}).",
             };
 
-            return string.IsNullOrWhiteSpace(body) ? reason : reason + "\n\n" + Shorten(body);
+            return string.IsNullOrWhiteSpace(body) ? reason : reason + "\n\n" + RedactAndShorten(body, apiKey);
         }
+
+        /// <summary>
+        /// 본문을 예외 메시지에 인용하기 전에 API 키를 지운다. 이 클라이언트는 키를 URL이나
+        /// 로그에 직접 넣지 않지만, Authorization 헤더를 그대로 반사하는 게이트웨이라면 오류
+        /// 본문에 키가 실려 돌아올 수 있고 그게 예외 메시지를 거쳐 화면·버그 리포트로 샌다.
+        /// </summary>
+        private static string RedactAndShorten(string body, string apiKey) =>
+            Shorten(string.IsNullOrEmpty(apiKey) ? body : body.Replace(apiKey, "***"));
 
         private static string Shorten(string body) =>
             body.Length <= 500 ? body : body.Substring(0, 500) + "...";
 
-        private static string ExtractContent(string body)
+        private static string ExtractContent(string body, string apiKey)
         {
+            JsonDocument document;
             try
             {
-                using var document = JsonDocument.Parse(body);
-                if (document.RootElement.TryGetProperty("choices", out var choices)
-                    && choices.GetArrayLength() > 0
-                    && choices[0].TryGetProperty("message", out var message)
-                    && message.TryGetProperty("content", out var content))
-                {
-                    return content.GetString() ?? string.Empty;
-                }
+                document = JsonDocument.Parse(body);
             }
             catch (JsonException ex)
             {
                 throw new AiRequestException(
-                    $"AI 서버의 응답을 해석하지 못했습니다.\n\n{Shorten(body)}", ex);
+                    $"AI 서버의 응답을 해석하지 못했습니다.\n\n{RedactAndShorten(body, apiKey)}", ex);
             }
 
-            throw new AiRequestException($"AI 서버가 빈 응답을 돌려주었습니다.\n\n{Shorten(body)}");
+            // TryGetProperty/GetArrayLength는 대상이 예상 종류(Object/Array)가 아니면
+            // InvalidOperationException을 던진다 — 유효한 JSON이지만 모양이 다른 200 응답
+            // (문자열·숫자·배열 루트, choices가 배열이 아닌 경우 등)에서 그 예외가 그대로
+            // 화면까지 올라가지 않도록 각 단계에서 ValueKind를 먼저 확인한다.
+            using (document)
+            {
+                var root = document.RootElement;
+                if (root.ValueKind == JsonValueKind.Object
+                    && root.TryGetProperty("choices", out var choices)
+                    && choices.ValueKind == JsonValueKind.Array
+                    && choices.GetArrayLength() > 0
+                    && choices[0].ValueKind == JsonValueKind.Object
+                    && choices[0].TryGetProperty("message", out var message)
+                    && message.ValueKind == JsonValueKind.Object
+                    && message.TryGetProperty("content", out var content)
+                    && content.ValueKind == JsonValueKind.String)
+                {
+                    return content.GetString() ?? string.Empty;
+                }
+            }
+
+            // content가 null인 경우도 여기로 떨어진다 — "내용을 돌려주거나 한국어 사유로
+            // 던지거나" 둘 중 하나만 허용하므로, choices가 비어 있을 때와 같은 취급이다.
+            throw new AiRequestException($"AI 서버가 빈 응답을 돌려주었습니다.\n\n{RedactAndShorten(body, apiKey)}");
         }
     }
 }
