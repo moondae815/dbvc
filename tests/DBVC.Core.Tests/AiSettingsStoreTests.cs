@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using NUnit.Framework;
 using DBVC.Core;
 using DBVC.Core.Models;
@@ -129,6 +131,48 @@ namespace DBVC.Core.Tests
                     Assert.That(loaded.MaxDiffLines, Is.EqualTo(400));
                     Assert.That(loaded.IsConfigured, Is.False);
                 });
+            }
+        }
+
+        [Test]
+        public void Load_ReturnsDefaults_WhenFileAccessIsDenied()
+        {
+            // 디렉터리를 경로에 두는 방법은 시도했으나 기각했다 — 이 .NET에서는
+            // File.Exists가 디렉터리에 대해 false를 반환해서 AiSettingsStore.Load()의
+            // 첫 줄(File.Exists 가드)에서 바로 반환하고, try/catch 자체를 타지 않는다.
+            // 그래서 그 경로로는 좁은 catch든 넓은 catch든 항상 통과해 버려 아무것도
+            // 증명하지 못한다. 실제로 File.ReadAllText가 UnauthorizedAccessException을
+            // 던지게 하려면 파일은 존재해야(File.Exists = true) 한다 — 그래서 파일
+            // 자신에게 현재 계정의 읽기 권한을 명시적으로 거부하는 Deny ACE를 건다.
+            // 소유자는 관리자 권한 없이도 자신의 파일에 ACL을 걸 수 있다.
+            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+            File.WriteAllText(_path, "{\"baseUrl\":\"https://x/v1\",\"model\":\"m\"}");
+
+            var currentUser = WindowsIdentity.GetCurrent().User!;
+            var fileInfo = new FileInfo(_path);
+            var denyRule = new FileSystemAccessRule(currentUser, FileSystemRights.ReadData, AccessControlType.Deny);
+            var acl = fileInfo.GetAccessControl();
+            acl.AddAccessRule(denyRule);
+            fileInfo.SetAccessControl(acl);
+
+            try
+            {
+                var loaded = new AiSettingsStore(_path, new ReversibleProtector()).Load();
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(loaded.BaseUrl, Is.Empty);
+                    Assert.That(loaded.TimeoutSeconds, Is.EqualTo(30));
+                    Assert.That(loaded.MaxDiffLines, Is.EqualTo(400));
+                    Assert.That(loaded.IsConfigured, Is.False);
+                });
+            }
+            finally
+            {
+                // Deny 규칙을 지워야 TearDown의 Directory.Delete가 성공한다.
+                var cleanupAcl = fileInfo.GetAccessControl();
+                cleanupAcl.RemoveAccessRule(denyRule);
+                fileInfo.SetAccessControl(cleanupAcl);
             }
         }
 
