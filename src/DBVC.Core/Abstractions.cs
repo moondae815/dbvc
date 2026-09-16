@@ -174,6 +174,15 @@ namespace DBVC.Core
         RemoteStatus FetchRemoteStatus(string serverName, string databaseName);
         /// <summary><paramref name="relativeFilePath"/>가 비면 저장소 전체 이력을 반환한다.</summary>
         IReadOnlyList<CommitInfo> GetHistory(string serverName, string databaseName, string? relativeFilePath);
+
+        /// <summary>
+        /// 선택한 경로들의 작업 트리와 <c>HEAD</c> 차이를 파일별 unified diff로 낸다.
+        /// 매핑이 없으면 빈 목록이다.
+        ///
+        /// 추적되지 않은 파일(새 객체)도 포함한다 — 빠뜨리면 신규 생성이 통째로 보이지 않는다.
+        /// </summary>
+        IReadOnlyList<DiffFileChange> GetUnifiedDiff(
+            string serverName, string databaseName, IEnumerable<string> relativePaths);
         string? GetFileContentAtHead(string serverName, string databaseName, string relativeFilePath);
         string? GetFileContentBeforeLastCommit(string serverName, string databaseName, string relativeFilePath);
 

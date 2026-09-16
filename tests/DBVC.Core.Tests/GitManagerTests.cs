@@ -2698,5 +2698,82 @@ namespace DBVC.Core.Tests
             Assert.That(after.Head.FriendlyName, Is.EqualTo("PROJ-123"));
             Assert.That(after.Head.IsTracking, Is.True, "원격을 추적하도록 붙여야 합니다");
         }
+
+        [Test]
+        public void GetUnifiedDiff_ReturnsModifiedPatch_WhenWorkingTreeChanged()
+        {
+            var repoPath = NewTempDir();
+            Repository.Init(repoPath);
+            SeedIdentity(repoPath);
+            var relativePath = "dbo/Tables/Orders.sql";
+            var fullPath = Path.Combine(repoPath, "dbo", "Tables", "Orders.sql");
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+            File.WriteAllText(fullPath, "CREATE TABLE dbo.Orders (Id INT);\n");
+
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "*");
+                repo.Commit("init", TestSignature, TestSignature);
+            }
+
+            File.WriteAllText(fullPath, "CREATE TABLE dbo.Orders (Id INT, Memo NVARCHAR(50));\n");
+
+            var config = new ConfigManager(Path.Combine(NewTempDir(), "mappings.json"));
+            config.AddMapping(Server, Database, repoPath);
+            var manager = new GitManager(config);
+
+            var changes = manager.GetUnifiedDiff(Server, Database, new[] { relativePath });
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(changes, Has.Count.EqualTo(1));
+                Assert.That(changes[0].RelativePath, Is.EqualTo(relativePath));
+                Assert.That(changes[0].Status, Is.EqualTo("Modified"));
+                Assert.That(changes[0].Patch, Does.Contain("Memo"));
+            });
+        }
+
+        [Test]
+        public void GetUnifiedDiff_ReportsAdded_WhenFileIsUntracked()
+        {
+            // 새 객체는 추적되지 않은 상태로 나타난다. 이것을 빠뜨리면 신규 생성이 AI에게 보이지 않는다.
+            var repoPath = NewTempDir();
+            Repository.Init(repoPath);
+            SeedIdentity(repoPath);
+            var seed = Path.Combine(repoPath, "seed.txt");
+            File.WriteAllText(seed, "x");
+            using (var repo = new Repository(repoPath))
+            {
+                Commands.Stage(repo, "*");
+                repo.Commit("init", TestSignature, TestSignature);
+            }
+
+            var relativePath = "dbo/Views/v_New.sql";
+            var fullPath = Path.Combine(repoPath, "dbo", "Views", "v_New.sql");
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+            File.WriteAllText(fullPath, "CREATE VIEW dbo.v_New AS SELECT 1 AS One;\n");
+
+            var config = new ConfigManager(Path.Combine(NewTempDir(), "mappings.json"));
+            config.AddMapping(Server, Database, repoPath);
+            var manager = new GitManager(config);
+
+            var changes = manager.GetUnifiedDiff(Server, Database, new[] { relativePath });
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(changes, Has.Count.EqualTo(1));
+                Assert.That(changes[0].Status, Is.EqualTo("Added"));
+                Assert.That(changes[0].Patch, Does.Contain("v_New"));
+            });
+        }
+
+        [Test]
+        public void GetUnifiedDiff_ReturnsEmpty_WhenMappingMissing()
+        {
+            var config = new ConfigManager(Path.Combine(NewTempDir(), "mappings.json"));
+            var manager = new GitManager(config);
+
+            Assert.That(manager.GetUnifiedDiff(Server, Database, new[] { "dbo/Tables/Orders.sql" }), Is.Empty);
+        }
     }
 }

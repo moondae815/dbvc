@@ -1035,6 +1035,69 @@ namespace DBVC.Core
         }
 
         /// <summary>
+        /// AI 커밋 메시지 생성이 쓰는 diff. 화면의 Diff 보기와 같은 출처(작업 트리 vs HEAD)를
+        /// 보는 것이 중요하다 — 다르면 "왜 엉뚱한 요약이 나왔나"를 추적할 방법이 없다.
+        /// </summary>
+        public IReadOnlyList<DiffFileChange> GetUnifiedDiff(
+            string serverName, string databaseName, IEnumerable<string> relativePaths)
+        {
+            var result = new List<DiffFileChange>();
+            var repoPath = ResolveRepoPath(serverName, databaseName);
+            if (repoPath == null || relativePaths == null) return result;
+
+            var paths = relativePaths
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(NormalizePath)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (paths.Count == 0) return result;
+
+            try
+            {
+                using var repo = new Repository(repoPath);
+
+                // IncludeUntracked가 있어야 새 객체가 잡힌다. 비교 대상을 HEAD 트리로 두는 것은
+                // 스테이징 여부와 무관하게 "마지막 커밋과의 차이"를 보기 위해서다.
+                var patch = repo.Diff.Compare<Patch>(
+                    repo.Head.Tip?.Tree,
+                    DiffTargets.WorkingDirectory,
+                    paths,
+                    new ExplicitPathsOptions { ShouldFailOnUnmatchedPath = false },
+                    new CompareOptions { ContextLines = 3 });
+
+                foreach (var entry in patch)
+                {
+                    result.Add(new DiffFileChange
+                    {
+                        RelativePath = entry.Path,
+                        Status = DescribeStatus(entry.Status),
+                        Patch = entry.Patch ?? string.Empty,
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                // 여기서 던지면 버튼 하나가 도구 창 전체를 내린다. 빈 목록이면 호출자가
+                // "변경 내용을 읽지 못했습니다"로 갈라 안내한다.
+                Debug.WriteLine($"GitManager.GetUnifiedDiff failed: {ex.Message}");
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 화면 계층이 쓰는 영어 식별자와 같은 값으로 옮긴다(ChangeItemViewModel.State).
+        /// 한국어로 옮기는 자리는 그쪽 하나뿐이다.
+        /// </summary>
+        private static string DescribeStatus(ChangeKind kind) => kind switch
+        {
+            ChangeKind.Added => "Added",
+            ChangeKind.Untracked => "Added",
+            ChangeKind.Deleted => "Deleted",
+            _ => "Modified",
+        };
+
+        /// <summary>
         /// HEAD 시점의 파일 내용을 반환한다. 저장소에 없는 신규 객체면 <c>null</c>을 반환한다.
         /// </summary>
         public string? GetFileContentAtHead(string serverName, string databaseName, string relativeFilePath)
