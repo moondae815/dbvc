@@ -24,6 +24,13 @@ namespace DBVC.Core
             _client = client ?? throw new ArgumentNullException(nameof(client));
         }
 
+        /// <summary>
+        /// 전송 동의 확인은 여기 없다 — 호출자(ViewChangesViewModel)가 클릭 시점에 이미
+        /// 확인한다. 이 메서드는 그 뒤 백그라운드 스레드에서 <see cref="_settingsStore"/>를
+        /// 다시 읽으므로, 동의를 받았던 설정과 실제 요청에 쓰이는 설정이 문자 그대로 같은
+        /// 객체는 아니다. 앞으로 이 API를 부르는 자리가 새로 생기면 그 자리에서도 동의를
+        /// 확인해야 한다 — 이 메서드가 대신 확인해 주지 않는다.
+        /// </summary>
         public string Generate(
             string serverName, string databaseName, IEnumerable<string> relativePaths, CancellationToken cancellationToken)
         {

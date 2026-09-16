@@ -38,8 +38,13 @@
   <!--
     ProtectedData(DPAPI)는 net48에서는 프레임워크의 System.Security에 있지만
     netstandard2.0에는 없다. 타깃마다 출처가 달라 조건부로 건다.
-    net48 쪽 참조는 늘지 않으므로 DBVC.Vsix의 IncludeCoreDependenciesInVsix 목록은
-    다시 계산할 필요가 없다 — 이 조건을 지우면 그때는 재계산 대상이 된다.
+
+    net48 DBVC.Core.dll의 AssemblyRef는 이 브랜치에서 실제로 늘었다 — 아래 System.Security
+    참조(DpapiSecretProtector)와 OpenAiCompatibleClient의 HttpClient가 쓰는 System.Net.Http가
+    새로 붙는다. 그래도 DBVC.Vsix의 IncludeCoreDependenciesInVsix 목록은 다시 계산할 필요가
+    없다 — 그 목록은 NuGet이 $(OutDir)에 실제 파일로 복사하는 어셈블리만 다루는데, 이 둘은
+    net48 GAC(프레임워크 자체)에 있는 것이라 SSMS 프로세스에 이미 로드돼 있고 별도 파일로
+    나오지 않는다. net48 참조가 GAC 밖(NuGet 패키지)에서 늘어나는 경우라면 그때는 재계산 대상이 된다.
   -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
     <Reference Include="System.Security" />

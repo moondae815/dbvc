@@ -15,6 +15,11 @@ namespace DBVC.Vsix.UI
     /// </summary>
     public partial class AiOptionsControl : UserControl
     {
+        // OpenAiCompatibleClient의 HttpClient는 재사용해야 한다(그 클래스 주석대로 매번 만들면
+        // 소켓이 고갈된다) — 연결 테스트를 누를 때마다 새로 만들면 그 규칙을 이 화면에서만
+        // 어기게 된다. 컨트롤 생애주기 동안 하나만 둔다.
+        private readonly OpenAiCompatibleClient _client = new OpenAiCompatibleClient();
+
         public AiOptionsControl()
         {
             InitializeComponent();
@@ -64,12 +69,11 @@ namespace DBVC.Vsix.UI
             TestButton.IsEnabled = false;
             TestResultText.Text = "확인 중...";
 
-            var client = new OpenAiCompatibleClient();
             System.Threading.Tasks.Task.Run(async () =>
             {
                 try
                 {
-                    await client.CompleteAsync(settings, "ping", "ping", CancellationToken.None);
+                    await _client.CompleteAsync(settings, "ping", "ping", CancellationToken.None);
                     return "연결에 성공했습니다.";
                 }
                 catch (AiRequestException ex)
