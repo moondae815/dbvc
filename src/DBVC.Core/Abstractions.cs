@@ -43,7 +43,10 @@ namespace DBVC.Core
     public interface IAiCommitMessageGenerator
     {
         /// <summary>
-        /// 실패는 전부 <see cref="AiRequestException"/>이고, 메시지가 그대로 화면에 뜨는 한국어 사유다.
+        /// 실패는 <see cref="AiRequestException"/>으로 오고, 메시지가 그대로 화면에 뜨는 한국어
+        /// 사유다. 취소는 실패가 아니라 사용자 자신의 결정이므로 감싸지 않는다 —
+        /// <paramref name="cancellationToken"/>이 취소되면 <see cref="OperationCanceledException"/>이
+        /// 그대로 전파된다.
         /// </summary>
         string Generate(
             string serverName, string databaseName, IEnumerable<string> relativePaths, CancellationToken cancellationToken);
