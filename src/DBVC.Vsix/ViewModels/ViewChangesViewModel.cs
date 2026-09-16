@@ -2169,7 +2169,17 @@ namespace DBVC.Vsix.ViewModels
 
         private void GenerateCommitMessage()
         {
-            if (!CanGenerateCommitMessage() || _aiGenerator == null) return;
+            if (!CanGenerateCommitMessage()) return;
+
+            if (_aiGenerator == null)
+            {
+                // 버튼은 설정 유무와 무관하게 항상 눌린다 — 잠긴 채 이유를 말하지 못하는 것과
+                // 같은 실수를 여기서도 반복하면 안 된다.
+                _notifier.ShowInfo(
+                    "AI 커밋 메시지",
+                    "AI 설정이 없습니다.\n도구 > 옵션 > DBVC > AI 커밋 메시지에서 프로바이더 주소와 모델을 설정하세요.");
+                return;
+            }
 
             var settings = _aiSettingsStore.Load();
             if (!settings.IsConfigured)
@@ -2200,7 +2210,21 @@ namespace DBVC.Vsix.ViewModels
                 // 동의한 목적지를 남긴다. DestinationOf가 돌려준 값 그대로 저장해야 한다 —
                 // 원문 BaseUrl을 저장하면 다음 비교에서 정규화된 값과 어긋나 매번 다시 묻는다.
                 settings.ConsentedHost = destination;
-                _aiSettingsStore.Save(settings);
+                try
+                {
+                    _aiSettingsStore.Save(settings);
+                }
+                catch (Exception ex)
+                {
+                    // AiSettingsStore.Save는 의도적으로 예외를 삼키지 않는다(IO·권한 오류를
+                    // 조용히 잃지 않으려고). 하지만 이 호출은 방금 사용자가 승인한 클릭 안에서
+                    // 일어난다 — 기록에 실패했다고 지금 하려던 생성까지 멈추면 사용자가 이미
+                    // 내린 결정을 무시하는 셈이다. 다음에 다시 물으면 될 일이니 계속 진행한다.
+                    _notifier.ShowError(
+                        "AI 커밋 메시지",
+                        "전송 동의를 기록하지 못했습니다. 다음에 다시 물을 수 있습니다."
+                        + Environment.NewLine + Environment.NewLine + ex.Message);
+                }
             }
 
             var selectedPaths = Changes

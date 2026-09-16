@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using Moq;
 using NUnit.Framework;
@@ -43,8 +44,15 @@ namespace DBVC.Vsix.Tests.ViewModels
                 ConsentedHost = "https://llm.example.com",
             };
 
+            public Exception? SaveThrows { get; set; }
+
             public AiSettings Load() => Settings;
-            public void Save(AiSettings settings) => Settings = settings;
+
+            public void Save(AiSettings settings)
+            {
+                if (SaveThrows != null) throw SaveThrows;
+                Settings = settings;
+            }
         }
 
         private const string Server = "LocalServer";
@@ -215,6 +223,56 @@ namespace DBVC.Vsix.Tests.ViewModels
         }
 
         [Test]
+        public void GenerateCommitMessage_PassesOnlySelectedPaths_ToGenerator()
+        {
+            // LastPaths는 이전부터 있었지만 아무도 확인하지 않았다 — 선택하지 않은 객체까지
+            // generator로 넘어가면 그 SQL이 외부 프로바이더로 나간다. 이 인자가 그 범위를
+            // 지키는 유일한 자리이므로, 선택하지 않은 변경을 하나 더 추가해 실제로 걸러지는지
+            // 본다.
+            var generator = new StubGenerator();
+            var notifier = new RecordingNotifier();
+            var vm = BuildViewModel(generator, new StubSettingsStore(), notifier);
+            vm.Changes.Add(new ChangeItemViewModel
+            {
+                ObjectName = "dbo.v_Secret",
+                ObjectType = "VIEW",
+                State = "Modified",
+                RelativePath = "dbo/Views/v_Secret.sql",
+                IsSelected = false,
+            });
+
+            vm.GenerateCommitMessageCommand.Execute(null);
+
+            Assert.That(generator.LastPaths, Is.EqualTo(new List<string> { ChangedPath }));
+        }
+
+        [Test]
+        public void GenerateCommitMessage_StillGenerates_WhenConsentSaveFails()
+        {
+            // AiSettingsStore.Save는 IO/권한 오류를 일부러 삼키지 않는다. RelayCommand.Execute에는
+            // try/catch가 없으므로, 여기서 잡지 않으면 방금 사용자가 동의 클릭을 누른 순간
+            // 예외가 UI 스레드로 그대로 샌다. 저장에 실패해도 이미 승인받은 이번 생성은
+            // 계속돼야 한다.
+            var generator = new StubGenerator();
+            var store = new StubSettingsStore
+            {
+                Settings = new AiSettings { BaseUrl = "https://api.openai.com/v1", Model = "m", ConsentedHost = null },
+                SaveThrows = new IOException("디스크가 가득 찼습니다."),
+            };
+            var notifier = new RecordingNotifier { ConfirmResult = true };
+            var vm = BuildViewModel(generator, store, notifier);
+
+            vm.GenerateCommitMessageCommand.Execute(null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(generator.CallCount, Is.EqualTo(1));
+                Assert.That(vm.CommitMessage, Is.EqualTo("feat: 주문 뷰를 더한다"));
+                Assert.That(notifier.Errors, Has.Some.Contains("동의"));
+            });
+        }
+
+        [Test]
         public void GenerateCommitMessage_ShowsGuidance_WhenSettingsMissing()
         {
             // 버튼을 잠그지 않는 대신, 누르면 어디서 설정하는지 알려 준다.
@@ -230,6 +288,38 @@ namespace DBVC.Vsix.Tests.ViewModels
                 Assert.That(generator.CallCount, Is.Zero);
                 Assert.That(notifier.Infos, Has.Some.Contains("도구 > 옵션"));
             });
+        }
+
+        [Test]
+        public void GenerateCommitMessage_ShowsGuidance_WhenGeneratorNotConfigured()
+        {
+            // aiGenerator가 null이면(조립 루트에서 만들지 못한 경우) 버튼은 여전히 눌리지만,
+            // 조용히 아무 일도 하지 않으면 안 된다 — CanGenerateCommitMessage 바로 위 주석이
+            // "잠긴 버튼은 이유를 말하지 못한다"고 적은 것과 같은 원칙이 여기도 적용된다.
+            var notifier = new RecordingNotifier();
+            var vm = new ViewChangesViewModel(
+                _config.Object, _stateTracker.Object, _git.Object, _smo.Object, notifier,
+                saveDialog: null,
+                cleaner: _cleaner.Object,
+                connectDialog: null,
+                credentialStore: _credentials.Object,
+                ssmsConnectionSource: _ssms.Object,
+                scheduler: new InlineBackgroundScheduler(),
+                aiGenerator: null,
+                aiSettingsStore: new StubSettingsStore());
+            vm.ConnectCommand.Execute(null);
+            vm.Changes.Add(new ChangeItemViewModel
+            {
+                ObjectName = "dbo.v_Order",
+                ObjectType = "VIEW",
+                State = "Added",
+                RelativePath = ChangedPath,
+                IsSelected = true,
+            });
+
+            vm.GenerateCommitMessageCommand.Execute(null);
+
+            Assert.That(notifier.Infos, Has.Some.Contains("도구 > 옵션"));
         }
     }
 }
