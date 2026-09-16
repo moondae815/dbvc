@@ -1,5 +1,7 @@
+using System.Linq;
 using NUnit.Framework;
 using DBVC.Core;
+using DBVC.Core.Models;
 
 namespace DBVC.Core.Tests
 {
@@ -107,6 +109,99 @@ namespace DBVC.Core.Tests
             var raw = "'\"feat: 주문 뷰를 더한다\"'";
 
             Assert.That(CommitMessageComposer.Clean(raw), Is.EqualTo("feat: 주문 뷰를 더한다"));
+        }
+    }
+
+    [TestFixture]
+    public class CommitMessageComposerPromptTests
+    {
+        private static DiffFileChange Change(string path, string status, string patch) =>
+            new DiffFileChange { RelativePath = path, Status = status, Patch = patch };
+
+        [Test]
+        public void BuildUserMessage_ListsObjectNameAndState_WhenChangeGiven()
+        {
+            var changes = new[] { Change("dbo/Procedures/usp_GetOrder.sql", "Modified", "@@ -1 +1 @@\n-old\n+new") };
+
+            var message = CommitMessageComposer.BuildUserMessage(changes, maxDiffLines: 400);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(message, Does.Contain("dbo.usp_GetOrder"));
+                Assert.That(message, Does.Contain("수정"));
+            });
+        }
+
+        [Test]
+        public void BuildUserMessage_UsesRelativePath_WhenPathIsNotConventional()
+        {
+            // 규약 밖 경로를 조용히 버리면 AI가 변경 하나를 통째로 못 본다.
+            var changes = new[] { Change("weird.txt", "Added", "@@ -0 +1 @@\n+x") };
+
+            Assert.That(CommitMessageComposer.BuildUserMessage(changes, 400), Does.Contain("weird.txt"));
+        }
+
+        [Test]
+        public void BuildUserMessage_TranslatesStates_WhenAddedOrDeleted()
+        {
+            var changes = new[]
+            {
+                Change("dbo/Tables/Orders.sql", "Added", "@@ -0 +1 @@\n+a"),
+                Change("dbo/Views/v_Old.sql", "Deleted", "@@ -1 +0 @@\n-b"),
+            };
+
+            var message = CommitMessageComposer.BuildUserMessage(changes, 400);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(message, Does.Contain("추가"));
+                Assert.That(message, Does.Contain("삭제"));
+            });
+        }
+
+        [Test]
+        public void BuildUserMessage_TruncatesPatch_WhenDiffExceedsLimit()
+        {
+            var longPatch = string.Join("\n", Enumerable.Range(0, 100).Select(i => "+line" + i));
+            var changes = new[] { Change("dbo/Tables/Orders.sql", "Modified", longPatch) };
+
+            var message = CommitMessageComposer.BuildUserMessage(changes, maxDiffLines: 10);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(message, Does.Contain("-- (이하 생략)"));
+                Assert.That(message, Does.Not.Contain("+line99"));
+            });
+        }
+
+        [Test]
+        public void BuildUserMessage_KeepsEveryObjectInList_WhenDiffTruncated()
+        {
+            // 잘린 diff로도 "무엇이 바뀌었는지"는 말할 수 있어야 한다.
+            var longPatch = string.Join("\n", Enumerable.Range(0, 100).Select(i => "+line" + i));
+            var changes = new[]
+            {
+                Change("dbo/Tables/Orders.sql", "Modified", longPatch),
+                Change("dbo/Procedures/usp_GetOrder.sql", "Modified", longPatch),
+            };
+
+            var message = CommitMessageComposer.BuildUserMessage(changes, maxDiffLines: 6);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(message, Does.Contain("dbo.Orders"));
+                Assert.That(message, Does.Contain("dbo.usp_GetOrder"));
+            });
+        }
+
+        [Test]
+        public void SystemPrompt_StatesFormatRules_Always()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(CommitMessageComposer.SystemPrompt, Does.Contain("feat"));
+                Assert.That(CommitMessageComposer.SystemPrompt, Does.Contain("72"));
+            });
         }
     }
 }
