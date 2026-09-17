@@ -27,6 +27,9 @@ namespace DBVC.Core
         /// <summary>다른 브랜치로 갈아탄다.</summary>
         SwitchBranch,
 
+        /// <summary>고정 브랜치에 원격 브랜치를 병합하고 그 병합 커밋만 올린다.</summary>
+        Merge,
+
         GenerateScript
     }
 
@@ -64,6 +67,12 @@ namespace DBVC.Core
                     // 순간 비교 기준이 무너지고 RepositoryStateEvaluator가 BranchMismatch로 화면을
                     // 덮는다. 허용해도 곧바로 막히는 동작이라 표에서 먼저 끊는다.
                     return mode == MappingMode.Write;
+
+                case DbvcOperation.Merge:
+                    // 목적지가 고정 브랜치여야 뜻이 있다 - 개발 클론은 브랜치가 자유라 목적지가 흔들리고,
+                    // 병합 직후 이어야 할 Compare가 write에서 금지다. DB에는 쓰지 않으므로 audit도 허용한다.
+                    // Push는 여기서 열지 않는다. 병합이 자기가 만든 커밋 하나만 올리도록 GitManager가 지킨다.
+                    return mode != MappingMode.Write;
 
                 case DbvcOperation.Compare:
                     // 개발 DB는 master + 진행 중인 모든 feature 상태라 차이 전체가 잡음이다.
@@ -107,6 +116,7 @@ namespace DBVC.Core
                 case DbvcOperation.Discard: return "작업 트리 되돌리기";
                 case DbvcOperation.CreateBranch: return "브랜치 만들기";
                 case DbvcOperation.SwitchBranch: return "브랜치 전환";
+                case DbvcOperation.Merge: return "병합";
                 case DbvcOperation.GenerateScript: return "배포 스크립트 생성";
                 default: throw new InvalidOperationException($"처리되지 않은 {nameof(DbvcOperation)}: {operation}");
             }
