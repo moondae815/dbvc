@@ -610,7 +610,7 @@ namespace DBVC.Vsix.ViewModels
             }
         }
 
-        /// <summary>브랜치를 알 수 없으면 표시 자체를 숨긴다. "브랜치: " 만 남으면 오히려 오해를 준다.</summary>
+        /// <summary>브랜치를 알 수 없으면 표시 자체를 숨긴다. 버튼이 ` ▾` 만 보이면 오히려 오해를 준다.</summary>
         public bool HasCurrentBranch => !string.IsNullOrWhiteSpace(CurrentBranch);
 
         private string? _blockMessage;
