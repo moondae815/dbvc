@@ -669,7 +669,10 @@ namespace DBVC.Core
             {
                 var fetchOptions = new FetchOptions
                 {
-                    CredentialsProvider = (url, usernameFromUrl, types) => ResolveCredentials(types, out _)
+                    CredentialsProvider = (url, usernameFromUrl, types) => ResolveCredentials(types, out _),
+                    // 원격에서 지운 브랜치의 추적 ref가 남으면 미병합 목록에 영영 떠 병합으로 되살릴 수 있고,
+                    // 지워진 환경 브랜치를 추적하는 클론의 앞섬 검사도 낡은 ref를 믿게 된다.
+                    Prune = true
                 };
 
                 // 빈 refspec은 "원격에 설정된 기본 refspec을 쓰라"는 뜻이다.
@@ -1431,9 +1434,17 @@ namespace DBVC.Core
 
             FetchCurrentRemote(repo, repoPath, "병합");
 
-            var remoteTarget = RemoteTip(repo, target);
+            // PushHeadOrThrow는 HEAD가 추적하는 브랜치에 올린다. 검사가 다른 ref를 보면 섞여 나갈 커밋을
+            // 놓치고, 추적 ref가 없을 때 건너뛰면 원격에서 지워진 브랜치를 이 클론의 이력으로 되살린다.
+            var remoteTarget = repo.Head.TrackedBranch?.Tip;
+            if (remoteTarget == null)
+            {
+                return MergeOutcome.Of(MergeOutcomeKind.Refused,
+                    $"이 클론이 추적하는 원격 브랜치를 찾을 수 없어 병합하지 않았습니다. 원격에서 '{target}' 브랜치가 지워졌거나 추적 설정이 바뀌었을 수 있습니다.");
+            }
+
             var localTip = repo.Head.Tip;
-            if (remoteTarget != null && localTip != null && remoteTarget.Sha != localTip.Sha)
+            if (localTip != null && remoteTarget.Sha != localTip.Sha)
             {
                 if (!IsAncestor(repo, localTip, remoteTarget))
                 {
@@ -1459,53 +1470,94 @@ namespace DBVC.Core
             }
 
             var signature = BuildSignature(repo);
-            var result = repo.Merge(sourceTip, signature, new MergeOptions
-            {
-                // fast-forward하면 언제 무엇을 병합했는지가 이력에서 사라지고 되돌릴 단위도 없어진다.
-                FastForwardStrategy = FastForwardStrategy.NoFastForward,
-                CommitOnSuccess = false
-            });
 
-            if (result.Status == MergeStatus.Conflicts)
-            {
-                var conflicts = repo.Index.Conflicts
-                    .Select(c => (c.Ours ?? c.Theirs ?? c.Ancestor).Path.Replace('\\', '/'))
-                    .Distinct(StringComparer.Ordinal)
-                    .OrderBy(p => p, StringComparer.Ordinal)
-                    .ToList();
-                AbortMerge(repo, headBefore);
-                return MergeOutcome.Of(MergeOutcomeKind.Conflicts,
-                    "그 사이 원격이 바뀌어 충돌이 생겼습니다. 도구 안에서는 충돌을 풀 수 없습니다.", conflicts);
-            }
-
-            var mergeCommit = repo.Commit($"{sourceBranch} 브랜치를 {target}에 병합", signature, signature);
-
-            var changed = repo.Diff.Compare<TreeChanges>(headBefore?.Tree, mergeCommit.Tree)
-                .Select(c => c.Path.Replace('\\', '/'))
-                .OrderBy(p => p, StringComparer.Ordinal)
-                .ToList();
-
+            // 되돌리기 구간은 저장소를 처음 바꾸는 Merge부터 Push까지 하나다. Push만 감싸면 체크아웃이
+            // 도중에 실패하거나(잠긴 파일) Commit·Diff가 던질 때 MERGE_HEAD·반쯤 쓴 파일·올라가지 않은
+            // 병합 커밋이 남고, 다음 병합이 Refused(dirty)나 LocalAhead에 걸린다 - 버리기·Push가 금지인
+            // 클론은 도구 안에서 빠져나올 길이 없다(스펙 2.5).
             try
             {
+                var result = repo.Merge(sourceTip, signature, new MergeOptions
+                {
+                    // fast-forward하면 언제 무엇을 병합했는지가 이력에서 사라지고 되돌릴 단위도 없어진다.
+                    FastForwardStrategy = FastForwardStrategy.NoFastForward,
+                    CommitOnSuccess = false
+                });
+
+                if (result.Status == MergeStatus.Conflicts)
+                {
+                    var conflicts = repo.Index.Conflicts
+                        .Select(c => (c.Ours ?? c.Theirs ?? c.Ancestor).Path.Replace('\\', '/'))
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(p => p, StringComparer.Ordinal)
+                        .ToList();
+                    RollBackMerge(repo, headBefore, sourceTip);
+                    return MergeOutcome.Of(MergeOutcomeKind.Conflicts,
+                        "그 사이 원격이 바뀌어 충돌이 생겼습니다. 도구 안에서는 충돌을 풀 수 없습니다.", conflicts);
+                }
+
+                var mergeCommit = repo.Commit($"{sourceBranch} 브랜치를 {target}에 병합", signature, signature);
+
+                var changed = repo.Diff.Compare<TreeChanges>(headBefore?.Tree, mergeCommit.Tree)
+                    .Select(c => c.Path.Replace('\\', '/'))
+                    .OrderBy(p => p, StringComparer.Ordinal)
+                    .ToList();
+
                 // FetchCurrentRemote가 같은 검사를 이미 통과했으므로 여기서는 던지지 않고 안내문만 돌려준다.
                 PushHeadOrThrow(repo, repoPath, ValidateRemoteAndBuildGuidance(repo, repoPath, "병합"));
+
+                return MergeOutcome.Of(MergeOutcomeKind.Merged, null, changed);
             }
             catch (GitPushRejectedException ex)
             {
-                AbortMerge(repo, headBefore);
+                RollBackMergeKeepingCause(repo, headBefore, sourceTip, ex);
                 return MergeOutcome.Of(MergeOutcomeKind.PushRejected,
                     "그 사이 다른 사람이 원격에 올렸거나 원격이 거부했습니다. 로컬은 병합 전으로 되돌렸습니다. 다시 시도하세요." +
                     Environment.NewLine + Environment.NewLine + ex.Message);
             }
-            catch
+            catch (Exception ex)
             {
-                // 올라가지 않은 병합 커밋을 남기면 다음 병합이 LocalAhead에 걸리고, Push가 금지인
-                // 클론은 도구 안에서 빠져나올 길이 없다.
-                AbortMerge(repo, headBefore);
+                RollBackMergeKeepingCause(repo, headBefore, sourceTip, ex);
                 throw;
             }
+        }
 
-            return MergeOutcome.Of(MergeOutcomeKind.Merged, null, changed);
+        /// <summary>
+        /// 되돌리기가 실패해도 원래 실패를 가리지 않는다. 사용자가 먼저 알아야 하는 것은 병합이 왜
+        /// 실패했는가이고, 되돌리지 못했다는 사실은 클론을 손으로 정리해야 한다는 덧붙임이다.
+        /// </summary>
+        private static void RollBackMergeKeepingCause(Repository repo, Commit? headBefore, Commit sourceTip, Exception cause)
+        {
+            try
+            {
+                RollBackMerge(repo, headBefore, sourceTip);
+            }
+            catch (Exception rollbackFailure)
+            {
+                throw new GitMergeRollbackException(cause, rollbackFailure, headBefore?.Sha);
+            }
+        }
+
+        private static void RollBackMerge(Repository repo, Commit? headBefore, Commit sourceTip)
+        {
+            AbortMerge(repo, headBefore);
+
+            // 체크아웃이 도중에 실패하면 먼저 쓴 새 파일이 인덱스에 오르지 못해 미추적으로 남고, hard reset은
+            // 그것을 모른다. 입구 검사에서 트리가 깨끗했으므로 원본 트리에 있는 미추적 파일은 이 병합이
+            // 쓴 것이다 - 원본 트리에 없는 파일은 건드리지 않는다.
+            var workingDirectory = repo.Info.WorkingDirectory;
+            foreach (var entry in repo.RetrieveStatus(UntrackedInclusiveOptions).Where(e => e.State == FileStatus.NewInWorkdir))
+            {
+                var path = entry.FilePath.Replace('\\', '/');
+                if (sourceTip.Tree[path] == null) continue;
+                File.Delete(Path.Combine(workingDirectory, path.Replace('/', Path.DirectorySeparatorChar)));
+            }
+
+            if (repo.Info.CurrentOperation != CurrentOperation.None)
+            {
+                throw new InvalidOperationException(
+                    $"병합 진행 상태({repo.Info.CurrentOperation})가 지워지지 않았습니다.");
+            }
         }
 
         private static IReadOnlyList<PromotionLeak> DetectLeaks(

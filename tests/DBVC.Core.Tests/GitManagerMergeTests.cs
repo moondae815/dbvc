@@ -145,6 +145,21 @@ namespace DBVC.Core.Tests
         }
 
         [Test]
+        public void GetUnmergedBranches_DropsBranch_WhenDeletedOnRemote()
+        {
+            // GitLab에서 지운 브랜치가 목록에 남으면 병합으로 되살릴 수 있다.
+            var (local, origin) = NewPinnedClone(EnvironmentBranches.Develop);
+            PushAuthorBranch(origin, "PROJ-1", EnvironmentBranches.Master, SqlPath, "x\n");
+            var git = NewPinnedGitManager(local, EnvironmentBranches.Develop, MappingMode.Deploy);
+            Assert.That(git.GetUnmergedBranches(Server, Database).Select(b => b.Name), Does.Contain("PROJ-1"));
+            using (var repo = new Repository(origin)) repo.Branches.Remove("PROJ-1");
+
+            var names = git.GetUnmergedBranches(Server, Database).Select(b => b.Name).ToList();
+
+            Assert.That(names, Does.Not.Contain("PROJ-1"));
+        }
+
+        [Test]
         public void GetUnmergedBranches_MarksIsInDevelop_WhenTargetIsMaster()
         {
             var (local, origin) = NewPinnedClone(EnvironmentBranches.Master, MappingMode.Audit);
@@ -346,6 +361,97 @@ namespace DBVC.Core.Tests
             using var after = new Repository(local);
             Assert.That(after.Head.Tip.Sha, Is.EqualTo(headBefore));
             Assert.That(after.RetrieveStatus().IsDirty, Is.False);
+            Assert.That(after.Info.CurrentOperation, Is.EqualTo(CurrentOperation.None));
+
+            // 병합 커밋이 만들어지기 전에 실패해도 위 단언은 모두 통과한다. 되돌린 것이 실제로
+            // 병합 커밋이었음을 reflog로 확인해야 이 테스트가 Push 실패 경로를 지킨다.
+            var undone = after.Refs.Log("HEAD")
+                .Select(e => after.Lookup<Commit>(e.To))
+                .Where(c => c != null && c.Sha != headBefore)
+                .ToList();
+            Assert.That(undone.Any(c => c.MessageShort == "PROJ-1 브랜치를 develop에 병합" && c.Parents.Count() == 2), Is.True,
+                "병합 커밋이 만들어진 뒤 되돌려져야 합니다");
+            using var remote = new Repository(origin);
+            Assert.That(remote.Branches[EnvironmentBranches.Develop].Tip.Sha, Is.EqualTo(headBefore));
+        }
+
+        [Test]
+        public void MergeAndPush_RestoresHead_WhenMergeCheckoutFails()
+        {
+            // Push보다 앞에서 실패해도 MERGE_HEAD나 반쯤 쓴 파일이 남으면 다음 병합이 Refused(dirty)에
+            // 걸리고, 버리기·Push가 금지인 클론은 막다른 길이 된다(스펙 2.5).
+            var (local, origin) = NewPinnedClone(EnvironmentBranches.Develop);
+            // 새 파일이 잠긴 파일보다 경로 순서가 앞서 체크아웃이 그것을 먼저 쓰고 실패한다.
+            PushAuthorBranch(origin, "PROJ-1", EnvironmentBranches.Master, "dbo/Functions/fn_New.sql", "new\n");
+            PushAuthorBranch(origin, "PROJ-1", "PROJ-1", SqlPath, Proc("SELECT 2"));
+            var git = NewPinnedGitManager(local, EnvironmentBranches.Develop, MappingMode.Deploy);
+            git.GetUnmergedBranches(Server, Database);
+            string headBefore;
+            using (var repo = new Repository(local)) headBefore = repo.Head.Tip.Sha;
+
+            Exception? thrown;
+            var lockedPath = Path.Combine(local, "dbo", "StoredProcedures", "usp_Order.sql");
+            using (new FileStream(lockedPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                thrown = Assert.Catch(() => git.MergeAndPush(Server, Database, "PROJ-1"));
+            }
+
+            Assert.That(thrown, Is.Not.Null);
+            using var after = new Repository(local);
+            Assert.That(after.Head.Tip.Sha, Is.EqualTo(headBefore));
+            Assert.That(after.Info.CurrentOperation, Is.EqualTo(CurrentOperation.None));
+            Assert.That(after.RetrieveStatus(new StatusOptions { IncludeUntracked = true, RecurseUntrackedDirs = true }).IsDirty, Is.False,
+                "체크아웃이 먼저 쓴 새 파일도 남으면 안 됩니다");
+            using var remote = new Repository(origin);
+            Assert.That(remote.Branches[EnvironmentBranches.Develop].Tip.Sha, Is.EqualTo(headBefore));
+        }
+
+        [Test]
+        public void MergeAndPush_Refuses_WhenTrackedRemoteBranchIsDeleted()
+        {
+            // 원격 추적 ref가 없는데 검사를 건너뛰면, Push가 지워진 환경 브랜치를 이 클론의 이력으로 되살린다.
+            var (local, origin) = NewPinnedClone(EnvironmentBranches.Develop);
+            PushAuthorBranch(origin, "PROJ-1", EnvironmentBranches.Master, SqlPath, Proc("SELECT 2"));
+            var git = NewPinnedGitManager(local, EnvironmentBranches.Develop, MappingMode.Deploy);
+            git.GetUnmergedBranches(Server, Database);
+            using (var repo = new Repository(origin)) repo.Branches.Remove(EnvironmentBranches.Develop);
+
+            var outcome = git.MergeAndPush(Server, Database, "PROJ-1");
+
+            Assert.That(outcome.Kind, Is.EqualTo(MergeOutcomeKind.Refused), outcome.Message);
+            Assert.That(outcome.Message, Does.Contain(EnvironmentBranches.Develop));
+            using var remote = new Repository(origin);
+            Assert.That(remote.Branches[EnvironmentBranches.Develop], Is.Null, "원격 develop이 되살아나면 안 됩니다");
+        }
+
+        [Test]
+        public void MergeAndPush_ReturnsLocalAhead_WhenTrackedBranchIsNotTheTarget()
+        {
+            // Push는 HEAD가 추적하는 브랜치에 올린다. 앞섬 검사가 다른 ref를 보면 섞여 나갈 커밋을 놓친다.
+            var (local, origin) = NewPinnedClone(EnvironmentBranches.Develop);
+            PushAuthorBranch(origin, "PROJ-1", EnvironmentBranches.Master, SqlPath, Proc("SELECT 2"));
+            string releaseBefore;
+            using (var repo = new Repository(origin))
+            {
+                releaseBefore = repo.Branches[EnvironmentBranches.Master].Tip.Sha;
+                repo.CreateBranch("release", releaseBefore);
+            }
+            using (var repo = new Repository(local))
+            {
+                WriteFile(local, "dbo/Views/v_Stray.sql", "stray\n");
+                Commands.Stage(repo, "*");
+                repo.Commit("밖에서 만든 커밋", Sig(), Sig());
+                repo.Network.Push(repo.Network.Remotes["origin"], "refs/heads/develop:refs/heads/develop");
+                Commands.Fetch(repo, "origin", Array.Empty<string>(), new FetchOptions(), null);
+                repo.Branches.Update(repo.Head, b => b.UpstreamBranch = "refs/heads/release");
+            }
+            var git = NewPinnedGitManager(local, EnvironmentBranches.Develop, MappingMode.Deploy);
+
+            var outcome = git.MergeAndPush(Server, Database, "PROJ-1");
+
+            Assert.That(outcome.Kind, Is.EqualTo(MergeOutcomeKind.LocalAhead), outcome.Message);
+            using var remote = new Repository(origin);
+            Assert.That(remote.Branches["release"].Tip.Sha, Is.EqualTo(releaseBefore));
         }
 
         [Test]
