@@ -584,6 +584,18 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(NewConnectedViewModel().IsTrackerOutdated, Is.False);
         }
 
+        [TestCase(MappingMode.Deploy)]
+        [TestCase(MappingMode.Audit)]
+        public void IsTrackerOutdated_IsFalse_ForReadOnlyModes(MappingMode mode)
+        {
+            // 배포·감사 대상은 추적기 설치가 금지되어 업데이트 버튼이 영원히 눌리지 않는다.
+            // 한때 개발에 쓰던 DB를 배포 대상으로 돌리면 옛 추적기가 남아 있어 실제로 뜬다.
+            NewMappedRepoWithObject(legacy: false, mode: mode);
+            _stateTracker.Setup(s => s.GetInstalledVersion(Server, Database)).Returns(1);
+
+            Assert.That(NewConnectedViewModel().IsTrackerOutdated, Is.False);
+        }
+
         [Test]
         public void IsTrackerOutdated_IsFalse_WhenNothingIsInstalled()
         {
