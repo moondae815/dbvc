@@ -28,6 +28,7 @@ namespace DBVC.Core.Tests
         public virtual PushResult PushChanges(string serverName, string databaseName, bool setUpstream = false) => throw new NotSupportedException();
         public virtual bool HasCommitsToPush(string serverName, string databaseName) => throw new NotSupportedException();
         public virtual RemoteStatus FetchRemoteStatus(string serverName, string databaseName) => throw new NotSupportedException();
+        public virtual IReadOnlyList<UnmergedBranch> GetUnmergedBranches(string serverName, string databaseName) => throw new NotSupportedException();
         public virtual IReadOnlyList<DiffFileChange> GetUnifiedDiff(string serverName, string databaseName, IEnumerable<string> relativePaths) => throw new NotSupportedException();
         public virtual IReadOnlyList<CommitInfo> GetHistory(string serverName, string databaseName, string? relativeFilePath) => throw new NotSupportedException();
         public virtual string? GetFileContentAtHead(string serverName, string databaseName, string relativeFilePath) => throw new NotSupportedException();

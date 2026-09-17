@@ -187,6 +187,13 @@ namespace DBVC.Core
         /// 매핑이 없거나 원격·추적 브랜치가 없으면 한국어 안내를 담은 예외를 던진다.
         /// </summary>
         RemoteStatus FetchRemoteStatus(string serverName, string databaseName);
+
+        /// <summary>
+        /// 원격을 받은 뒤, 매핑의 고정 브랜치에 아직 병합되지 않은 원격 브랜치를 마지막 커밋 시각
+        /// 내림차순으로 낸다. develop/master는 빠진다. 매핑이 없거나 고정 브랜치가 없으면 빈 목록이다.
+        /// 통신 실패는 FetchRemoteStatus와 같은 예외로 전파된다.
+        /// </summary>
+        IReadOnlyList<UnmergedBranch> GetUnmergedBranches(string serverName, string databaseName);
         /// <summary><paramref name="relativeFilePath"/>가 비면 저장소 전체 이력을 반환한다.</summary>
         IReadOnlyList<CommitInfo> GetHistory(string serverName, string databaseName, string? relativeFilePath);
 

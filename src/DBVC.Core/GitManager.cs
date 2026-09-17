@@ -650,8 +650,19 @@ namespace DBVC.Core
 
             using var repo = new Repository(repoPath);
 
-            // 원격 없음·추적 브랜치 없음의 안내는 Pull·Push가 쓰는 것을 그대로 쓴다.
-            var guidance = ValidateRemoteAndBuildGuidance(repo, repoPath, "원격 확인");
+            FetchCurrentRemote(repo, repoPath, "원격 확인");
+
+            var details = repo.Head.TrackingDetails;
+            return new RemoteStatus(details.AheadBy ?? 0, details.BehindBy ?? 0);
+        }
+
+        /// <summary>
+        /// 현재 브랜치의 원격을 받는다. 원격 확인·미병합 목록·병합이 글자 그대로 같은 검사와 예외
+        /// 변환을 쓰므로 한 곳에 둔다 - 복제하면 한쪽 문구만 고쳐진다.
+        /// </summary>
+        private static void FetchCurrentRemote(Repository repo, string repoPath, string operationName)
+        {
+            var guidance = ValidateRemoteAndBuildGuidance(repo, repoPath, operationName);
             var remoteName = repo.Head.RemoteName;
 
             try
@@ -664,17 +675,13 @@ namespace DBVC.Core
                 // 빈 refspec은 "원격에 설정된 기본 refspec을 쓰라"는 뜻이다.
                 Commands.Fetch(repo, remoteName, Array.Empty<string>(), fetchOptions, null);
             }
-            // Pull·Push와 같은 모양으로 좁힌다. 안내할 것이 있을 때만 가로채고,
-            // 없으면 원본 예외를 그대로 흘려보낸다 — 모든 예외를 감싸면 코딩 실수까지
-            // "원격과 통신하지 못했다"로 둔갑해서 원인을 찾을 수 없게 된다.
+            // 안내할 것이 있을 때만 가로챈다. 모든 예외를 감싸면 코딩 실수까지 "원격과 통신하지
+            // 못했다"로 둔갑해서 원인을 찾을 수 없게 된다.
             catch (LibGit2SharpException ex) when (guidance != null)
             {
                 throw new GitRemoteException(
                     ex.Message + Environment.NewLine + Environment.NewLine + guidance, ex);
             }
-
-            var details = repo.Head.TrackingDetails;
-            return new RemoteStatus(details.AheadBy ?? 0, details.BehindBy ?? 0);
         }
 
         /// <summary>
@@ -1269,6 +1276,74 @@ namespace DBVC.Core
                 Debug.WriteLine($"GitManager.GetBranches failed for '{serverName}/{databaseName}': {ex.Message}");
                 return Array.Empty<BranchInfo>();
             }
+        }
+
+        /// <summary>
+        /// 고정 브랜치에 아직 병합되지 않은 원격 브랜치. 병합 요청의 표지를 따로 두지 않는다 -
+        /// 준비됐는지는 지라 티켓 상태로 사람이 판단한다(스펙 2.2).
+        /// </summary>
+        public IReadOnlyList<UnmergedBranch> GetUnmergedBranches(string serverName, string databaseName)
+        {
+            var pinned = ResolvePinnedTarget(serverName, databaseName);
+            if (pinned == null) return Array.Empty<UnmergedBranch>();
+
+            var repoPath = pinned.Value.Mapping.GitPath;
+            var target = pinned.Value.Target;
+
+            using var repo = new Repository(repoPath);
+            FetchCurrentRemote(repo, repoPath, "병합할 브랜치 확인");
+
+            var targetTip = RemoteTip(repo, target) ?? repo.Head.Tip;
+            if (targetTip == null) return Array.Empty<UnmergedBranch>();
+
+            // develop 반영 여부는 운영 목적지에서만 뜻이 있다. 테스트 목적지에서 채우면 열이
+            // 늘 "해당 없음"인 채로 떠 읽는 사람을 헷갈리게 한다.
+            var developTip = target == EnvironmentBranches.Master ? RemoteTip(repo, EnvironmentBranches.Develop) : null;
+            var remotePrefix = repo.Head.RemoteName + "/";
+
+            var result = new List<UnmergedBranch>();
+            foreach (var branch in repo.Branches.Where(b => b.IsRemote && b.FriendlyName.StartsWith(remotePrefix, StringComparison.Ordinal)))
+            {
+                var name = branch.FriendlyName.Substring(remotePrefix.Length);
+                if (name == "HEAD" || EnvironmentBranches.IsEnvironmentBranch(name)) continue;
+
+                var tip = branch.Tip;
+                if (tip == null || IsAncestor(repo, tip, targetTip)) continue;
+
+                var divergence = repo.ObjectDatabase.CalculateHistoryDivergence(tip, targetTip);
+                result.Add(new UnmergedBranch
+                {
+                    Name = name,
+                    LastCommitAuthor = tip.Author.Name,
+                    LastCommitTime = tip.Author.When,
+                    CommitCount = divergence.AheadBy ?? 0,
+                    IsInDevelop = target == EnvironmentBranches.Master
+                        ? developTip != null && IsAncestor(repo, tip, developTip)
+                        : (bool?)null
+                });
+            }
+
+            return result.OrderByDescending(b => b.LastCommitTime).ToList();
+        }
+
+        private static bool IsAncestor(Repository repo, Commit candidate, Commit descendant)
+        {
+            if (candidate.Sha == descendant.Sha) return true;
+            return repo.ObjectDatabase.FindMergeBase(candidate, descendant)?.Sha == candidate.Sha;
+        }
+
+        /// <summary>원격 추적 ref의 끝. 병합 판정은 로컬이 아니라 방금 받은 원격을 기준으로 한다.</summary>
+        private static Commit? RemoteTip(Repository repo, string branchName)
+        {
+            return repo.Branches[repo.Head.RemoteName + "/" + branchName]?.Tip;
+        }
+
+        /// <summary>매핑과 그 고정 브랜치. 고정 브랜치가 없으면 병합 목적지가 없다.</summary>
+        private (MappingConfig Mapping, string Target)? ResolvePinnedTarget(string serverName, string databaseName)
+        {
+            var mapping = _configManager?.TryGetMapping(serverName, databaseName);
+            if (mapping == null || string.IsNullOrWhiteSpace(mapping.Branch)) return null;
+            return (mapping, mapping.Branch!);
         }
 
         /// <summary>
