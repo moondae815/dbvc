@@ -718,14 +718,9 @@
             <td>배포 실패의 책임과 반쯤 적용된 상태를 도구가 질 수 없습니다</td>
           </tr>
           <tr>
-            <td class="q">브랜치를 병합하지 않는다</td>
-            <td><span class="b">새 브랜치</span>로 만들고 <span class="b">브랜치 전환</span>으로 갈아타는 것은 됩니다. 두 브랜치를 하나로 합치는 것은 GitLab MR이나 외부 Git 클라이언트로 합니다</td>
-            <td>병합은 리뷰와 승인이 딸린 절차입니다 — 그 자리를 도구가 대신할 수 없습니다</td>
-          </tr>
-          <tr>
-            <td class="q">병합 충돌을 풀지 않는다</td>
-            <td>충돌이 나면 병합을 중단하고 원래대로 되돌립니다. 해결은 GitLab이나 Git 클라이언트에서 합니다</td>
-            <td>그쪽이 이미 훨씬 잘합니다</td>
+            <td class="q">병합의 일부만 한다(0.8.0~)</td>
+            <td>배포·감사 클론에서 티켓 브랜치를 고정 브랜치(<code>develop</code>·<code>master</code>)에 병합하는 것은 됩니다(→ <a href="#dba">3.3</a>). 그 밖은 여전히 안 됩니다 — <strong>병합 충돌을 풀지 않고</strong>(충돌이 나면 병합을 중단하고 원래대로 되돌립니다), <strong>개발 클론에서는 병합하지 않으며</strong>(브랜치가 자유로워 목적지가 흔들립니다), <strong><code>develop</code>과 <code>master</code>는 서로 병합 원본이 될 수 없고</strong>, <strong>리뷰·승인 기록을 남기지 않습니다</strong></td>
+            <td>충돌 해결은 GitLab이나 Git 클라이언트가 이미 훨씬 잘합니다. 리뷰·승인 절차가 필요하면 GitLab MR을 그대로 씁니다 — DBVC는 병합 커밋을 하나 만들 뿐 그 기록을 대신하지 않습니다</td>
           </tr>
           <tr>
             <td class="q">주기적으로 들여다보지 않는다</td>
@@ -765,7 +760,7 @@
           </tr>
           <tr>
             <td class="q">DBA <span class="who who-dba">3장</span></td>
-            <td><span class="b">차이 검사</span> → <span class="b">배포 스크립트 저장...</span> → 쿼리 창에서 실행 → 다시 <span class="b">차이 검사</span></td>
+            <td><span class="b">병합할 브랜치 확인</span> → <span class="b">병합</span> → <span class="b">차이 검사</span> → <span class="b">배포 스크립트 저장...</span> → 쿼리 창에서 실행 → 다시 <span class="b">차이 검사</span></td>
             <td>개발·배포·감사 세 벌</td>
           </tr>
         </tbody>
