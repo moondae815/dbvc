@@ -488,8 +488,11 @@ namespace DBVC.Vsix.ViewModels
             IsInitialized = probe.InstalledVersion > 0;
 
             // 미설치는 초기화 오버레이가 맡는다. 두 안내를 함께 띄우면 무엇을 눌러야 하는지 흐려진다.
+            // 배포·감사 대상은 추적기를 쓰지도 설치하지도 않아 업데이트 버튼이 영원히 잠겨 있다.
+            // 한때 개발에 쓰던 DB를 배포 대상으로 돌리면 옛 추적기가 남아 누를 수 없는 배너만 뜬다.
             IsTrackerOutdated = probe.InstalledVersion > 0
-                && probe.InstalledVersion < StateTracker.RequiredSchemaVersion;
+                && probe.InstalledVersion < StateTracker.RequiredSchemaVersion
+                && MappingPolicy.IsAllowed(probe.Mode, DbvcOperation.InstallTracker);
 
             // 배포·감사 클론은 추출이 금지되어 있어 전환 버튼을 눌러도 아무 일도 못 한다.
             // Pull로 전환된 커밋을 받으면 저절로 해결되므로 배너 자체를 띄우지 않는다.
