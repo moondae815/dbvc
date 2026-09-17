@@ -1197,12 +1197,16 @@
       </p>
       <p>
         <strong>도구는 <code>feature/*</code>와 <code>hotfix/*</code>를 구분하지 않습니다 —
-        브랜치 정책은 같습니다.</strong> 갈리는 것은 그 브랜치가 어디로 병합되느냐입니다.
-        <code>feature/*</code>는 <code>develop</code>에 병합되므로 <code>develop</code>에서 온
-        것이 <code>develop</code>으로 돌아갑니다 — 자정됩니다. <code>hotfix/*</code>는
-        <code>master</code>로 가므로 <strong>아직 승격되지 않은 변경이 운영에 일찍 도착할 수
-        있습니다.</strong> 도구는 이 경우를 아직 알리지 않습니다. 지금 관문은 DBA가 배포
-        스크립트를 읽는 것 하나입니다.
+        브랜치 정책은 같습니다.</strong> 딸려 온 변경이 문제가 되는지는 <em>어느 병합
+        단계냐</em>로 갈립니다. <code>develop</code> 병합(테스트 배포)에서는 원래
+        <code>develop</code> 쪽에 있던 변경이 돌아갈 뿐이라 무해합니다. 하지만
+        <strong><code>master</code> 병합(운영 배포)에서는 <code>feature/*</code>든
+        <code>hotfix/*</code>든 아직 승인되지 않은 남의 변경이 함께 운영에 나갈 수
+        있습니다.</strong> <code>feature/*</code>는 그 전에 테스트 배포를 거쳐 위험이 늦춰질
+        뿐이고, <code>hotfix/*</code>는 <code>master</code>에 곧바로 병합되니 그 유예도
+        없습니다. hotfix를 <code>develop</code>에도 병합해도 이미 운영에 나간 것은 되돌아오지
+        않습니다. 도구는 이 경우를 아직 알리지 않습니다. 지금 관문은 DBA가 배포 스크립트를
+        읽는 것 하나입니다.
       </p>
     </div>
 

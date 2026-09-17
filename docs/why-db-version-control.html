@@ -1175,10 +1175,13 @@
           <code>.sql</code>은 그 객체의 <em>통짜 스냅샷</em>이라 일부만 떼어 낼 수 없는데,
           공용 개발 DB는 하나뿐이다. 그래서 프로시저를 남이 먼저 고치고 내가 이어서 고쳤다면
           내 커밋에 <strong>그 사람의 작업도 같이 담긴다.</strong> 도구는 커밋 직전에 그 객체와
-          그 사람을 짚어 알린다. 그리고 <strong>딸려 온 것이 어디로 가느냐가 갈린다</strong> —
-          <code>feature/*</code>는 <code>develop</code>에 병합되므로 <code>develop</code>에서
-          온 것이 <code>develop</code>으로 돌아가 자정되지만, <code>hotfix/*</code>는
-          <code>master</code>로 간다.
+          그 사람을 짚어 알린다. 그리고 <strong>그것이 문제가 되는지는 어느 병합 단계냐로
+          갈린다</strong> — <code>develop</code> 병합(테스트 배포)에서는 원래
+          <code>develop</code> 쪽에 있던 변경이 돌아갈 뿐이라 무해하지만,
+          <code>master</code> 병합(운영 배포)에서는 <code>feature/*</code>든
+          <code>hotfix/*</code>든 아직 승인되지 않은 변경이 함께 운영에 나갈 수 있다.
+          <code>hotfix/*</code>는 <code>master</code>에 곧바로 병합되니 테스트 배포라는
+          유예조차 없다.
         </p>
       </div>
     </div>
@@ -1461,10 +1464,13 @@
           하기로 할지는 아래 결정 항목에 있다.
         </li>
         <li>
-          <strong><code>hotfix</code>로 나가는 DB 변경은 자정되지 않는다.</strong>
-          <code>feature/*</code>에 딸려 들어온 변경은 <code>develop</code>으로 돌아가므로
-          결과가 남지 않지만, <code>hotfix/*</code>는 <code>master</code>로 직행한다.
-          아직 승격되지 않은 변경이 운영에 일찍 도착할 수 있고, <strong>도구는 이 경우를 아직
+          <strong>딸려 온 변경은 운영 배포 때 함께 나갈 수 있다.</strong>
+          <code>develop</code> 병합에서는 원래 있던 곳으로 돌아갈 뿐이지만, 운영 배포로
+          <code>master</code>에 병합할 때는 <code>feature/*</code>든 <code>hotfix/*</code>든
+          아직 승격되지 않은 남의 변경이 함께 운영에 도착할 수 있다. <code>feature/*</code>는
+          테스트 배포를 먼저 거쳐 위험이 늦춰질 뿐이고, <code>hotfix/*</code>는
+          <code>master</code>에 곧바로 병합되니 그 유예도 없다 — <code>develop</code>에도
+          병합해도 이미 운영에 나간 것은 되돌아오지 않는다. <strong>도구는 이 경우를 아직
           알리지 않는다.</strong> 지금의 관문은 하나다 — 배포 스크립트를 DBA가 읽는 것.
         </li>
         <li>
