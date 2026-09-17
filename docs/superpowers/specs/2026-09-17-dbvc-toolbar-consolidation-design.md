@@ -73,8 +73,8 @@
 확인 후:  [Pull ↓2] [Push ↑1] [원격 확인]
 ```
 
-숫자를 지우는 시점은 지금 `RemoteStatusText = null`인 네 자리(대상 변경, 원격 확인 실패, Pull 후,
-Push 후)와 정확히 같다. 낡은 숫자를 최신인 척 보여 주지 않는다는 기존 원칙을 옮겨 온다.
+숫자를 지우는 시점은 지금 `RemoteStatusText = null`인 여섯 자리(대상 변경, 원격 확인 실패, Pull 후,
+Push 후, 브랜치 조작 후, 커밋 후)와 정확히 같다. 낡은 숫자를 최신인 척 보여 주지 않는다는 기존 원칙을 옮겨 온다.
 
 ### 2.6 아이콘은 쓰지 않고 글자로 둔다
 
@@ -108,7 +108,8 @@ VS 이미지 카탈로그(`KnownMonikers` + `CrispImage`)는 `Microsoft.VisualSt
   회색 `커밋 메시지` 안내 글자를 겹쳐 보인다 — WPF `TextBox`에는 placeholder가 없으므로
   `TextBlock`을 같은 셀에 겹치고 `IsHitTestVisible="False"`로 둔다. 한 줄 입력은 그대로다.
 - **체크 줄.** 맨 앞에 `체크한 항목 {n}개`. `다른 사람 변경도 보기`는 목록을 거르는 옵션이므로 이 줄
-  오른쪽 끝으로 온다. 그 `Foreground` 규칙(셸 테마 브러시를 직접 받는다)은 그대로 옮긴다.
+  맨 뒤로 온다. 오른쪽 끝에 붙이지 않고 `WrapPanel`로 흘린다 — `DockPanel`은 줄바꿈하지 않아 좁은 창에서
+  버튼과 겹친다. 그 `Foreground` 규칙(셸 테마 브러시를 직접 받는다)은 그대로 옮긴다.
 
 ### 3.2 드롭다운 메뉴 세 개
 
@@ -134,7 +135,9 @@ VS 이미지 카탈로그(`KnownMonikers` + `CrispImage`)는 `Microsoft.VisualSt
    열린 메뉴가 작업 종료 뒤 남는 경로를 만들지 않기 위해서다.
 
 색: `ContextMenu`·`MenuItem`은 VS가 칠해 주지 않는다. `Background`/`Foreground`에
-`VsBrushes.ToolWindowBackgroundKey`/`ToolWindowTextKey`를 `DynamicResource`로 준다. 체크박스에서
+`VsBrushes.ToolWindowBackgroundKey`/`ToolWindowTextKey`를 준다. XAML의 `DynamicResource`가 아니라 **여는
+순간 버튼에서 `TryFindResource`로 찾아 넣는다** — `ContextMenu`는 열리기 전에는 컨트롤의 리소스 트리에
+붙어 있지 않아 키가 풀리는 시점을 보장할 수 없고, 열 때마다 다시 찾으므로 테마를 바꿔도 다음에 열 때 따라간다. 체크박스에서
 겪은 "어두운 테마에서 글씨가 사라진다"(`AuthorToggle` 주석)와 같은 결함이 메뉴에서 되풀이되지 않게 한다.
 
 ### 3.3 ViewModel에 더하는 것
@@ -143,7 +146,7 @@ VS 이미지 카탈로그(`KnownMonikers` + `CrispImage`)는 `Microsoft.VisualSt
 
 | 속성 | 뜻 | 대체하는 것 |
 | --- | --- | --- |
-| `RemoteStatus? LastRemoteStatus` | 마지막 원격 확인 결과. 지금 `RemoteStatusText`를 지우는 네 자리에서 똑같이 `null`이 된다 | `RemoteStatusText`, `HasRemoteStatus` |
+| `RemoteStatus? LastRemoteStatus` | 마지막 원격 확인 결과. 지금 `RemoteStatusText`를 지우는 여섯 자리에서 똑같이 `null`이 된다 | `RemoteStatusText`, `HasRemoteStatus` |
 | `string PullButtonText` | 확인 전 `Pull`, 확인 후 `Pull ↓{BehindBy}` | — |
 | `string PushButtonText` | 확인 전 `Push`, 확인 후 `Push ↑{AheadBy}` | — |
 | `int CheckedCount` | `Changes.Count(c => c.IsSelected)` | — |
@@ -175,7 +178,7 @@ VS 이미지 카탈로그(`KnownMonikers` + `CrispImage`)는 `Microsoft.VisualSt
 1. `BranchMenuButton`이 버전 왼쪽 같은 줄에 있다 / 브랜치가 없으면 숨는다 — 기존 `BranchLabel` 두
    테스트를 옮긴다.
 2. `RemoteStatusLabel` 두 테스트는 지운다. 대신 ViewModel 테스트: 원격 확인 전 `PullButtonText == "Pull"`,
-   `RemoteStatus(2, 1)` 뒤 `"Pull ↓2"`/`"Push ↑1"`, 대상 변경·Pull·Push·확인 실패 뒤 다시 `"Pull"`.
+   `RemoteStatus(2, 1)`(생성자 순서는 `aheadBy, behindBy`) 뒤 `"Pull ↓1"`/`"Push ↑2"`, 대상 변경·Pull·Push·확인 실패·브랜치 전환 뒤 다시 `"Pull"`.
 3. 동기화 줄: 폭 600에서 `PullButton`과 `RefreshButton`이 같은 줄, 폭 300에서 `PullButton`·`PushButton`·
    `CheckRemoteButton`이 **서로 같은 줄**(무리가 쪼개지지 않는다).
 4. 커밋 메시지 칸이 폭 600과 900에서 폭이 달라진다(고정 240이 아니다). 안내 글자는 메시지가 비면
@@ -212,7 +215,8 @@ CI는 WPF 렌더링을 검증하지 않는다. 아래를 누르기 전에는 "�
 
 - `README.md`: "원격 확인"의 "`받을 커밋 n개 · 올릴 커밋 n개` 를 상단에 띄웁니다"를 "Pull·Push 버튼에
   `↓n`·`↑n`으로 붙입니다"로. `전체 다시 추출`·`배포 스크립트`·`롤백 스크립트`·`새 브랜치`·`브랜치 전환`을
-  언급하는 곳마다 어느 메뉴에 있는지(`새로고침 ▾`, `스크립트 ▾`, 브랜치 이름 `▾`)를 적는다.
+  **설명하는 기능 절**에 어느 메뉴에 있는지(`새로고침 ▾`, `스크립트 ▾`, 브랜치 이름 `▾`)를 적는다. 다른 절에서
+  이름만 지나가며 부르는 곳은 두지 않는다 — 메뉴 항목의 이름이 같으므로 찾을 수 있다.
 - `docs/setup-checklist.md`: 새 버전 절에 4.2의 일곱 항목. 기존 항목 중 버튼 이름으로 찾는 문장(예:
   0.4.0 절 "원격 확인의 숫자")은 새 자리로 고친다.
 - `source.extension.vsixmanifest`: 구현을 머지하는 시점의 버전에서 부 버전을 올린다. 병합 기능(0.8.0
