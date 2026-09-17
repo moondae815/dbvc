@@ -52,25 +52,36 @@
                     브랜치는 버전 왼쪽에 붙인다. DockPanel은 먼저 Dock된 것이 더 바깥이라
                     VersionLabel 다음에 두어야 이 순서가 나온다. 비교 기준이 브랜치 내용이므로
                     이것이 보이지 않으면 사용자가 diff를 오독한다.
+
+                    이름 자체가 메뉴 버튼이다. 새 브랜치·전환을 따로 버튼으로 두었을 때는 대상 표시
+                    바로 뒤에 붙어 "Windows 인증"을 가렸다. 배포·감사 클론에서도 메뉴는 열린다 - 두
+                    항목이 잠긴 채 보이는 것이 "이 클론은 브랜치가 고정되어 있다"를 말한다.
+                    메뉴를 여는 버튼에는 명령이 없어 CanExecute로 잠기지 않으므로 작업 중에는
+                    IsNotBusy로 잠근다.
                 -->
-                <TextBlock x:Name="BranchLabel" DockPanel.Dock="Right"
-                           Text="{Binding CurrentBranch, StringFormat=브랜치: {0}}"
-                           VerticalAlignment="Top" Margin="8,4,0,4"
-                           Visibility="{Binding HasCurrentBranch, Converter={StaticResource BoolToVis}}"
-                           Foreground="{DynamicResource {x:Static vsshell:VsBrushes.GrayTextKey}}"
-                           ToolTip="저장소가 지금 가리키는 브랜치입니다. 커밋은 이 브랜치에 담깁니다."/>
+                <Button x:Name="BranchMenuButton" DockPanel.Dock="Right"
+                        Content="{Binding CurrentBranch}" ContentStringFormat="{}{0} ▾"
+                        VerticalAlignment="Top" Margin="8,0,0,4" Padding="8,1"
+                        Visibility="{Binding HasCurrentBranch, Converter={StaticResource BoolToVis}}"
+                        IsEnabled="{Binding IsNotBusy}"
+                        ContextMenuService.IsEnabled="False"
+                        Click="OnDropDownButtonClick"
+                        ToolTip="저장소가 지금 가리키는 브랜치입니다. 커밋은 이 브랜치에 담깁니다.&#10;눌러서 다른 브랜치로 전환하거나 새 브랜치를 만듭니다.">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="브랜치 전환..." Command="{Binding SwitchBranchCommand}"
+                                      ToolTipService.ShowOnDisabled="True"
+                                      ToolTip="다른 브랜치로 갈아탑니다.&#10;커밋되지 않은 변경이 있으면 갈아타지 않고 무엇이 남았는지 알려 줍니다.&#10;배포·감사 클론은 브랜치가 고정되어 있어 잠깁니다."/>
+                            <MenuItem Header="새 브랜치..." Command="{Binding CreateBranchCommand}"
+                                      ToolTipService.ShowOnDisabled="True"
+                                      ToolTip="지금 브랜치에서 새 브랜치를 만들고 갈아탑니다. 작업 중인 파일은 그대로 남습니다.&#10;배포·감사 클론은 브랜치가 고정되어 있어 잠깁니다."/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
                 <WrapPanel Orientation="Horizontal">
                     <Button x:Name="ConnectButton" Content="연결" Command="{Binding ConnectCommand}" Width="70" Margin="0,0,10,4"
                             ToolTip="SSMS 개체 탐색기에서 선택한 데이터베이스로 접속합니다. 인증 정보는 그 연결에서만 오며 디스크에 저장되지 않습니다."/>
                     <TextBlock x:Name="TargetLabel" Text="{Binding TargetSummary}" VerticalAlignment="Center" Margin="0,0,0,4"/>
-                    <!--
-                        고정 브랜치 클론(배포용)에서는 CanExecute가 항상 false라 눌러도 반응이 없다 -
-                        여기서 또 IsEnabled/Visibility를 걸면 같은 판정이 두 곳에 생긴다.
-                    -->
-                    <Button Content="새 브랜치" Command="{Binding CreateBranchCommand}" Width="80" Margin="0,0,6,4"
-                            ToolTip="지금 브랜치에서 새 브랜치를 만들고 갈아탑니다. 작업 중인 파일은 그대로 남습니다."/>
-                    <Button Content="브랜치 전환" Command="{Binding SwitchBranchCommand}" Width="90" Margin="0,0,10,4"
-                            ToolTip="다른 브랜치로 갈아탑니다.&#10;커밋되지 않은 변경이 있으면 갈아타지 않고 무엇이 남았는지 알려 줍니다."/>
                 </WrapPanel>
             </DockPanel>
 

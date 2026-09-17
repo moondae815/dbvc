@@ -68,37 +68,37 @@ namespace DBVC.Vsix.Tests.UI
         }
 
         /// <summary>
-        /// 브랜치는 버전 왼쪽, 같은 첫째 줄에 있어야 한다. DockPanel은 먼저 Dock된 것이 더
-        /// 바깥이라 XAML에서 두 줄의 순서를 뒤집으면 브랜치가 버전 오른쪽으로 밀린다 -
-        /// 눈으로만 보면 놓치는 종류의 실수라 좌표로 못박는다.
+        /// 브랜치 메뉴 버튼은 버전 왼쪽, 같은 첫째 줄에 있어야 한다. DockPanel은 먼저 Dock된 것이 더
+        /// 바깥이라 XAML에서 두 요소의 순서를 뒤집으면 브랜치가 버전 오른쪽으로 밀린다 -
+        /// 눈으로만 보면 놓치는 종류의 실수라 좌표로 못박는다. 버튼은 테두리만큼 글자선이 달라
+        /// 세로는 몇 픽셀의 차이를 허용한다.
         /// </summary>
         [Test]
-        public void BranchLabel_SitsLeftOfTheVersion_OnTheFirstLine()
+        public void BranchMenuButton_SitsLeftOfTheVersion_OnTheFirstLine()
         {
             var control = NewConnectedControl(
                 new RepositoryState { CurrentBranch = "feature/x", BlockReason = RepositoryBlockReason.None });
 
             LayoutAt(control, 600);
 
-            var branch = TopLeftOf(control, "BranchLabel");
+            var branch = TopLeftOf(control, "BranchMenuButton");
             var version = TopLeftOf(control, "VersionLabel");
 
             Assert.That(branch.X, Is.LessThan(version.X), "브랜치가 버전 왼쪽에 와야 한다");
-            Assert.That(branch.Y, Is.EqualTo(version.Y).Within(1), "둘은 같은 줄에 있어야 한다");
+            Assert.That(branch.Y, Is.EqualTo(version.Y).Within(6), "둘은 같은 줄에 있어야 한다");
         }
 
-        /// <summary>
-        /// 브랜치를 알 수 없으면 표시가 아예 없어야 한다. "브랜치: " 만 남으면 오해를 준다.
-        /// </summary>
+        /// <summary>브랜치를 알 수 없으면 버튼째 없어야 한다. " ▾"만 남은 버튼은 오해를 준다.</summary>
         [Test]
-        public void BranchLabel_IsHidden_WhenThereIsNoBranch()
+        public void BranchMenuButton_IsHidden_WhenThereIsNoBranch()
         {
             var control = NewConnectedControl(
                 new RepositoryState { CurrentBranch = null, BlockReason = RepositoryBlockReason.None });
 
             LayoutAt(control, 600);
 
-            var branch = (FrameworkElement)control.FindName("BranchLabel");
+            var branch = (FrameworkElement)control.FindName("BranchMenuButton");
+            Assert.That(branch, Is.Not.Null, "XAML에 BranchMenuButton이 있어야 한다");
             Assert.That(branch.Visibility, Is.Not.EqualTo(Visibility.Visible));
         }
 

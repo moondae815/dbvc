@@ -164,6 +164,12 @@ namespace DBVC.Vsix.UI
             }
         }
 
+        /// <summary>도구 줄 드롭다운 버튼 셋(브랜치, 새로고침 ▾, 스크립트 ▾)이 함께 쓴다.</summary>
+        private void OnDropDownButtonClick(object sender, System.Windows.RoutedEventArgs e)
+        {
+            DropDownMenu.Open((Button)sender);
+        }
+
         /// <summary>
         /// 도구 창이 보여질 때 개체 탐색기 선택을 현재 대상과 대조한다.
         /// 처음 열 때와 다른 탭에서 돌아올 때를 함께 덮는다.
