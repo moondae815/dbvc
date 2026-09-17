@@ -25,6 +25,9 @@ namespace DBVC.Vsix.Tests.UI
         /// </summary>
         [TestCase("BranchMenuButton", 0, nameof(ViewChangesViewModel.SwitchBranchCommand))]
         [TestCase("BranchMenuButton", 1, nameof(ViewChangesViewModel.CreateBranchCommand))]
+        [TestCase("RefreshMenuButton", 0, nameof(ViewChangesViewModel.RefreshAllCommand))]
+        [TestCase("ScriptMenuButton", 0, nameof(ViewChangesViewModel.GenerateDeploymentScriptCommand))]
+        [TestCase("ScriptMenuButton", 1, nameof(ViewChangesViewModel.GenerateRollbackScriptCommand))]
         public void Prepare_BindsTheMenuItemToTheViewModelCommand(string buttonName, int itemIndex, string commandName)
         {
             var control = NewControl();
@@ -47,6 +50,8 @@ namespace DBVC.Vsix.Tests.UI
         /// 주어 "셸 브러시를 받았는지"만 가른다 - AuthorToggle 테스트와 같은 방식이다.
         /// </summary>
         [TestCase("BranchMenuButton")]
+        [TestCase("RefreshMenuButton")]
+        [TestCase("ScriptMenuButton")]
         public void Prepare_TakesTheMenuColorsFromTheShellTheme(string buttonName)
         {
             var control = NewControl();
@@ -65,6 +70,8 @@ namespace DBVC.Vsix.Tests.UI
         /// 설계상 쓰지 않으므로(스펙 2.3) 자동 열림을 끈다.
         /// </summary>
         [TestCase("BranchMenuButton")]
+        [TestCase("RefreshMenuButton")]
+        [TestCase("ScriptMenuButton")]
         public void DropDownButton_DoesNotOpenOnRightClick(string buttonName)
         {
             var control = NewControl();
