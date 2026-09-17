@@ -397,23 +397,83 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="5" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
                 <!--
+                    병합 영역. 목적지는 매핑의 고정 브랜치 하나라 고르는 칸이 없다(스펙 2.1).
+                    차이 검사 위에 두는 것은 순서가 곧 절차이기 때문이다 - 병합하고, 검사하고, 배포한다.
+                -->
+                <Expander Grid.Row="0" Margin="5,5,5,0" IsExpanded="True">
+                    <Expander.Header>
+                        <TextBlock>
+                            <Run Text="병합 — 목적지:"/>
+                            <Run Text="{Binding MergeTargetBranch, Mode=OneWay}" FontWeight="SemiBold"/>
+                        </TextBlock>
+                    </Expander.Header>
+                    <Grid Margin="0,4,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="140" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <WrapPanel Grid.Row="0" Margin="0,0,0,4">
+                            <Button Content="병합할 브랜치 확인" Command="{Binding LoadBranchesCommand}" Margin="0,0,5,0" Padding="10,3"
+                                    ToolTip="원격에서 가져온 뒤, 목적지에 아직 병합되지 않은 브랜치를 보여 줍니다. develop과 master는 목록에 나오지 않습니다."/>
+                            <Button Content="병합" Command="{Binding MergeCommand}" Margin="0,0,5,0" Padding="10,3"
+                                    ToolTip="고른 브랜치를 목적지에 병합 커밋으로 병합하고 원격에 올립니다. 충돌이 있으면 누를 수 없습니다."/>
+                        </WrapPanel>
+
+                        <Grid Grid.Row="1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="5" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- 목록은 작업 중에 잠근다. 명령이 없어 CanExecute가 막지 못한다(아래 차이 목록과 같은 이유). -->
+                            <ListView Grid.Column="0" IsEnabled="{Binding Busy.IsNotBusy}"
+                                      ItemsSource="{Binding UnmergedBranches}"
+                                      SelectedItem="{Binding SelectedBranch, Mode=TwoWay}">
+                                <ListView.View>
+                                    <GridView>
+                                        <GridViewColumn Header="브랜치" Width="140" DisplayMemberBinding="{Binding Name}"/>
+                                        <GridViewColumn Header="작성자" Width="90" DisplayMemberBinding="{Binding AuthorText}"/>
+                                        <GridViewColumn Header="마지막 커밋" Width="120" DisplayMemberBinding="{Binding TimeText}"/>
+                                        <GridViewColumn Header="커밋" Width="50" DisplayMemberBinding="{Binding CommitCountText}"/>
+                                        <GridViewColumn Header="테스트 반영" Width="80" DisplayMemberBinding="{Binding InDevelopText}"/>
+                                    </GridView>
+                                </ListView.View>
+                            </ListView>
+
+                            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"/>
+
+                            <TextBox Grid.Column="2" IsReadOnly="True" TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                     FontFamily="Consolas"
+                                     Background="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"
+                                     Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"
+                                     Text="{Binding PreviewText, Mode=OneWay}"/>
+                        </Grid>
+                    </Grid>
+                </Expander>
+
+                <!--
                     버튼은 둘뿐이다. "다시 검사"는 새 화면이 아니라 [차이 검사]를 다시 누르는 것이다 -
                     별도 단계로 만들면 오히려 안 눌린다.
                 -->
-                <WrapPanel Grid.Row="0" Margin="5">
+                <WrapPanel Grid.Row="1" Margin="5">
                     <Button Content="차이 검사" Command="{Binding CompareCommand}" Margin="0,0,5,0" Padding="10,3"
                             ToolTip="원격에서 가져온 뒤 대상 데이터베이스 전체를 브랜치와 비교합니다. 저장소에는 아무것도 쓰지 않습니다."/>
                     <Button Content="배포 스크립트 저장..." Command="{Binding SaveScriptCommand}" Margin="0,0,5,0" Padding="10,3"
                             ToolTip="차이 목록으로 실행 가능한 스크립트를 만듭니다. 자동화할 수 없는 항목은 머리말에 사유와 함께 빠집니다."/>
                 </WrapPanel>
 
-                <TextBlock Grid.Row="1" Margin="5,0,5,5" TextWrapping="Wrap"
+                <TextBlock Grid.Row="2" Margin="5,0,5,5" TextWrapping="Wrap"
                            Text="{Binding SummaryText}"/>
 
                 <!--
@@ -424,7 +484,7 @@
                     CanExecute가 잠그지만 목록에는 명령이 없어 화면이 막아야 한다(IsNotBusy).
                     이 안쪽 Grid의 DataContext는 Deployment이므로 Busy를 거쳐 푼다.
                 -->
-                <ListView x:Name="DeploymentDifferenceList" Grid.Row="2" Margin="5,0,5,0"
+                <ListView x:Name="DeploymentDifferenceList" Grid.Row="3" Margin="5,0,5,0"
                           IsEnabled="{Binding Busy.IsNotBusy}"
                           ItemsSource="{Binding Differences}"
                           SelectedItem="{Binding SelectedDifference, Mode=TwoWay}">
@@ -438,9 +498,9 @@
                     </ListView.View>
                 </ListView>
 
-                <GridSplitter Grid.Row="3" Height="5" HorizontalAlignment="Stretch"/>
+                <GridSplitter Grid.Row="4" Height="5" HorizontalAlignment="Stretch"/>
 
-                <Grid Grid.Row="4" Margin="5,0,5,5">
+                <Grid Grid.Row="5" Margin="5,0,5,5">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="5" />
