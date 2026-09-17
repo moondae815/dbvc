@@ -22,6 +22,8 @@
 - **우클릭 메뉴를 만들지 않는다**(스펙 2.3). 드롭다운 버튼에는 `ContextMenuService.IsEnabled="False"`를 준다 — 우클릭으로 열리면 `DropDownMenu.Prepare`를 거치지 않아 항목이 눌려도 아무 일이 없다.
 - **체크 작업 줄은 항상 보인다.** 잠금은 명령의 `CanExecute`가 맡고 화면에 `IsEnabled`를 따로 걸지 않는다(스펙 2.4). 예외는 명령이 없는 드롭다운 버튼 셋뿐이며 `IsEnabled="{Binding IsNotBusy}"`로 잠근다(스펙 3.2의 2).
 - **원격 확인은 누를 때만 돈다.** 숫자를 자동으로 채우는 코드를 넣지 않는다(스펙 2.5).
+- **배포·감사 패널은 건드리지 않는다**(스펙 2.7). `DeploymentPanelGrid` 안쪽 XAML(0.8.0의 병합 영역 포함), `DeploymentViewModel`, `UnmergedBranchItemViewModel`을 고치지 않는다. 두 화면이 맞닿는 곳은 맨 윗줄뿐이다.
+- **버전은 0.8.0(병합) → 0.9.0**이다. 병합 문서의 버전은 고치지 않는다.
 - **도구 줄 컨테이너에 `TextElement.Foreground`를 걸지 않는다.** 안에 든 `TextBox`까지 상속되어 어두운 테마에서 흰 바탕에 흰 글씨가 된다. 글자를 가진 `TextBlock`·`CheckBox`에만 직접 준다.
 - 빌드·테스트 명령:
   - `dotnet build DBVC.slnx`
@@ -41,7 +43,8 @@
 | `tests/DBVC.Vsix.Tests/UI/DropDownMenuTests.cs` (신규) | 세 메뉴의 배선·색·우클릭 차단 |
 | `tests/DBVC.Vsix.Tests/UI/ChangeListToolbarLayoutTests.cs` (신규) | 동기화·커밋·체크 줄의 배치 |
 | `tests/DBVC.Vsix.Tests/UI/ViewChangesControlFixtures.cs` | 새 레이아웃 테스트가 쓰는 `LayoutAt`·`TopLeftOf`·`Find` |
-| `README.md`, `docs/setup-checklist.md`, `src/DBVC.Vsix/source.extension.vsixmanifest` | 문서·버전 |
+| `README.md`, `docs/user-guide.html`, `docs/setup-checklist.md`, `src/DBVC.Vsix/source.extension.vsixmanifest` | 문서·버전(0.9.0) |
+| `DeploymentPanelGrid` 안쪽 XAML, `DeploymentViewModel.cs`, `UnmergedBranchItemViewModel.cs` | **건드리지 않는다**(스펙 2.7) — Task 4의 배포 모드 테스트와 Task 5 Step 5의 diff 확인이 지킨다 |
 
 ---
 
@@ -234,7 +237,7 @@ git commit -m "fix(vsix): 체크를 바꾸면 체크에 기대는 버튼의 잠�
 **Files:**
 - Modify: `src/DBVC.Vsix/ViewModels/ViewChangesViewModel.cs` (`RemoteStatusText` 속성 929~941행, 대입 여섯 자리)
 - Modify: `src/DBVC.Vsix/UI/ViewChangesControl.xaml` (`RemoteStatusLabel` 62~67행, Pull·Push 버튼 205~208행)
-- Modify: `tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs` (1700~1768행, 4195~4218행)
+- Modify: `tests/DBVC.Vsix.Tests/ViewModels/ViewChangesViewModelTests.cs` (`// ---------- 원격 확인 ----------` 절, `SwitchBranchCommand_ClearsStaleRemoteStatus_AfterASuccessfulSwitch`)
 - Modify: `tests/DBVC.Vsix.Tests/UI/TopRowLayoutTests.cs` (`RemoteStatusLabel_*` 두 테스트 삭제)
 - Modify: `tests/DBVC.Vsix.Tests/UI/ViewChangesControlFixtures.cs` (주석 한 줄, 도우미 셋 추가)
 - Create: `tests/DBVC.Vsix.Tests/UI/ChangeListToolbarLayoutTests.cs`
@@ -568,10 +571,12 @@ git commit -m "feat(vsix): 원격 확인 숫자를 Pull·Push 버튼에 붙인�
 
 ```csharp
 #if NETFRAMEWORK
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using NUnit.Framework;
+using DBVC.Core.Models;
 using DBVC.Vsix.UI;
 using DBVC.Vsix.ViewModels;
 using static DBVC.Vsix.Tests.UI.ViewChangesControlFixtures;
@@ -637,6 +642,33 @@ namespace DBVC.Vsix.Tests.UI
             var control = NewControl();
 
             Assert.That(ContextMenuService.GetIsEnabled(Find<Button>(control, buttonName)), Is.False);
+        }
+
+        /// <summary>
+        /// 배포·감사 클론의 윗줄에도 브랜치 버튼은 보이고 메뉴도 열리지만, 두 항목은 잠겨 있어야 한다
+        /// (스펙 2.7). 고정 브랜치를 옮기는 길이 메뉴로 새어 나오면, 병합 영역이 가리키는 목적지와
+        /// 저장소가 어긋나 차단 오버레이가 뜨는 상태를 사용자가 스스로 만든다.
+        /// </summary>
+        [Test]
+        public void BranchMenu_ItemsAreDisabled_WhenTheTargetIsADeployClone()
+        {
+            var control = NewConnectedControl(
+                new RepositoryState { CurrentBranch = "develop", BlockReason = RepositoryBlockReason.None },
+                mode: MappingMode.Deploy);
+            LayoutAt(control, 600);
+
+            var button = Find<Button>(control, "BranchMenuButton");
+            Assert.That(button.Visibility, Is.EqualTo(Visibility.Visible), "배포 클론에서도 브랜치 이름은 보여야 한다");
+
+            var menu = DropDownMenu.Prepare(button)!;
+            control.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+
+            Assert.That(menu.Items.Count, Is.EqualTo(2));
+            foreach (MenuItem item in menu.Items)
+            {
+                Assert.That(item.Command, Is.Not.Null, $"'{item.Header}'의 명령 바인딩이 풀리지 않았다");
+                Assert.That(item.Command!.CanExecute(null), Is.False, $"'{item.Header}'는 배포 클론에서 잠겨야 한다");
+            }
         }
     }
 }
@@ -951,7 +983,45 @@ git commit -m "feat(vsix): 브랜치 이름을 새 브랜치·전환 메뉴 버�
             Assert.That(Find<Button>(control, "DiscardButton").IsEnabled, Is.False);
             Assert.That(Find<Button>(control, "IgnoreButton").IsEnabled, Is.False);
         }
+
+        /// <summary>
+        /// 새 도구 줄은 변경 목록 영역(ChangeListGrid) 안에 있어야 한다. 윗줄로 끌어올리거나 바깥 Grid에
+        /// 두면 배포·감사 클론에서 병합 영역 위에 Pull·Push·Commit이 새어 나온다 - 배포 클론은 Push가
+        /// 금지이고, 병합은 자기가 만든 커밋 하나만 올리도록 짜여 있다(스펙 2.7).
+        /// </summary>
+        [TestCase("RefreshButton")]
+        [TestCase("PullButton")]
+        [TestCase("CommitButton")]
+        [TestCase("DiscardButton")]
+        [TestCase("ScriptMenuButton")]
+        public void ChangeListToolbar_StaysInsideTheChangeList_WhenTheTargetIsADeployClone(string name)
+        {
+            var control = NewConnectedControl(
+                new RepositoryState { CurrentBranch = "develop", BlockReason = RepositoryBlockReason.None },
+                mode: MappingMode.Deploy);
+
+            LayoutAt(control, 600);
+
+            var changeList = Find<FrameworkElement>(control, "ChangeListGrid");
+            var deployment = Find<FrameworkElement>(control, "DeploymentPanelGrid");
+            Assert.That(deployment.Visibility, Is.EqualTo(Visibility.Visible), "전제: 배포 클론은 배포 패널을 본다");
+            Assert.That(changeList.Visibility, Is.Not.EqualTo(Visibility.Visible), "전제: 변경 목록 영역은 숨는다");
+            Assert.That(IsDescendantOf(Find<DependencyObject>(control, name), changeList), Is.True,
+                $"'{name}'이 변경 목록 영역 밖에 있어 배포 화면에 보인다");
+        }
+
+        private static bool IsDescendantOf(DependencyObject node, DependencyObject ancestor)
+        {
+            for (var current = node; current != null; current = LogicalTreeHelper.GetParent(current))
+            {
+                if (ReferenceEquals(current, ancestor)) return true;
+            }
+
+            return false;
+        }
 ```
+
+위 테스트가 쓰는 `MappingMode`를 위해 파일 위 using에 `DBVC.Core.Models`가 있는지 확인한다(Task 2에서 이미 넣었다).
 
 `DropDownMenuTests.cs`의 세 테스트에 케이스를 더한다.
 
@@ -1141,7 +1211,7 @@ Expected: 새 테스트들이 FAIL — `XAML에서 'RefreshButton'(FrameworkElem
 
 - [ ] **Step 5: 통과를 확인한다**
 
-Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~ChangeListToolbarLayoutTests|FullyQualifiedName~DropDownMenuTests|FullyQualifiedName~TopRowLayoutTests|FullyQualifiedName~DeploymentPanelLayoutTests|FullyQualifiedName~HistoryLayoutTests"`
+Run: `dotnet test tests/DBVC.Vsix.Tests -f net48 --filter "FullyQualifiedName~ChangeListToolbarLayoutTests|FullyQualifiedName~DropDownMenuTests|FullyQualifiedName~TopRowLayoutTests|FullyQualifiedName~DeploymentPanelLayoutTests|FullyQualifiedName~HistoryLayoutTests|FullyQualifiedName~DeploymentViewModelMergeTests"`
 Expected: 전체 PASS. `AuthorToggle_TakesItsForegroundFromTheShellTheme`와 `BlockOverlay_*`가 그대로 통과해야 한다.
 
 `SyncGroup_WrapsAsOneUnit_WhenTheWindowIsNarrow`의 전제 단언("300px에서는 동기화 무리가 다음 줄로 내려가야 한다")이 실패하면 버튼 실측 폭이 예상보다 좁은 것이다. 폭 300을 250으로 낮춰 다시 돌린다. 동기화 무리 자체가 그 폭보다 넓어 무리 안에서 잘린다면(`PushButton` Y가 `PullButton`과 같지만 X가 컨트롤 폭을 넘는다) 전제가 성립하는 가장 큰 폭을 찾아 쓰고, 그 값을 테스트 주석에 적는다.
@@ -1163,37 +1233,26 @@ git commit -m "feat(vsix): 변경 목록 도구 줄을 동기화·커밋·체크
 **Files:**
 - Modify: `src/DBVC.Vsix/source.extension.vsixmanifest`
 - Modify: `README.md`
+- Modify: `docs/user-guide.html`
 - Modify: `docs/setup-checklist.md`
-- Modify (조건부): `docs/superpowers/plans/2026-09-17-dbvc-merge-in-deploy-clone.md`, `docs/superpowers/specs/2026-09-17-dbvc-merge-in-deploy-clone-design.md`
 
-- [ ] **Step 1: 버전을 정한다**
+행 번호는 적지 않는다. 0.8.0 병합이 README·체크리스트·가이드에 절을 더해 번호가 계속 밀리므로, 아래 인용한 문구로 찾는다(`grep -n "<문구 일부>" <파일>`). 인용한 문구가 없으면 멈추고 보고한다.
 
-병합 기능이 이미 구현되었는지 본다(스펙 6).
+- [ ] **Step 1: 매니페스트 버전을 올린다**
 
-Run: `git log --oneline -- src/DBVC.Core/PromotionLeakDetector.cs` 그리고 `grep -n "Identity Id" src/DBVC.Vsix/source.extension.vsixmanifest`
+Run: `grep -n "Identity Id" src/DBVC.Vsix/source.extension.vsixmanifest`
+Expected: `Version="0.8.0"`. 다른 값이면 멈추고 보고한다.
 
-판단은 병합이 구현되었는지로만 한다. 매니페스트의 정확한 값은 그사이 수정 버전(예: 2026-09-17의 0.7.3)으로 올라가 있을 수 있다.
+`Version="0.8.0"`을 `Version="0.9.0"`으로 바꾼다. `DbvcVersionTests`는 매니페스트를 읽어 비교하므로 테스트는 고치지 않는다. 병합 문서(`2026-09-17-dbvc-merge-in-deploy-clone*`)의 버전은 건드리지 않는다.
 
-- 출력이 있다(병합이 먼저 나갔고 매니페스트가 `0.8.x`) → 이 작업은 **`0.9.0`**.
-- 출력이 없다(매니페스트가 `0.7.x`) → 이 작업이 먼저다. 이 작업은 **`0.8.0`**이고, 병합 문서의 버전을 밀어낸다:
-  Run: `grep -n "0\.8\.0" docs/superpowers/plans/2026-09-17-dbvc-merge-in-deploy-clone.md docs/superpowers/specs/2026-09-17-dbvc-merge-in-deploy-clone-design.md`
-  나온 줄마다 `0.8.0`을 `0.9.0`으로 바꾼다. 단, `0.7.x → **0.8.0**` 같은 "이전 → 다음" 표기는 `0.8.0 → **0.9.0**`으로 바꾼다(병합 작업 시점의 이전 버전이 이제 0.8.0이다).
-- 출력은 있는데 매니페스트가 `0.8.x`가 아니거나, 출력이 없는데 `0.7.x`가 아니면 멈추고 보고한다.
+- [ ] **Step 2: README를 고친다**
 
-아래에서 `<버전>`은 여기서 정한 값이다.
-
-- [ ] **Step 2: 매니페스트 버전을 올린다**
-
-`src/DBVC.Vsix/source.extension.vsixmanifest`의 `<Identity ... Version="…"`를 `Version="<버전>"`으로 바꾼다. `DbvcVersionTests`는 매니페스트를 읽어 비교하므로 테스트는 고치지 않는다.
-
-- [ ] **Step 3: README를 고친다**
-
-`README.md` 12행 "배포/롤백 스크립트 생성" 항목 끝에 한 문장을 더한다:
+"배포/롤백 스크립트 생성" 머리 항목(`- **배포/롤백 스크립트 생성:**`) 끝에 한 문장을 더한다:
 ```
 변경 목록 바로 위 줄의 **스크립트 ▾** 메뉴에 있으며, 체크한 객체를 재료로 씁니다.
 ```
 
-17행 "원격 확인" 항목의
+"원격 확인" 머리 항목의
 ```
 `받을 커밋 n개 · 올릴 커밋 n개` 를 상단에 띄웁니다.
 ```
@@ -1203,46 +1262,137 @@ Run: `git log --oneline -- src/DBVC.Core/PromotionLeakDetector.cs` 그리고 `gr
 ```
 로 바꾼다.
 
-74~75행 "현재 브랜치" 항목의 `도구 창 위쪽에 저장소의 현재 브랜치가 표시됩니다.`를 `도구 창 위쪽 버전 왼쪽에 저장소의 현재 브랜치가 **develop ▾** 처럼 버튼으로 표시됩니다.`로 바꾼다.
+"현재 브랜치" 항목의 `도구 창 위쪽에 저장소의 현재 브랜치가 표시됩니다.`를 `도구 창 위쪽 버전 왼쪽에 저장소의 현재 브랜치가 **develop ▾** 처럼 버튼으로 표시됩니다.`로 바꾼다.
 
-76~80행 "브랜치 만들기·전환(0.6.0)" 항목의 첫 문장 앞에 `브랜치 이름 버튼을 누르면 나오는 메뉴에 있습니다.`를 더하고, 마지막 문장 `두\n  버튼 모두 배포·감사 클론에서는 고정 브랜치가 필수라 처음부터 비활성화됩니다.`를 `두\n  메뉴 항목 모두 배포·감사 클론에서는 고정 브랜치가 필수라 잠긴 채 보입니다.`로 바꾼다.
-
-157행 "전체 다시 추출" 항목의 `이때는 **전체 다시 추출** 을 누르세요.`를 `이때는 **새로고침** 옆 **▾** 메뉴의 **전체 다시 추출** 을 누르세요.`로 바꾼다.
-
-같은 머리 목록(5~30행)의 마지막 항목 뒤에 한 줄을 더한다:
+"브랜치 만들기·전환(0.6.0)" 항목의 `**새 브랜치**는` 앞에 `브랜치 이름 버튼을 누르면 나오는 메뉴에 있습니다.`를 더하고, 그 항목 끝의
 ```
-- **도구 줄 정리 (<버전>):** 버튼을 무리별로 묶었습니다. 첫 줄은 새로고침과 원격 동기화(Pull·Push·원격 확인), 둘째 줄은 커밋 메시지와 Commit, 셋째 줄은 **체크한 항목** 에 작용하는 되돌리기·무시·스크립트입니다. 가끔 쓰는 전체 다시 추출, 배포/롤백 스크립트, 새 브랜치/브랜치 전환은 각각 **새로고침 ▾**, **스크립트 ▾**, 브랜치 이름 메뉴로 옮겼습니다.
+두
+  버튼 모두 배포·감사 클론에서는 고정 브랜치가 필수라 처음부터 비활성화됩니다.
+```
+를
+```
+두
+  메뉴 항목 모두 배포·감사 클론에서는 고정 브랜치가 필수라 잠긴 채 보입니다.
+```
+로 바꾼다.
+
+"전체 다시 추출" 항목의 `이때는 **전체 다시 추출** 을 누르세요.`를 `이때는 **새로고침** 옆 **▾** 메뉴의 **전체 다시 추출** 을 누르세요.`로 바꾼다.
+
+`## 주요 기능` 머리 목록의 마지막 항목 뒤(빈 줄과 `### 기능 커버리지` 앞)에 한 줄을 더한다:
+```
+- **도구 줄 정리 (0.9.0):** 개발 클론 화면의 버튼을 무리별로 묶었습니다. 첫 줄은 새로고침과 원격 동기화(Pull·Push·원격 확인), 둘째 줄은 커밋 메시지와 Commit, 셋째 줄은 **체크한 항목** 에 작용하는 되돌리기·무시·스크립트입니다. 가끔 쓰는 전체 다시 추출, 배포/롤백 스크립트, 새 브랜치/브랜치 전환은 각각 **새로고침 ▾**, **스크립트 ▾**, 브랜치 이름 메뉴로 옮겼습니다. 배포·감사 클론의 병합·차이 검사 화면은 그대로입니다.
 ```
 
-Run: `grep -n "받을 커밋 n개\|상단에 띄웁니다" README.md`
+Run: `grep -n "받을 커밋 n개\|상단에 띄웁니다\|처음부터 비활성화됩니다" README.md`
 Expected: 출력 없음.
+
+- [ ] **Step 3: 사용 설명서(`docs/user-guide.html`)를 고친다**
+
+가이드는 사용자가 직접 읽는 화면 설명이라, 버튼 자리가 바뀌면 그림과 문장이 함께 틀린다.
+
+**머리 버전.** `<p class="kicker">사용 설명서 &nbsp;/&nbsp; 개발자 · DBA &nbsp;/&nbsp; DBVC 0.7.2`의 `0.7.2`를 `0.9.0`으로 바꾼다. (0.8.0 병합 때 올리지 않은 채 남았다.) `v0.7.2`처럼 릴리스 태그를 예로 드는 다른 문장은 건드리지 않는다.
+
+**도구 창 그림.** `aria-label="DBVC 도구 창의 구조`로 시작하는 `<svg>`를 고친다. 동작 버튼 줄이 두 줄(52)에서 세 줄(82)이 되어 그 아래 전부가 30 내려간다.
+
+1. `<svg viewBox="0 0 900 470"`을 `<svg viewBox="0 0 900 500"`으로, 창 `<rect class="box" x="8" y="8" width="600" height="454" rx="4"></rect>`의 `height="454"`를 `height="484"`로 바꾼다.
+
+2. 대상 줄의 아래 두 줄을
+```html
+          <text class="t-mono" x="592" y="26" text-anchor="end">브랜치: develop</text>
+          <text class="t-mono" x="592" y="42" text-anchor="end">DBVC 0.7.2</text>
+```
+아래로 바꾼다.
+```html
+          <rect class="btn" x="462" y="17" width="66" height="19" rx="2"></rect>
+          <text class="t-mono" x="495" y="31" text-anchor="middle">develop ▾</text>
+          <text class="t-mono" x="592" y="31" text-anchor="end">DBVC 0.9.0</text>
+```
+
+3. `<!-- 동작 버튼 줄 -->`부터 그 `</g>`까지를 아래로 바꾼다.
+```html
+          <!-- 동작 버튼 줄: 동기화 · 커밋 · 체크한 항목 -->
+          <rect class="band" x="16" y="94" width="584" height="82" rx="2"></rect>
+          <g class="t-edge">
+            <rect class="btn" x="26"  y="100" width="52" height="19" rx="2"></rect><text x="52"  y="113" text-anchor="middle">새로고침</text>
+            <rect class="btn" x="80"  y="100" width="14" height="19" rx="2"></rect><text x="87"  y="113" text-anchor="middle">▾</text>
+            <rect class="btn" x="110" y="100" width="46" height="19" rx="2"></rect><text x="133" y="113" text-anchor="middle">Pull ↓0</text>
+            <rect class="btn" x="160" y="100" width="46" height="19" rx="2"></rect><text x="183" y="113" text-anchor="middle">Push ↑2</text>
+            <rect class="btn" x="210" y="100" width="52" height="19" rx="2"></rect><text x="236" y="113" text-anchor="middle">원격 확인</text>
+
+            <rect class="btn" x="26"  y="126" width="452" height="19" rx="2"></rect><text x="34" y="139">커밋 메시지</text>
+            <rect class="btn" x="484" y="126" width="44" height="19" rx="2"></rect><text x="506" y="139" text-anchor="middle">AI 생성</text>
+            <rect class="btn" x="534" y="126" width="56" height="19" rx="2"></rect><text x="562" y="139" text-anchor="middle">Commit</text>
+
+            <text x="26" y="165">체크한 항목 2개</text>
+            <rect class="btn" x="106" y="152" width="50" height="19" rx="2"></rect><text x="131" y="165" text-anchor="middle">되돌리기</text>
+            <rect class="btn" x="160" y="152" width="34" height="19" rx="2"></rect><text x="177" y="165" text-anchor="middle">무시</text>
+            <rect class="btn" x="198" y="152" width="58" height="19" rx="2"></rect><text x="227" y="165" text-anchor="middle">스크립트 ▾</text>
+            <rect class="btn" x="272" y="156" width="10" height="10" rx="1"></rect>
+            <text x="288" y="165">다른 사람 변경도 보기</text>
+          </g>
+```
+
+4. `<!-- 변경 목록 -->` 주석 바로 앞에 `<g transform="translate(0,30)">`를 열고, `<!-- 탭 -->` 절의 마지막 `</g>`(Old/New 코드 줄을 담은 `<g class="t-mono">`의 닫는 태그) 바로 뒤에 `</g>`로 닫는다. 변경 목록과 탭이 통째로 30 내려간다.
+
+5. `<!-- 설명 -->` 묶음에서 동작 버튼 줄 설명(`M 608 118 L 660 118`로 시작하는 넷)을 아래로 바꾼다.
+```html
+            <path class="flow-dash" d="M 608 135 L 660 135"></path>
+            <text class="t-note" x="668" y="116">위에서부터 원격과 주고받기,</text>
+            <text class="t-note" x="668" y="131">커밋하기,</text>
+            <text class="t-note" x="668" y="146">체크한 것에 할 일.</text>
+            <text class="t-note" x="668" y="161">가끔 쓰는 것은 ▾ 메뉴 안에.</text>
+```
+   변경 목록 설명(`M 608 210 L 660 210`과 그 세 줄)과 탭 설명(`M 608 385 L 660 385`와 그 세 줄)은 각각 `<g transform="translate(0,30)">` … `</g>`로 감싼다.
+
+6. 대상 줄 설명의 `대상과 브랜치와 버전.`은 그대로 둔다.
+
+**문장.**
+
+- `전환은 <span class="b">새 브랜치</span>·<span class="b">브랜치 전환</span> 버튼으로` → `전환은 오른쪽 위 브랜치 이름 버튼(<code>develop ▾</code>)의 메뉴로`
+- 같은 문단의 `<code>브랜치: …</code>에서 봅니다.` → `그 버튼의 이름에서 봅니다.`
+- `원격을 받아 <code>받을 커밋 n개 · 올릴 커밋 n개</code>를 위쪽에 띄웁니다` → `원격을 받아 받을 커밋과 올릴 커밋의 수를 <span class="b">Pull ↓n</span>·<span class="b">Push ↑n</span>처럼 두 버튼에 붙입니다`
+- `<strong><span class="b">배포 스크립트</span>·<span class="b">롤백 스크립트</span>:</strong>` 다음 줄 `개발 화면에도 있지만` 앞에 `변경 목록 바로 위 줄의 <span class="b">스크립트 ▾</span> 메뉴에 있습니다.`를 더한다.
+- `도구 창에 <span class="b">새 브랜치</span>·<span class="b">브랜치 전환</span> 두 버튼이` 다음 줄 `있습니다.` → `도구 창 오른쪽 위 브랜치 이름 버튼(<code>develop ▾</code>)을 누르면 <span class="b">새 브랜치</span>·<span class="b">브랜치 전환</span> 두 메뉴 항목이 나옵니다.` (두 줄을 합쳐 한 문장으로 만든다)
+- `<h4>두 버튼은 개발 클론에서만 눌립니다</h4>` → `<h4>두 메뉴 항목은 개발 클론에서만 눌립니다</h4>`
+- 같은 절의 `둘 다 그 클론에서는 처음부터 비활성화되어 있습니다.` → `둘 다 그 클론에서는 메뉴를 열면 잠긴 채 보입니다.`
+- 2.4 절의 `<span class="b">전체 다시 추출</span>은 모든 객체를 다시 스크립팅합니다` → `<span class="b">전체 다시 추출</span>(새로고침 옆 <span class="b">▾</span> 메뉴)은 모든 객체를 다시 스크립팅합니다`
+
+Run: `grep -n "받을 커밋 n개\|브랜치: …\|처음부터 비활성화\|DBVC 0.7.2" docs/user-guide.html`
+Expected: 출력 없음.
+
+브라우저로 `docs/user-guide.html`을 열어 그림을 본다. 버튼 글자가 사각형 밖으로 넘치거나 설명 선이 가리키는 줄과 어긋나면 해당 `x`/`width`만 고친다. 좌표를 고쳤다면 무엇을 왜 고쳤는지 커밋 메시지 본문에 적는다.
 
 - [ ] **Step 4: 설치 체크리스트를 고친다**
 
-`docs/setup-checklist.md`의 `### 무시와 변경 로그 보존 확인 (0.5.21)` 줄 바로 앞에 절을 더한다(스펙 4.2):
+`docs/setup-checklist.md`의 `### 무시와 변경 로그 보존 확인 (0.5.21)` 줄 바로 앞에 절을 더한다(스펙 4.2).
 
 ```markdown
-### 도구 줄 정리 (<버전>)
+### 도구 줄 정리 (0.9.0)
 
-이 절은 CI가 검증하지 못하는 WPF 렌더링·메뉴를 SSMS 21에서 직접 확인한다.
+이 절은 CI가 검증하지 못하는 WPF 렌더링·메뉴를 SSMS 21에서 직접 확인한다. 개발 클론 하나와 배포 클론 하나가 필요하다.
 
 - [ ] **밝은 테마와 어두운 테마 각각에서** 세 메뉴(**새로고침 ▾**, **스크립트 ▾**, 브랜치 이름 **▾**)를 열어 글씨가 읽히고, 항목에 마우스를 올리면 강조가 보인다
 - [ ] 도구 창을 좁게 도킹하면 **Pull·Push·원격 확인** 이 셋이 함께 다음 줄로 내려간다(하나만 떨어지지 않는다). 첫 줄의 "Windows 인증" 같은 대상 표시가 버튼에 가리지 않는다
 - [ ] **새로고침 ▾ → 전체 다시 추출**, **스크립트 ▾ → 배포 스크립트... / 롤백 스크립트...**, 브랜치 이름 **▾ → 브랜치 전환... / 새 브랜치...** 가 예전 버튼과 같은 결과를 낸다
 - [ ] **원격 확인** 뒤 Pull·Push 버튼에 `↓n`·`↑n` 이 붙고, **Pull** 뒤와 다른 데이터베이스를 고른 뒤에는 사라진다
 - [ ] 체크를 모두 풀면 **되돌리기**·**무시** 가 바로 잠기고, **스크립트 ▾** 는 열리되 두 항목이 잠겨 보인다. "체크한 항목 n개" 가 체크를 바꿀 때마다 따라온다
-- [ ] 배포 대상에서 브랜치 이름 **▾** 를 열면 두 항목이 잠겨 보이고, 마우스를 올리면 고정 브랜치라 잠겼다는 안내가 뜬다
-- [ ] **전체 다시 추출** 이 도는 동안 세 메뉴 버튼이 잠긴다
 - [ ] 빈 커밋 메시지 칸에 회색 "커밋 메시지" 안내가 보이고, 글자를 치면 사라진다. 칸을 눌러 바로 입력할 수 있다
+- [ ] **전체 다시 추출** 이 도는 동안 세 메뉴 버튼이 잠긴다
+- [ ] **배포 클론:** 윗줄 브랜치 이름 **▾** 를 열면 두 항목이 잠겨 보이고, 마우스를 올리면 고정 브랜치라 잠겼다는 안내가 뜬다. 윗줄이 병합 영역 머리글(`병합 — 목적지: …`)을 가리거나 겹치지 않는다
+- [ ] **배포 클론:** **병합할 브랜치 확인** 이 도는 동안 윗줄 브랜치 버튼도 잠긴다. Pull·Push·Commit 같은 개발 화면 버튼은 어디에도 보이지 않는다
+- [ ] **배포 클론:** 병합 → "차이 검사 시작" 확인까지 한 바퀴가 0.8.0과 똑같이 돈다(회귀 확인 — 0.8.0 병합 절의 항목을 그대로 한 번 더 따라간다)
 ```
 
-기존 항목의 버튼 이름을 새 자리로 고친다.
+기존 항목의 버튼 이름을 새 자리로 고친다. 먼저 찾는다:
 
-- 730행 `- [ ] **원격 확인** 의 숫자가 \`git -C <폴더> status -sb\` 와 맞는다` → `- [ ] **원격 확인** 뒤 Pull·Push 버튼에 붙는 숫자가 \`git -C <폴더> status -sb\` 와 맞는다`
-- 841행 `**배포 스크립트**` → `**스크립트 ▾ → 배포 스크립트...**`
-- 845행 `**롤백 스크립트**` → `**스크립트 ▾ → 롤백 스크립트...**`
+Run: `grep -n "\*\*원격 확인\*\* 의 숫자\|\*\*배포 스크립트\*\* → 저장\|\*\*롤백 스크립트\*\* 를 만들면" docs/setup-checklist.md`
+Expected: 세 줄.
 
-행 번호는 Step 4 앞부분에서 절을 더하면서 밀리므로, 먼저 이 세 줄을 고치고 절을 더하거나 `grep -n "원격 확인\*\* 의 숫자\|\*\*배포 스크립트\*\* →\|\*\*롤백 스크립트\*\* 를" docs/setup-checklist.md`로 다시 찾는다.
+- `**원격 확인** 의 숫자가` → `**원격 확인** 뒤 Pull·Push 버튼에 붙는 숫자가`
+- `**배포 스크립트** → 저장` → `**스크립트 ▾ → 배포 스크립트...** → 저장`
+- `**롤백 스크립트** 를 만들면` → `**스크립트 ▾ → 롤백 스크립트...** 로 만들면`
+
+병합 절(0.8.0)의 **병합할 브랜치 확인**·**병합**·**차이 검사**·**배포 스크립트 저장...** 은 이름과 자리가 그대로이므로 고치지 않는다.
 
 - [ ] **Step 5: 전체 빌드와 테스트를 돌린다**
 
@@ -1252,7 +1402,13 @@ Expected: 경고 증가 없이 성공.
 Run: `dotnet test tests/DBVC.Core.Tests -f net10.0`
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net10.0`
 Run: `dotnet test tests/DBVC.Vsix.Tests -f net48`
-Expected: 셋 다 전체 PASS. 실패가 있으면 그 출력을 그대로 보고하고 커밋하지 않는다.
+Expected: 셋 다 전체 PASS — 0.8.0의 `DeploymentViewModelMergeTests`, `GitManagerMergeTests`, `DeploymentPanelLayoutTests`를 포함한다. 실패가 있으면 그 출력을 그대로 보고하고 커밋하지 않는다.
+
+Run: `git diff --stat main -- src/DBVC.Vsix/ViewModels/DeploymentViewModel.cs src/DBVC.Vsix/ViewModels/UnmergedBranchItemViewModel.cs src/DBVC.Core`
+Expected: 출력 없음(스펙 2.7 — 배포 패널과 Core를 건드리지 않았다). 작업 브랜치가 아니라 main 위에서 바로 작업했다면 `main` 대신 이 계획을 시작하기 전 커밋(`git log --oneline`에서 Task 1 커밋의 부모)을 쓴다.
+
+Run: `git diff main -- src/DBVC.Vsix/UI/ViewChangesControl.xaml | grep -n "^[-+]" | grep -in "Deployment\|병합\|Merge"`
+Expected: 출력 없음(배포 패널 XAML이 바뀌지 않았다).
 
 Run(PowerShell): `dotnet build src/DBVC.Vsix/DBVC.Vsix.csproj -c Release; dir src\DBVC.Vsix\bin\Release\net48\*.vsix`
 Expected: `.vsix` 파일이 방금 시각으로 존재한다. 빌드 성공만으로는 산출물이 있다고 보지 않는다(CLAUDE.md).
@@ -1260,12 +1416,10 @@ Expected: `.vsix` 파일이 방금 시각으로 존재한다. 빌드 성공만�
 - [ ] **Step 6: 커밋한다**
 
 ```bash
-git add src/DBVC.Vsix/source.extension.vsixmanifest README.md docs/setup-checklist.md
-git commit -m "docs: 도구 줄 정리를 설명하고 버전을 <버전>으로 올린다" -m "Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+git add src/DBVC.Vsix/source.extension.vsixmanifest README.md docs/user-guide.html docs/setup-checklist.md
+git commit -m "docs: 도구 줄 정리를 설명서·체크리스트에 싣고 0.9.0으로 올린다" -m "Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
-
-Step 1에서 병합 문서의 버전을 밀어냈다면 그 두 파일도 같은 커밋에 add 한다.
 
 - [ ] **Step 7: 사용자에게 넘긴다**
 
-이 계획이 건드린 것은 CI가 검증하지 않는 영역(WPF 렌더링, 메뉴, 테마)이다. `.vsix` 경로와 함께 Step 4에 더한 체크리스트 절을 사용자에게 알리고, **SSMS 21에서 그 절을 눌러 보기 전에는 "동작한다"고 보고하지 않는다.**
+이 계획이 건드린 것은 CI가 검증하지 않는 영역(WPF 렌더링, 메뉴, 테마)이다. `.vsix` 경로와 함께 Step 4에 더한 체크리스트 절을 사용자에게 알리고, **SSMS 21에서 개발 클론과 배포 클론 양쪽으로 그 절을 눌러 보기 전에는 "동작한다"고 보고하지 않는다.**
