@@ -260,8 +260,10 @@ IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyCollection<stri
    > `PROJ-123` 브랜치를 `master`에 병합하고 원격에 올립니다.
    > (경고 A가 있으면 그 목록)
 
-4. `Merged`면 **차이 검사를 이어서 시작할지** 묻는다(기본 버튼 "차이 검사 시작"). 자동으로 돌리지
-   않는다 — 운영 DB 전체 추출은 오래 걸려 시작 시점은 사람이 정한다.
+4. `Merged`면 **차이 검사를 이어서 시작할지** 묻는다.
+   기존 확인 대화상자(`IUserNotifier.Confirm`)로 묻는다. 기본 선택이 취소인 것은 그대로 둔다 —
+   잘못 눌러도 검사를 시작하지 않을 뿐 잃는 것이 없다.
+   자동으로 돌리지 않는다 — 운영 DB 전체 추출은 오래 걸려 시작 시점은 사람이 정한다.
 
 `CanExecute`는 `MappingPolicy.IsAllowed(mode, DbvcOperation.Merge)`와 바쁨 상태로 판정한다. 작업
 트리가 더러운 클론은 `WorkingTreeDirty` 차단 화면이라 병합 영역에 닿지 않는다.

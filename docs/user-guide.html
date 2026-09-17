@@ -1680,6 +1680,15 @@
     <div class="steps">
       <div class="step">
         <span class="n">1</span>
+        <h4>DBVC 배포 패널에서 브랜치를 병합합니다</h4>
+        <p>
+          <span class="b">병합할 브랜치 확인</span> → 브랜치 선택 → <span class="b">병합</span> →
+          차이 검사 시작 순서로 진행합니다. 이전에는 이 자리에서 <strong>GitLab에서 MR을 병합</strong>
+          해야 했지만, 0.8.0부터는 배포 패널을 벗어날 필요가 없습니다.
+        </p>
+      </div>
+      <div class="step">
+        <span class="n">2</span>
         <h4><span class="b">차이 검사</span></h4>
         <p>
           원격에서 먼저 <span class="b">Pull</span>한 뒤, 대상 데이터베이스 전체를 고정 브랜치와
@@ -1687,7 +1696,7 @@
         </p>
       </div>
       <div class="step">
-        <span class="n">2</span>
+        <span class="n">3</span>
         <h4><span class="b">배포 스크립트 저장...</span></h4>
         <p>
           차이 목록으로 실행 가능한 <code>.sql</code> 파일을 만들어 저장합니다. 제외된 항목과
@@ -1695,7 +1704,7 @@
         </p>
       </div>
       <div class="step">
-        <span class="n">3</span>
+        <span class="n">4</span>
         <h4>쿼리 창에서 직접 실행합니다</h4>
         <p>
           <strong>DBVC는 스크립트를 실행하지 않습니다.</strong> 배포 실패의 책임과 부분 적용
@@ -1703,7 +1712,7 @@
         </p>
       </div>
       <div class="step">
-        <span class="n">4</span>
+        <span class="n">5</span>
         <h4>다시 <span class="b">차이 검사</span></h4>
         <p>
           방금 배포한 항목이 사라지면 성공이고, 남아 있으면 무엇이 반영되지 않았는지 그대로
@@ -1896,6 +1905,14 @@
       <div class="qa-row">
         <dt>배포 스크립트에 테이블 변경이 없습니다</dt>
         <dd><b>설계입니다.</b> <code>CREATE OR ALTER</code>를 지원하지 않는 타입은 빠지고, 사람이 <code>ALTER</code>를 직접 씁니다. 빠진 항목과 사유는 파일 머리말에 있습니다 → <a href="#dba">3.5</a></dd>
+      </div>
+      <div class="qa-row">
+        <dt>병합 버튼이 눌리지 않습니다</dt>
+        <dd>미리보기에 충돌이 있습니다. 브랜치 작성자가 풀어야 합니다.</dd>
+      </div>
+      <div class="qa-row">
+        <dt>병합이 원격 거부로 실패합니다</dt>
+        <dd>그 사이 누가 올렸으면 다시 시도하고, 반복되면 보호 브랜치 권한을 확인하세요.</dd>
       </div>
       <div class="qa-row">
         <dt>되돌리기가 실패합니다</dt>
