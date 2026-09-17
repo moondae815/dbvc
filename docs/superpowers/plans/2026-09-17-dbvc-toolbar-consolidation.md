@@ -1346,6 +1346,19 @@ Expected: 출력 없음.
 
 6. 대상 줄 설명의 `대상과 브랜치와 버전.`은 그대로 둔다.
 
+7. 그림 바로 아래 `<figcaption>`의
+```html
+        <span class="b">차이 검사</span>·<span class="b">배포 스크립트 저장...</span> 둘만 있는
+        별도 패널이 뜹니다(<a href="#dba">3장</a>).
+```
+를
+```html
+        병합 영역(<span class="b">병합할 브랜치 확인</span>·<span class="b">병합</span>)과
+        <span class="b">차이 검사</span>·<span class="b">배포 스크립트 저장...</span>이 있는
+        별도 패널이 뜹니다(<a href="#dba">3장</a>).
+```
+로 바꾼다. 0.8.0에서 병합 영역이 들어왔는데 캡션이 따라오지 않았다 — 이 그림을 고치는 김에 바로잡는다.
+
 **문장.**
 
 - `전환은 <span class="b">새 브랜치</span>·<span class="b">브랜치 전환</span> 버튼으로` → `전환은 오른쪽 위 브랜치 이름 버튼(<code>develop ▾</code>)의 메뉴로`
