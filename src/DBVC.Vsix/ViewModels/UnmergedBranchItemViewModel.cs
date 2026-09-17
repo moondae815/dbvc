@@ -17,7 +17,10 @@ namespace DBVC.Vsix.ViewModels
         public string TimeText => Branch.LastCommitTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
         public string CommitCountText => $"{Branch.CommitCount}개";
 
-        /// <summary>목적지가 master가 아니면 빈 문자열이다 - 열 자체가 숨는다.</summary>
+        /// <summary>
+        /// 목적지가 master가 아니면 빈 문자열이다. GridViewColumn은 숨길 수 없어 열은 남고 칸만 빈다 -
+        /// "미반영"으로 채우면 테스트 목적지에서 모든 브랜치가 테스트를 안 거친 것처럼 읽힌다.
+        /// </summary>
         public string InDevelopText =>
             Branch.IsInDevelop == null ? string.Empty : Branch.IsInDevelop.Value ? "반영됨" : "미반영";
     }

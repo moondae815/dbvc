@@ -203,7 +203,8 @@ namespace DBVC.Core
         /// <summary>
         /// 원본을 고정 브랜치에 병합 커밋으로 병합하고 그 커밋만 원격에 올린다. 로컬이 원격보다
         /// 앞서 있으면 시작하지 않는다. Fetch한 원본 끝이 <paramref name="expectedSourceSha"/>(미리보기의
-        /// <see cref="MergePreview.SourceSha"/>)와 다르면 Refused다 - 확인받지 않은 커밋을 병합하지 않는다. Push가 실패하면 로컬을 병합 전으로 되돌린 뒤 거부는
+        /// <see cref="MergePreview.SourceSha"/>)와 다르면 Refused다 - 확인받지 않은 커밋을 병합하지 않는다.
+        /// 병합부터 Push까지 어디서 실패하든 로컬을 병합 전으로 되돌린 뒤 거부는
         /// PushRejected로, 통신·인증 실패는 예외로 알린다. mode가 병합을 허용하지 않으면
         /// OperationNotAllowedException을 던진다.
         /// </summary>

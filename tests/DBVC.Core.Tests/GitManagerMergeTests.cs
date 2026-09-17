@@ -141,7 +141,7 @@ namespace DBVC.Core.Tests
             Assert.That(branch.Name, Is.EqualTo("PROJ-2"));
             Assert.That(branch.CommitCount, Is.EqualTo(1));
             Assert.That(branch.LastCommitAuthor, Is.EqualTo("Author"));
-            Assert.That(branch.IsInDevelop, Is.Null, "목적지가 develop이면 테스트 반영 열이 없습니다");
+            Assert.That(branch.IsInDevelop, Is.Null, "목적지가 develop이면 테스트 반영 값이 없습니다");
         }
 
         [Test]
