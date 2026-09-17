@@ -173,5 +173,113 @@ namespace DBVC.Core.Tests
 
             Assert.That(new GitManager(config).GetUnmergedBranches(Server, Database), Is.Empty);
         }
+
+        // ---------- PreviewMerge ----------
+
+        private static string Proc(params string[] bodyLines) =>
+            "CREATE OR ALTER PROCEDURE dbo.usp_Order AS\n" + string.Join("\n", bodyLines) + "\n";
+
+        [Test]
+        public void PreviewMerge_ListsChangedPaths_WithoutTouchingWorkingTree()
+        {
+            var (local, origin) = NewPinnedClone(EnvironmentBranches.Develop);
+            PushAuthorBranch(origin, "PROJ-1", EnvironmentBranches.Master, SqlPath, Proc("SELECT 2"));
+            var git = NewPinnedGitManager(local, EnvironmentBranches.Develop, MappingMode.Deploy);
+            git.GetUnmergedBranches(Server, Database);
+            string headBefore;
+            using (var repo = new Repository(local)) headBefore = repo.Head.Tip.Sha;
+
+            var preview = git.PreviewMerge(Server, Database, "PROJ-1");
+
+            Assert.That(preview.ChangedPaths, Is.EqualTo(new[] { SqlPath }));
+            Assert.That(preview.ConflictPaths, Is.Empty);
+            Assert.That(preview.AlreadyMerged, Is.False);
+            using var after = new Repository(local);
+            Assert.That(after.Head.Tip.Sha, Is.EqualTo(headBefore));
+            Assert.That(after.RetrieveStatus().IsDirty, Is.False);
+        }
+
+        [Test]
+        public void PreviewMerge_ReportsConflicts_WithoutTouchingWorkingTree()
+        {
+            var (local, origin) = NewPinnedClone(EnvironmentBranches.Develop);
+            PushAuthorBranch(origin, "PROJ-A", EnvironmentBranches.Master, SqlPath, Proc("SELECT 'A'"));
+            PushAuthorBranch(origin, "PROJ-B", EnvironmentBranches.Master, SqlPath, Proc("SELECT 'B'"));
+            using (var repo = new Repository(origin))
+            {
+                repo.Refs.UpdateTarget("refs/heads/develop", repo.Branches["PROJ-A"].Tip.Sha);
+            }
+            var git = NewPinnedGitManager(local, EnvironmentBranches.Develop, MappingMode.Deploy);
+            git.GetUnmergedBranches(Server, Database);
+
+            var preview = git.PreviewMerge(Server, Database, "PROJ-B");
+
+            Assert.That(preview.ConflictPaths, Is.EqualTo(new[] { SqlPath }));
+            using var after = new Repository(local);
+            Assert.That(after.RetrieveStatus().IsDirty, Is.False);
+        }
+
+        [Test]
+        public void PreviewMerge_ReportsAlreadyMerged_WhenSourceTipIsInTarget()
+        {
+            var (local, origin) = NewPinnedClone(EnvironmentBranches.Develop);
+            using (var repo = new Repository(origin)) repo.CreateBranch("PROJ-0", repo.Branches[EnvironmentBranches.Develop].Tip);
+            var git = NewPinnedGitManager(local, EnvironmentBranches.Develop, MappingMode.Deploy);
+            git.GetUnmergedBranches(Server, Database);
+
+            Assert.That(git.PreviewMerge(Server, Database, "PROJ-0").AlreadyMerged, Is.True);
+        }
+
+        [Test]
+        public void PreviewMerge_ReportsLeaks_OnlyWhenTargetIsMaster()
+        {
+            // PROJ-B의 스냅샷에 PROJ-A의 줄이 딸려 온 상황. 두 클론 모두 같은 origin을 본다.
+            var carried = "DECLARE @DiscountRate DECIMAL(5,2) = 0.1";
+            var (masterLocal, origin) = NewPinnedClone(EnvironmentBranches.Master, MappingMode.Audit);
+            PushAuthorBranch(origin, "PROJ-A", EnvironmentBranches.Master, SqlPath, Proc(carried, "SELECT 1"));
+            PushAuthorBranch(origin, "PROJ-B", EnvironmentBranches.Master, SqlPath, Proc(carried, "SELECT 1", "SELECT 'B'"));
+
+            var auditGit = NewPinnedGitManager(masterLocal, EnvironmentBranches.Master, MappingMode.Audit);
+            auditGit.GetUnmergedBranches(Server, Database);
+            var masterPreview = auditGit.PreviewMerge(Server, Database, "PROJ-B");
+
+            var developLocal = NewTempDir();
+            Repository.Clone(origin, developLocal, new CloneOptions { BranchName = EnvironmentBranches.Develop });
+            var deployGit = NewPinnedGitManager(developLocal, EnvironmentBranches.Develop, MappingMode.Deploy);
+            deployGit.GetUnmergedBranches(Server, Database);
+            var developPreview = deployGit.PreviewMerge(Server, Database, "PROJ-B");
+
+            Assert.That(masterPreview.Leaks, Has.Count.EqualTo(1));
+            Assert.That(masterPreview.Leaks[0].BranchName, Is.EqualTo("PROJ-A"));
+            Assert.That(masterPreview.Leaks[0].Lines, Does.Contain(carried));
+            Assert.That(developPreview.Leaks, Is.Empty, "develop 병합에서는 딸려 온 것이 원래 있던 곳으로 돌아갈 뿐입니다");
+        }
+
+        [Test]
+        public void PreviewMerge_ReportsLeaks_WhenSourceAddsANewFile()
+        {
+            // 원본에서 파일이 새로 생기면 이전 블롭이 없다. 전체 줄이 추가로 세어져야 한다.
+            var newPath = "dbo/Views/v_Discount.sql";
+            var shared = "SELECT o.Id, o.DiscountRate FROM dbo.Orders o";
+            var (local, origin) = NewPinnedClone(EnvironmentBranches.Master, MappingMode.Audit);
+            PushAuthorBranch(origin, "PROJ-A", EnvironmentBranches.Master, newPath, "CREATE OR ALTER VIEW dbo.v_Discount AS\n" + shared + "\n");
+            PushAuthorBranch(origin, "PROJ-B", EnvironmentBranches.Master, newPath, "CREATE OR ALTER VIEW dbo.v_Discount AS\n" + shared + "\nWHERE 1 = 1\n");
+            var git = NewPinnedGitManager(local, EnvironmentBranches.Master, MappingMode.Audit);
+            git.GetUnmergedBranches(Server, Database);
+
+            var preview = git.PreviewMerge(Server, Database, "PROJ-B");
+
+            Assert.That(preview.Leaks.Single().Lines, Does.Contain(shared));
+        }
+
+        [Test]
+        public void PreviewMerge_Throws_WhenSourceBranchDoesNotExist()
+        {
+            var (local, _) = NewPinnedClone(EnvironmentBranches.Develop);
+            var git = NewPinnedGitManager(local, EnvironmentBranches.Develop, MappingMode.Deploy);
+
+            var ex = Assert.Throws<InvalidOperationException>(() => git.PreviewMerge(Server, Database, "PROJ-404"));
+            Assert.That(ex!.Message, Does.Contain("PROJ-404"));
+        }
     }
 }

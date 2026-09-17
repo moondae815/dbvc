@@ -194,6 +194,12 @@ namespace DBVC.Core
         /// 통신 실패는 FetchRemoteStatus와 같은 예외로 전파된다.
         /// </summary>
         IReadOnlyList<UnmergedBranch> GetUnmergedBranches(string serverName, string databaseName);
+
+        /// <summary>
+        /// 작업 트리를 건드리지 않고 원본을 고정 브랜치에 병합한 결과를 계산한다. 네트워크를 쓰지
+        /// 않는다 - 마지막 Fetch(GetUnmergedBranches) 기준이다. 목적지가 master일 때만 경고 A를 채운다.
+        /// </summary>
+        MergePreview PreviewMerge(string serverName, string databaseName, string sourceBranch);
         /// <summary><paramref name="relativeFilePath"/>가 비면 저장소 전체 이력을 반환한다.</summary>
         IReadOnlyList<CommitInfo> GetHistory(string serverName, string databaseName, string? relativeFilePath);
 

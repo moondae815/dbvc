@@ -1326,6 +1326,120 @@ namespace DBVC.Core
             return result.OrderByDescending(b => b.LastCommitTime).ToList();
         }
 
+        /// <summary>
+        /// ObjectDatabase.MergeCommits는 메모리에서 병합 트리와 충돌을 낸다. 병합 버튼을 누르기 전에
+        /// 충돌을 알아 버튼을 잠글 수 있고, 작업 트리를 되돌릴 일이 없다.
+        /// </summary>
+        public MergePreview PreviewMerge(string serverName, string databaseName, string sourceBranch)
+        {
+            var pinned = ResolvePinnedTarget(serverName, databaseName)
+                ?? throw new InvalidOperationException("이 대상에는 고정 브랜치가 없어 병합할 수 없습니다.");
+            var target = pinned.Target;
+
+            using var repo = new Repository(pinned.Mapping.GitPath);
+
+            var sourceTip = RemoteTip(repo, sourceBranch)
+                ?? throw new InvalidOperationException(
+                    $"원격에서 '{sourceBranch}' 브랜치를 찾을 수 없습니다. [병합할 브랜치 확인]을 다시 누르세요.");
+            var targetTip = RemoteTip(repo, target) ?? repo.Head.Tip;
+
+            if (IsAncestor(repo, sourceTip, targetTip))
+            {
+                return new MergePreview { AlreadyMerged = true };
+            }
+
+            var merged = repo.ObjectDatabase.MergeCommits(targetTip, sourceTip, new MergeTreeOptions());
+
+            if (merged.Status == MergeTreeStatus.Conflicts)
+            {
+                return new MergePreview
+                {
+                    ConflictPaths = merged.Conflicts
+                        .Select(c => (c.Ours ?? c.Theirs ?? c.Ancestor).Path.Replace('\\', '/'))
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(p => p, StringComparer.Ordinal)
+                        .ToList()
+                };
+            }
+
+            var changedPaths = repo.Diff.Compare<TreeChanges>(targetTip.Tree, merged.Tree)
+                .Select(c => c.Path.Replace('\\', '/'))
+                .OrderBy(p => p, StringComparer.Ordinal)
+                .ToList();
+
+            return new MergePreview
+            {
+                ChangedPaths = changedPaths,
+                // develop 병합에서 딸려 온 것은 원래 있던 곳으로 돌아갈 뿐이다(브랜치 정책 정정 3절).
+                Leaks = target == EnvironmentBranches.Master
+                    ? DetectLeaks(repo, sourceBranch, targetTip, merged.Tree, changedPaths)
+                    : Array.Empty<PromotionLeak>()
+            };
+        }
+
+        private static IReadOnlyList<PromotionLeak> DetectLeaks(
+            Repository repo, string sourceBranch, Commit targetTip, Tree mergedTree, IReadOnlyList<string> changedPaths)
+        {
+            // 규약 밖 파일(사람이 둔 잡다한 .sql, .gitattributes)은 객체가 아니므로 판정하지 않는다.
+            var objectPaths = changedPaths
+                .Where(p => ObjectPathConvention.TryParseRelativePath(p, out _, out _, out _))
+                .ToList();
+            if (objectPaths.Count == 0) return Array.Empty<PromotionLeak>();
+
+            var source = objectPaths.ToDictionary(
+                p => p,
+                p => AddedLines(repo, BlobAt(targetTip.Tree, p), BlobAt(mergedTree, p)),
+                StringComparer.Ordinal);
+
+            var remotePrefix = repo.Head.RemoteName + "/";
+            var others = new Dictionary<string, IReadOnlyDictionary<string, IReadOnlyCollection<string>>>(StringComparer.Ordinal);
+
+            foreach (var branch in repo.Branches.Where(b => b.IsRemote && b.FriendlyName.StartsWith(remotePrefix, StringComparison.Ordinal)))
+            {
+                var name = branch.FriendlyName.Substring(remotePrefix.Length);
+                if (name == "HEAD" || name == sourceBranch || EnvironmentBranches.IsEnvironmentBranch(name)) continue;
+
+                var tip = branch.Tip;
+                if (tip == null || IsAncestor(repo, tip, targetTip)) continue;
+
+                var mergeBase = repo.ObjectDatabase.FindMergeBase(targetTip, tip);
+                var lines = new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal);
+                foreach (var path in objectPaths)
+                {
+                    var after = BlobAt(tip.Tree, path);
+                    if (after == null) continue;
+                    var before = mergeBase == null ? null : BlobAt(mergeBase.Tree, path);
+                    if (before != null && before.Sha == after.Sha) continue;
+                    lines[path] = AddedLines(repo, before, after);
+                }
+
+                if (lines.Count > 0) others[name] = lines;
+            }
+
+            return PromotionLeakDetector.Detect(source, others);
+        }
+
+        private static Blob? BlobAt(Tree tree, string path)
+        {
+            return tree[path]?.Target as Blob;
+        }
+
+        /// <summary>
+        /// before → after에서 추가된 줄. before가 없으면(새 파일) after의 모든 줄이다 -
+        /// Diff.Compare의 null 블롭 처리에 기대지 않고 직접 나눈다.
+        /// </summary>
+        private static IReadOnlyCollection<string> AddedLines(Repository repo, Blob? before, Blob? after)
+        {
+            if (after == null) return Array.Empty<string>();
+
+            if (before == null)
+            {
+                return after.GetContentText().Split('\n');
+            }
+
+            return repo.Diff.Compare(before, after).AddedLines.Select(l => l.Content).ToList();
+        }
+
         private static bool IsAncestor(Repository repo, Commit candidate, Commit descendant)
         {
             if (candidate.Sha == descendant.Sha) return true;
