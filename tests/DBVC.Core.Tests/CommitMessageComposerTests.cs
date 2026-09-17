@@ -247,5 +247,24 @@ namespace DBVC.Core.Tests
                 Assert.That(CommitMessageComposer.SystemPrompt, Does.Contain("72"));
             });
         }
+
+        [Test]
+        public void SystemPrompt_ExamplesEndWithNoun_Always()
+        {
+            // 모델은 규칙 문장보다 예시를 더 따른다. 예시 하나가 "~한다"로 끝나면 규칙을
+            // 명사형으로 적어 두어도 출력이 그쪽으로 끌려간다 — 그래서 예시를 직접 본다.
+            var examples = CommitMessageComposer.SystemPrompt
+                .Split(new[] { "예시:" }, StringSplitOptions.None)[1]
+                .Split('\n')
+                .Select(line => line.Trim())
+                .Where(line => line.Length > 0)
+                .ToList();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(examples, Is.Not.Empty);
+                Assert.That(examples, Has.None.EndsWith("다"));
+            });
+        }
     }
 }
