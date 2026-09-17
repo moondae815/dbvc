@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.IO;
 using System.ComponentModel;
 using System.Linq;
@@ -155,6 +156,8 @@ namespace DBVC.Vsix.ViewModels
                 History.Load(ServerName, DatabaseName, null);
                 SelectionChanged?.Invoke(this, EventArgs.Empty);
             });
+
+            Changes.CollectionChanged += OnChangesCollectionChanged;
 
             // BusyState가 바뀌면 이 화면의 바인딩과 버튼 상태를 다시 계산한다.
             // 배포 화면이 일을 시작해도 여기 버튼이 함께 잠겨야 한다 — 같은 저장소와
@@ -786,6 +789,52 @@ namespace DBVC.Vsix.ViewModels
         }
 
         public ObservableCollection<ChangeItemViewModel> Changes { get; } = new ObservableCollection<ChangeItemViewModel>();
+
+        /// <summary>체크한 항목 수. 체크 작업 줄의 "체크한 항목 n개"가 읽는다.</summary>
+        public int CheckedCount => Changes.Count(c => c.IsSelected);
+
+        private void OnChangesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (e.NewItems != null)
+            {
+                foreach (ChangeItemViewModel item in e.NewItems)
+                {
+                    item.PropertyChanged += OnChangeItemPropertyChanged;
+                }
+            }
+
+            // Clear(Reset)는 OldItems를 주지 않아 구독을 풀 수 없다. 풀지 않아도 새지 않는다 -
+            // 항목이 ViewModel을 붙드는 방향이지 그 반대가 아니므로, 목록에서 빠진 항목은 그대로 수거된다.
+            if (e.OldItems != null)
+            {
+                foreach (ChangeItemViewModel item in e.OldItems)
+                {
+                    item.PropertyChanged -= OnChangeItemPropertyChanged;
+                }
+            }
+
+            OnPropertyChanged(nameof(CheckedCount));
+        }
+
+        /// <summary>
+        /// 체크는 명령을 거치지 않고 바인딩으로 바로 바뀐다. RelayCommand는 RequerySuggested를 쓰지
+        /// 않으므로, 여기서 알리지 않으면 체크를 다 풀어도 체크에 기대는 버튼이 켜진 채 남는다.
+        ///
+        /// RaiseActionCanExecuteChanged 전체를 부르지 않는다 - 거기에 든 CanPush는 저장소를 읽으므로
+        /// 체크박스를 누를 때마다 디스크를 건드리게 된다. 체크를 판정에 쓰는 명령만 알린다.
+        /// </summary>
+        private void OnChangeItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(ChangeItemViewModel.IsSelected)) return;
+
+            OnPropertyChanged(nameof(CheckedCount));
+            (CommitCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (GenerateCommitMessageCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (DiscardCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (IgnoreCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (GenerateDeploymentScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (GenerateRollbackScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
 
         private ChangeItemViewModel? _selectedChange;
         public ChangeItemViewModel? SelectedChange

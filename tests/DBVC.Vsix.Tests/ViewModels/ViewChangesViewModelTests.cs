@@ -1795,6 +1795,83 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.CheckRemoteCommand.CanExecute(null), Is.False);
         }
 
+        // ---------- 체크한 항목 ----------
+
+        private ViewChangesViewModel NewViewModelWithThreeChanges()
+        {
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql"),
+                Record("dbo", "Orders", "Modified", "dbo/Tables/Orders.sql"),
+                Record("dbo", "Items", "Modified", "dbo/Tables/Items.sql")
+            });
+            var vm = NewConnectedViewModel();
+            vm.RefreshCommand.Execute(null);
+            Assert.That(vm.Changes.Count, Is.EqualTo(3), "전제: 새로고침이 세 항목을 채워야 합니다");
+            return vm;
+        }
+
+        [Test]
+        public void CheckedCount_CountsOnlyCheckedItems_WhenSomeAreUnchecked()
+        {
+            var vm = NewViewModelWithThreeChanges();
+            Assert.That(vm.CheckedCount, Is.EqualTo(3), "새로고침 직후에는 모두 체크되어 있습니다");
+
+            vm.Changes.Single(c => c.ObjectName == "dbo.Orders").IsSelected = false;
+
+            Assert.That(vm.CheckedCount, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void CheckedCount_RaisesPropertyChanged_WhenAnItemIsUnchecked()
+        {
+            var vm = NewViewModelWithThreeChanges();
+            var raised = new List<string?>();
+            vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            vm.Changes[0].IsSelected = false;
+
+            Assert.That(raised, Does.Contain(nameof(ViewChangesViewModel.CheckedCount)),
+                "알리지 않으면 '체크한 항목 n개'가 체크를 바꿔도 그대로 남습니다");
+        }
+
+        [Test]
+        public void DiscardCommand_RaisesCanExecuteChanged_WhenAnItemIsUnchecked()
+        {
+            // RelayCommand는 RequerySuggested를 쓰지 않는다. 체크는 명령을 거치지 않고 바인딩으로
+            // 바로 바뀌므로, 여기서 알리지 않으면 체크를 다 풀어도 버튼이 켜진 채 남는다.
+            var vm = NewViewModelWithThreeChanges();
+            var discardRaised = 0;
+            var commitRaised = 0;
+            var scriptRaised = 0;
+            vm.DiscardCommand.CanExecuteChanged += (_, __) => discardRaised++;
+            vm.CommitCommand.CanExecuteChanged += (_, __) => commitRaised++;
+            vm.GenerateDeploymentScriptCommand.CanExecuteChanged += (_, __) => scriptRaised++;
+
+            foreach (var item in vm.Changes) item.IsSelected = false;
+
+            Assert.That(discardRaised, Is.GreaterThan(0));
+            Assert.That(commitRaised, Is.GreaterThan(0));
+            Assert.That(scriptRaised, Is.GreaterThan(0));
+            Assert.That(vm.DiscardCommand.CanExecute(null), Is.False);
+        }
+
+        [Test]
+        public void CheckedCount_IsZero_AfterTheTargetChanges()
+        {
+            var vm = NewViewModelWithThreeChanges();
+            var raised = new List<string?>();
+            vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            _ssms.Setup(s => s.TryGetCurrent())
+                .Returns(new SsmsConnectionInfo("S2", "D2", SqlAuthMode.Windows, null, null, null));
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.CheckedCount, Is.EqualTo(0));
+            Assert.That(raised, Does.Contain(nameof(ViewChangesViewModel.CheckedCount)),
+                "Clear도 알려야 합니다 - 이전 대상의 개수가 화면에 남습니다");
+        }
+
         // ---------- Commit ----------
 
         [Test]
