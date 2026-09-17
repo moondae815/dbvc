@@ -650,31 +650,41 @@ namespace DBVC.Core
 
             using var repo = new Repository(repoPath);
 
-            // 원격 없음·추적 브랜치 없음의 안내는 Pull·Push가 쓰는 것을 그대로 쓴다.
-            var guidance = ValidateRemoteAndBuildGuidance(repo, repoPath, "원격 확인");
+            FetchCurrentRemote(repo, repoPath, "원격 확인");
+
+            var details = repo.Head.TrackingDetails;
+            return new RemoteStatus(details.AheadBy ?? 0, details.BehindBy ?? 0);
+        }
+
+        /// <summary>
+        /// 현재 브랜치의 원격을 받는다. 원격 확인·미병합 목록·병합이 글자 그대로 같은 검사와 예외
+        /// 변환을 쓰므로 한 곳에 둔다 - 복제하면 한쪽 문구만 고쳐진다.
+        /// </summary>
+        private static void FetchCurrentRemote(Repository repo, string repoPath, string operationName)
+        {
+            var guidance = ValidateRemoteAndBuildGuidance(repo, repoPath, operationName);
             var remoteName = repo.Head.RemoteName;
 
             try
             {
                 var fetchOptions = new FetchOptions
                 {
-                    CredentialsProvider = (url, usernameFromUrl, types) => ResolveCredentials(types, out _)
+                    CredentialsProvider = (url, usernameFromUrl, types) => ResolveCredentials(types, out _),
+                    // 원격에서 지운 브랜치의 추적 ref가 남으면 미병합 목록에 영영 떠 병합으로 되살릴 수 있고,
+                    // 지워진 환경 브랜치를 추적하는 클론의 앞섬 검사도 낡은 ref를 믿게 된다.
+                    Prune = true
                 };
 
                 // 빈 refspec은 "원격에 설정된 기본 refspec을 쓰라"는 뜻이다.
                 Commands.Fetch(repo, remoteName, Array.Empty<string>(), fetchOptions, null);
             }
-            // Pull·Push와 같은 모양으로 좁힌다. 안내할 것이 있을 때만 가로채고,
-            // 없으면 원본 예외를 그대로 흘려보낸다 — 모든 예외를 감싸면 코딩 실수까지
-            // "원격과 통신하지 못했다"로 둔갑해서 원인을 찾을 수 없게 된다.
+            // 안내할 것이 있을 때만 가로챈다. 모든 예외를 감싸면 코딩 실수까지 "원격과 통신하지
+            // 못했다"로 둔갑해서 원인을 찾을 수 없게 된다.
             catch (LibGit2SharpException ex) when (guidance != null)
             {
                 throw new GitRemoteException(
                     ex.Message + Environment.NewLine + Environment.NewLine + guidance, ex);
             }
-
-            var details = repo.Head.TrackingDetails;
-            return new RemoteStatus(details.AheadBy ?? 0, details.BehindBy ?? 0);
         }
 
         /// <summary>
@@ -781,6 +791,17 @@ namespace DBVC.Core
             // 보장은 없다. 헛수고를 줄이는 검사이지 성공/거부 판정의 근거가 아니다.
             if (repo.Head.TrackingDetails.AheadBy == 0) return PushResult.NothingToPush;
 
+            PushHeadOrThrow(repo, repoPath, guidance);
+
+            return PushResult.Pushed;
+        }
+
+        /// <summary>
+        /// 현재 브랜치를 추적 중인 원격에 올린다. Push와 병합이 같은 예외 변환을 쓴다 - catch 순서가
+        /// 곧 정확성이라(NonFastForwardException이 먼저) 복제하면 한쪽만 틀어진다.
+        /// </summary>
+        private static void PushHeadOrThrow(Repository repo, string repoPath, string? guidance)
+        {
             var requiresUserCredentials = false;
             var pushErrors = new List<PushStatusError>();
             var options = BuildPushOptions(
@@ -823,8 +844,6 @@ namespace DBVC.Core
             {
                 throw new GitPushRejectedException(BuildPushRejectionMessage(pushErrors[0]));
             }
-
-            return PushResult.Pushed;
         }
 
         /// <summary>
@@ -1269,6 +1288,369 @@ namespace DBVC.Core
                 Debug.WriteLine($"GitManager.GetBranches failed for '{serverName}/{databaseName}': {ex.Message}");
                 return Array.Empty<BranchInfo>();
             }
+        }
+
+        /// <summary>
+        /// 고정 브랜치에 아직 병합되지 않은 원격 브랜치. 병합 요청의 표지를 따로 두지 않는다 -
+        /// 준비됐는지는 지라 티켓 상태로 사람이 판단한다(스펙 2.2).
+        /// </summary>
+        public IReadOnlyList<UnmergedBranch> GetUnmergedBranches(string serverName, string databaseName)
+        {
+            var pinned = ResolvePinnedTarget(serverName, databaseName);
+            if (pinned == null) return Array.Empty<UnmergedBranch>();
+
+            var repoPath = pinned.Value.Mapping.GitPath;
+            var target = pinned.Value.Target;
+
+            using var repo = new Repository(repoPath);
+            FetchCurrentRemote(repo, repoPath, "병합할 브랜치 확인");
+
+            var targetTip = RemoteTip(repo, target) ?? repo.Head.Tip;
+            if (targetTip == null) return Array.Empty<UnmergedBranch>();
+
+            // develop 반영 여부는 운영 목적지에서만 뜻이 있다. 테스트 목적지에서 채우면 열이
+            // 늘 "해당 없음"인 채로 떠 읽는 사람을 헷갈리게 한다.
+            var developTip = target == EnvironmentBranches.Master ? RemoteTip(repo, EnvironmentBranches.Develop) : null;
+            var remotePrefix = repo.Head.RemoteName + "/";
+
+            var result = new List<UnmergedBranch>();
+            foreach (var branch in repo.Branches.Where(b => b.IsRemote && b.FriendlyName.StartsWith(remotePrefix, StringComparison.Ordinal)))
+            {
+                var name = branch.FriendlyName.Substring(remotePrefix.Length);
+                if (name == "HEAD" || EnvironmentBranches.IsEnvironmentBranch(name)) continue;
+
+                var tip = branch.Tip;
+                if (tip == null || IsAncestor(repo, tip, targetTip)) continue;
+
+                var divergence = repo.ObjectDatabase.CalculateHistoryDivergence(tip, targetTip);
+                result.Add(new UnmergedBranch
+                {
+                    Name = name,
+                    LastCommitAuthor = tip.Author.Name,
+                    LastCommitTime = tip.Author.When,
+                    CommitCount = divergence.AheadBy ?? 0,
+                    IsInDevelop = target == EnvironmentBranches.Master
+                        ? developTip != null && IsAncestor(repo, tip, developTip)
+                        : (bool?)null
+                });
+            }
+
+            return result.OrderByDescending(b => b.LastCommitTime).ToList();
+        }
+
+        /// <summary>
+        /// ObjectDatabase.MergeCommits는 메모리에서 병합 트리와 충돌을 낸다. 병합 버튼을 누르기 전에
+        /// 충돌을 알아 버튼을 잠글 수 있고, 작업 트리를 되돌릴 일이 없다.
+        /// </summary>
+        public MergePreview PreviewMerge(string serverName, string databaseName, string sourceBranch)
+        {
+            var pinned = ResolvePinnedTarget(serverName, databaseName)
+                ?? throw new InvalidOperationException("이 대상에는 고정 브랜치가 없어 병합할 수 없습니다.");
+            var target = pinned.Target;
+
+            using var repo = new Repository(pinned.Mapping.GitPath);
+
+            var sourceTip = RemoteTip(repo, sourceBranch)
+                ?? throw new InvalidOperationException(
+                    $"원격에서 '{sourceBranch}' 브랜치를 찾을 수 없습니다. [병합할 브랜치 확인]을 다시 누르세요.");
+            var targetTip = RemoteTip(repo, target) ?? repo.Head.Tip;
+
+            if (IsAncestor(repo, sourceTip, targetTip))
+            {
+                return new MergePreview { AlreadyMerged = true, SourceSha = sourceTip.Sha };
+            }
+
+            var merged = repo.ObjectDatabase.MergeCommits(targetTip, sourceTip, new MergeTreeOptions());
+
+            if (merged.Status == MergeTreeStatus.Conflicts)
+            {
+                return new MergePreview
+                {
+                    SourceSha = sourceTip.Sha,
+                    ConflictPaths = merged.Conflicts
+                        .Select(c => (c.Ours ?? c.Theirs ?? c.Ancestor).Path.Replace('\\', '/'))
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(p => p, StringComparer.Ordinal)
+                        .ToList()
+                };
+            }
+
+            var changedPaths = repo.Diff.Compare<TreeChanges>(targetTip.Tree, merged.Tree)
+                .Select(c => c.Path.Replace('\\', '/'))
+                .OrderBy(p => p, StringComparer.Ordinal)
+                .ToList();
+
+            return new MergePreview
+            {
+                SourceSha = sourceTip.Sha,
+                ChangedPaths = changedPaths,
+                // develop 병합에서 딸려 온 것은 원래 있던 곳으로 돌아갈 뿐이다(브랜치 정책 정정 3절).
+                Leaks = target == EnvironmentBranches.Master
+                    ? DetectLeaks(repo, sourceBranch, targetTip, merged.Tree, changedPaths)
+                    : Array.Empty<PromotionLeak>()
+            };
+        }
+
+        /// <summary>
+        /// 원본을 고정 브랜치에 병합 커밋으로 병합하고 그 커밋만 원격에 올린다.
+        /// </summary>
+        public MergeOutcome MergeAndPush(string serverName, string databaseName, string sourceBranch, string expectedSourceSha)
+        {
+            EnsureAllowed(serverName, databaseName, DbvcOperation.Merge);
+
+            var pinned = ResolvePinnedTarget(serverName, databaseName);
+            if (pinned == null)
+                return MergeOutcome.Of(MergeOutcomeKind.Refused, "이 대상에는 고정 브랜치가 없어 병합할 수 없습니다.");
+
+            var repoPath = pinned.Value.Mapping.GitPath;
+            var target = pinned.Value.Target;
+
+            if (EnvironmentBranches.IsEnvironmentBranch(sourceBranch))
+            {
+                // master 목록에 develop이 뜨면 develop을 통째로 운영에 병합하는 것이 버튼 한 번이 된다.
+                return MergeOutcome.Of(MergeOutcomeKind.Refused,
+                    $"'{sourceBranch}'는 환경 브랜치라 병합 원본이 될 수 없습니다. 티켓 브랜치를 하나씩 병합하세요.");
+            }
+
+            using var repo = new Repository(repoPath);
+
+            if (repo.Head.FriendlyName != target)
+            {
+                return MergeOutcome.Of(MergeOutcomeKind.Refused,
+                    $"저장소가 '{target}'이 아니라 '{repo.Head.FriendlyName}'에 있어 병합하지 않았습니다.");
+            }
+
+            // 아래 Push 실패 시의 hard reset이 안전한 근거가 이 검사다. 옮기거나 느슨하게 하면
+            // 되돌리기가 사용자 파일을 지운다.
+            var dirty = repo.RetrieveStatus(UntrackedInclusiveOptions)
+                .Where(e => e.State != FileStatus.Ignored && e.State != FileStatus.Unaltered)
+                .Select(e => e.FilePath.Replace('\\', '/'))
+                .OrderBy(p => p, StringComparer.Ordinal)
+                .ToList();
+            if (dirty.Count > 0)
+            {
+                return MergeOutcome.Of(MergeOutcomeKind.Refused,
+                    "커밋되지 않은 변경이 있어 병합하지 않았습니다. 배포·감사 클론은 DBVC가 파일을 쓰지 않으므로 원인은 도구 밖에 있습니다.",
+                    dirty);
+            }
+
+            FetchCurrentRemote(repo, repoPath, "병합");
+
+            // PushHeadOrThrow는 HEAD가 추적하는 브랜치에 올린다. 검사가 다른 ref를 보면 섞여 나갈 커밋을
+            // 놓치고, 추적 ref가 없을 때 건너뛰면 원격에서 지워진 브랜치를 이 클론의 이력으로 되살린다.
+            var remoteTarget = repo.Head.TrackedBranch?.Tip;
+            if (remoteTarget == null)
+            {
+                return MergeOutcome.Of(MergeOutcomeKind.Refused,
+                    $"이 클론이 추적하는 원격 브랜치를 찾을 수 없어 병합하지 않았습니다. 원격에서 '{target}' 브랜치가 지워졌거나 추적 설정이 바뀌었을 수 있습니다.");
+            }
+
+            var localTip = repo.Head.Tip;
+            if (localTip != null && remoteTarget.Sha != localTip.Sha)
+            {
+                if (!IsAncestor(repo, localTip, remoteTarget))
+                {
+                    // 병합은 자기가 만든 커밋 하나만 올린다. 앞선 커밋이 섞여 나가면 Push 금지가 우회된다.
+                    return MergeOutcome.Of(MergeOutcomeKind.LocalAhead,
+                        "이 클론에 원격에 없는 커밋이 있어 병합하지 않았습니다. 배포·감사 클론은 DBVC가 커밋하지 않으므로 원인은 도구 밖에 있습니다.");
+                }
+
+                // 뒤처져만 있다. 트리가 깨끗하므로 잃을 것이 없다.
+                repo.Reset(ResetMode.Hard, remoteTarget);
+            }
+
+            var sourceTip = RemoteTip(repo, sourceBranch);
+            if (sourceTip == null)
+            {
+                return MergeOutcome.Of(MergeOutcomeKind.Refused, $"원격에서 '{sourceBranch}' 브랜치를 찾을 수 없습니다.");
+            }
+
+            // 방금 받은 원본 끝을 병합하면 미리보기 뒤 올라온 커밋까지 딸려 간다. DBA가 확인한 것은
+            // 미리보기의 끝이다 - 바뀌는 파일 목록도 경고 A도 그 커밋 기준이었다.
+            if (!string.Equals(sourceTip.Sha, expectedSourceSha, StringComparison.OrdinalIgnoreCase))
+            {
+                return MergeOutcome.Of(MergeOutcomeKind.Refused,
+                    $"미리보기 뒤 '{sourceBranch}' 브랜치에 새 커밋이 올라왔습니다. [병합할 브랜치 확인]을 다시 누르고 미리보기를 다시 확인하세요.");
+            }
+
+            var headBefore = repo.Head.Tip;
+            if (headBefore != null && IsAncestor(repo, sourceTip, headBefore))
+            {
+                return MergeOutcome.Of(MergeOutcomeKind.AlreadyMerged, "이미 병합되어 있습니다.");
+            }
+
+            var signature = BuildSignature(repo);
+
+            // 되돌리기 구간은 저장소를 처음 바꾸는 Merge부터 Push까지 하나다. Push만 감싸면 체크아웃이
+            // 도중에 실패하거나(잠긴 파일) Commit·Diff가 던질 때 MERGE_HEAD·반쯤 쓴 파일·올라가지 않은
+            // 병합 커밋이 남고, 다음 병합이 Refused(dirty)나 LocalAhead에 걸린다 - 버리기·Push가 금지인
+            // 클론은 도구 안에서 빠져나올 길이 없다(스펙 2.5).
+            try
+            {
+                var result = repo.Merge(sourceTip, signature, new MergeOptions
+                {
+                    // fast-forward하면 언제 무엇을 병합했는지가 이력에서 사라지고 되돌릴 단위도 없어진다.
+                    FastForwardStrategy = FastForwardStrategy.NoFastForward,
+                    CommitOnSuccess = false
+                });
+
+                if (result.Status == MergeStatus.Conflicts)
+                {
+                    var conflicts = repo.Index.Conflicts
+                        .Select(c => (c.Ours ?? c.Theirs ?? c.Ancestor).Path.Replace('\\', '/'))
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(p => p, StringComparer.Ordinal)
+                        .ToList();
+                    RollBackMerge(repo, headBefore, sourceTip);
+                    return MergeOutcome.Of(MergeOutcomeKind.Conflicts,
+                        "그 사이 원격이 바뀌어 충돌이 생겼습니다. 도구 안에서는 충돌을 풀 수 없습니다.", conflicts);
+                }
+
+                var mergeCommit = repo.Commit($"{sourceBranch} 브랜치를 {target}에 병합", signature, signature);
+
+                var changed = repo.Diff.Compare<TreeChanges>(headBefore?.Tree, mergeCommit.Tree)
+                    .Select(c => c.Path.Replace('\\', '/'))
+                    .OrderBy(p => p, StringComparer.Ordinal)
+                    .ToList();
+
+                // FetchCurrentRemote가 같은 검사를 이미 통과했으므로 여기서는 던지지 않고 안내문만 돌려준다.
+                PushHeadOrThrow(repo, repoPath, ValidateRemoteAndBuildGuidance(repo, repoPath, "병합"));
+
+                return MergeOutcome.Of(MergeOutcomeKind.Merged, null, changed);
+            }
+            catch (GitPushRejectedException ex)
+            {
+                RollBackMergeKeepingCause(repo, headBefore, sourceTip, ex);
+                return MergeOutcome.Of(MergeOutcomeKind.PushRejected,
+                    "그 사이 다른 사람이 원격에 올렸거나 원격이 거부했습니다. 로컬은 병합 전으로 되돌렸습니다. 다시 시도하세요." +
+                    Environment.NewLine + Environment.NewLine + ex.Message);
+            }
+            catch (Exception ex)
+            {
+                RollBackMergeKeepingCause(repo, headBefore, sourceTip, ex);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 되돌리기가 실패해도 원래 실패를 가리지 않는다. 사용자가 먼저 알아야 하는 것은 병합이 왜
+        /// 실패했는가이고, 되돌리지 못했다는 사실은 클론을 손으로 정리해야 한다는 덧붙임이다.
+        /// </summary>
+        private static void RollBackMergeKeepingCause(Repository repo, Commit? headBefore, Commit sourceTip, Exception cause)
+        {
+            try
+            {
+                RollBackMerge(repo, headBefore, sourceTip);
+            }
+            catch (Exception rollbackFailure)
+            {
+                throw new GitMergeRollbackException(cause, rollbackFailure, headBefore?.Sha);
+            }
+        }
+
+        private static void RollBackMerge(Repository repo, Commit? headBefore, Commit sourceTip)
+        {
+            AbortMerge(repo, headBefore);
+
+            // 체크아웃이 도중에 실패하면 먼저 쓴 새 파일이 인덱스에 오르지 못해 미추적으로 남고, hard reset은
+            // 그것을 모른다. 입구 검사에서 트리가 깨끗했으므로 원본 트리에 있는 미추적 파일은 이 병합이
+            // 쓴 것이다 - 원본 트리에 없는 파일은 건드리지 않는다.
+            var workingDirectory = repo.Info.WorkingDirectory;
+            foreach (var entry in repo.RetrieveStatus(UntrackedInclusiveOptions).Where(e => e.State == FileStatus.NewInWorkdir))
+            {
+                var path = entry.FilePath.Replace('\\', '/');
+                if (sourceTip.Tree[path] == null) continue;
+                File.Delete(Path.Combine(workingDirectory, path.Replace('/', Path.DirectorySeparatorChar)));
+            }
+
+            if (repo.Info.CurrentOperation != CurrentOperation.None)
+            {
+                throw new InvalidOperationException(
+                    $"병합 진행 상태({repo.Info.CurrentOperation})가 지워지지 않았습니다.");
+            }
+        }
+
+        private static IReadOnlyList<PromotionLeak> DetectLeaks(
+            Repository repo, string sourceBranch, Commit targetTip, Tree mergedTree, IReadOnlyList<string> changedPaths)
+        {
+            // 규약 밖 파일(사람이 둔 잡다한 .sql, .gitattributes)은 객체가 아니므로 판정하지 않는다.
+            var objectPaths = changedPaths
+                .Where(p => ObjectPathConvention.TryParseRelativePath(p, out _, out _, out _))
+                .ToList();
+            if (objectPaths.Count == 0) return Array.Empty<PromotionLeak>();
+
+            var source = objectPaths.ToDictionary(
+                p => p,
+                p => AddedLines(repo, BlobAt(targetTip.Tree, p), BlobAt(mergedTree, p)),
+                StringComparer.Ordinal);
+
+            var remotePrefix = repo.Head.RemoteName + "/";
+            var others = new Dictionary<string, IReadOnlyDictionary<string, IReadOnlyCollection<string>>>(StringComparer.Ordinal);
+
+            foreach (var branch in repo.Branches.Where(b => b.IsRemote && b.FriendlyName.StartsWith(remotePrefix, StringComparison.Ordinal)))
+            {
+                var name = branch.FriendlyName.Substring(remotePrefix.Length);
+                if (name == "HEAD" || name == sourceBranch || EnvironmentBranches.IsEnvironmentBranch(name)) continue;
+
+                var tip = branch.Tip;
+                if (tip == null || IsAncestor(repo, tip, targetTip)) continue;
+
+                var mergeBase = repo.ObjectDatabase.FindMergeBase(targetTip, tip);
+                var lines = new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal);
+                foreach (var path in objectPaths)
+                {
+                    var after = BlobAt(tip.Tree, path);
+                    if (after == null) continue;
+                    var before = mergeBase == null ? null : BlobAt(mergeBase.Tree, path);
+                    if (before != null && before.Sha == after.Sha) continue;
+                    lines[path] = AddedLines(repo, before, after);
+                }
+
+                if (lines.Count > 0) others[name] = lines;
+            }
+
+            return PromotionLeakDetector.Detect(source, others);
+        }
+
+        private static Blob? BlobAt(Tree tree, string path)
+        {
+            return tree[path]?.Target as Blob;
+        }
+
+        /// <summary>
+        /// before → after에서 추가된 줄. before가 없으면(새 파일) after의 모든 줄이다 -
+        /// Diff.Compare의 null 블롭 처리에 기대지 않고 직접 나눈다.
+        /// </summary>
+        private static IReadOnlyCollection<string> AddedLines(Repository repo, Blob? before, Blob? after)
+        {
+            if (after == null) return Array.Empty<string>();
+
+            if (before == null)
+            {
+                return after.GetContentText().Split('\n');
+            }
+
+            return repo.Diff.Compare(before, after).AddedLines.Select(l => l.Content).ToList();
+        }
+
+        private static bool IsAncestor(Repository repo, Commit candidate, Commit descendant)
+        {
+            if (candidate.Sha == descendant.Sha) return true;
+            return repo.ObjectDatabase.FindMergeBase(candidate, descendant)?.Sha == candidate.Sha;
+        }
+
+        /// <summary>원격 추적 ref의 끝. 병합 판정은 로컬이 아니라 방금 받은 원격을 기준으로 한다.</summary>
+        private static Commit? RemoteTip(Repository repo, string branchName)
+        {
+            return repo.Branches[repo.Head.RemoteName + "/" + branchName]?.Tip;
+        }
+
+        /// <summary>매핑과 그 고정 브랜치. 고정 브랜치가 없으면 병합 목적지가 없다.</summary>
+        private (MappingConfig Mapping, string Target)? ResolvePinnedTarget(string serverName, string databaseName)
+        {
+            var mapping = _configManager?.TryGetMapping(serverName, databaseName);
+            if (mapping == null || string.IsNullOrWhiteSpace(mapping.Branch)) return null;
+            return (mapping, mapping.Branch!);
         }
 
         /// <summary>

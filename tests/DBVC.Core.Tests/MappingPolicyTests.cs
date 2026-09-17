@@ -73,6 +73,31 @@ namespace DBVC.Core.Tests
             Assert.That(MappingPolicy.IsAllowed(mode, DbvcOperation.GenerateScript), Is.True);
         }
 
+        [TestCase(MappingMode.Write, false)]
+        [TestCase(MappingMode.Deploy, true)]
+        [TestCase(MappingMode.Audit, true)]
+        public void IsAllowed_AllowsMerge_OnlyOnPinnedClones(MappingMode mode, bool expected)
+        {
+            // 목적지가 고정 브랜치여야 병합에 뜻이 있다. 개발 클론은 브랜치가 자유라 목적지가 흔들린다.
+            Assert.That(MappingPolicy.IsAllowed(mode, DbvcOperation.Merge), Is.EqualTo(expected));
+        }
+
+        [TestCase(MappingMode.Deploy)]
+        [TestCase(MappingMode.Audit)]
+        public void IsAllowed_StillDeniesPush_WhenMergeIsAllowed(MappingMode mode)
+        {
+            // 병합은 자기가 만든 커밋 하나만 올린다. 일반 Push를 열면 그 전의 로컬 커밋이 섞여 나간다.
+            Assert.That(MappingPolicy.IsAllowed(mode, DbvcOperation.Push), Is.False);
+        }
+
+        [Test]
+        public void BuildDeniedMessage_NamesMergeInKorean()
+        {
+            var message = MappingPolicy.BuildDeniedMessage(MappingMode.Write, DbvcOperation.Merge);
+
+            Assert.That(message, Does.Contain("병합"));
+        }
+
         [Test]
         public void IsAllowed_Throws_WhenOperationIsUnknown()
         {

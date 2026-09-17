@@ -187,6 +187,28 @@ namespace DBVC.Core
         /// 매핑이 없거나 원격·추적 브랜치가 없으면 한국어 안내를 담은 예외를 던진다.
         /// </summary>
         RemoteStatus FetchRemoteStatus(string serverName, string databaseName);
+
+        /// <summary>
+        /// 원격을 받은 뒤, 매핑의 고정 브랜치에 아직 병합되지 않은 원격 브랜치를 마지막 커밋 시각
+        /// 내림차순으로 낸다. develop/master는 빠진다. 매핑이 없거나 고정 브랜치가 없으면 빈 목록이다.
+        /// 통신 실패는 FetchRemoteStatus와 같은 예외로 전파된다.
+        /// </summary>
+        IReadOnlyList<UnmergedBranch> GetUnmergedBranches(string serverName, string databaseName);
+
+        /// <summary>
+        /// 작업 트리를 건드리지 않고 원본을 고정 브랜치에 병합한 결과를 계산한다. 네트워크를 쓰지
+        /// 않는다 - 마지막 Fetch(GetUnmergedBranches) 기준이다. 목적지가 master일 때만 경고 A를 채운다.
+        /// </summary>
+        MergePreview PreviewMerge(string serverName, string databaseName, string sourceBranch);
+        /// <summary>
+        /// 원본을 고정 브랜치에 병합 커밋으로 병합하고 그 커밋만 원격에 올린다. 로컬이 원격보다
+        /// 앞서 있으면 시작하지 않는다. Fetch한 원본 끝이 <paramref name="expectedSourceSha"/>(미리보기의
+        /// <see cref="MergePreview.SourceSha"/>)와 다르면 Refused다 - 확인받지 않은 커밋을 병합하지 않는다.
+        /// 병합부터 Push까지 어디서 실패하든 로컬을 병합 전으로 되돌린 뒤 거부는
+        /// PushRejected로, 통신·인증 실패는 예외로 알린다. mode가 병합을 허용하지 않으면
+        /// OperationNotAllowedException을 던진다.
+        /// </summary>
+        MergeOutcome MergeAndPush(string serverName, string databaseName, string sourceBranch, string expectedSourceSha);
         /// <summary><paramref name="relativeFilePath"/>가 비면 저장소 전체 이력을 반환한다.</summary>
         IReadOnlyList<CommitInfo> GetHistory(string serverName, string databaseName, string? relativeFilePath);
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
@@ -41,6 +42,11 @@ namespace DBVC.Vsix.ViewModels
         private string? _databaseName;
         private MappingMode _mode = MappingMode.Write;
 
+        private MergePreview? _preview;
+
+        /// <summary>미리보기 읽기의 세대. 빠르게 고른 이전 선택의 응답이 화면을 덮지 않게 한다.</summary>
+        private int _previewGeneration;
+
         public DeploymentViewModel(
             IConfigManager configManager,
             IGitManager gitManager,
@@ -62,6 +68,8 @@ namespace DBVC.Vsix.ViewModels
 
             CompareCommand = new RelayCommand(Compare, () => HasTarget && !Busy.IsBusy);
             SaveScriptCommand = new RelayCommand(SaveScript, () => HasResult && !Busy.IsBusy);
+            LoadBranchesCommand = new RelayCommand(LoadBranches, () => HasTarget && !Busy.IsBusy && IsMergeAllowed);
+            MergeCommand = new RelayCommand(Merge, () => CanMerge && !Busy.IsBusy);
 
             Busy.Changed += (s, e) => RaiseCanExecuteChanged();
         }
@@ -108,6 +116,49 @@ namespace DBVC.Vsix.ViewModels
 
         public ICommand CompareCommand { get; }
         public ICommand SaveScriptCommand { get; }
+        public ICommand LoadBranchesCommand { get; }
+        public ICommand MergeCommand { get; }
+
+        public ObservableCollection<UnmergedBranchItemViewModel> UnmergedBranches { get; } =
+            new ObservableCollection<UnmergedBranchItemViewModel>();
+
+        private UnmergedBranchItemViewModel? _selectedBranch;
+        public UnmergedBranchItemViewModel? SelectedBranch
+        {
+            get => _selectedBranch;
+            set
+            {
+                if (ReferenceEquals(_selectedBranch, value)) return;
+                _selectedBranch = value;
+                OnPropertyChanged();
+                LoadPreview();
+            }
+        }
+
+        private string? _previewText;
+        public string? PreviewText
+        {
+            get => _previewText;
+            private set
+            {
+                if (_previewText == value) return;
+                _previewText = value;
+                OnPropertyChanged();
+            }
+        }
+
+        /// <summary>매핑의 고정 브랜치. 병합 목적지는 이것 하나뿐이다.</summary>
+        public string? MergeTargetBranch =>
+            HasTarget ? _configManager.TryGetMapping(_serverName!, _databaseName!)?.Branch : null;
+
+        public bool IsTargetMaster => MergeTargetBranch == EnvironmentBranches.Master;
+
+        private bool IsMergeAllowed => MappingPolicy.IsAllowed(_mode, DbvcOperation.Merge);
+
+        /// <summary>미리보기가 있고 충돌이 없으며 아직 병합되지 않았을 때만.</summary>
+        public bool CanMerge =>
+            HasTarget && IsMergeAllowed && SelectedBranch != null && _preview != null
+            && !_preview.AlreadyMerged && _preview.ConflictPaths.Count == 0;
 
         /// <summary>
         /// 대상을 바꾼다. 이전 결과를 지운다 — 낡은 목록을 최신인 척 보여주지 않는다.
@@ -123,6 +174,18 @@ namespace DBVC.Vsix.ViewModels
             Differences.Clear();
             SummaryText = null;
             OnPropertyChanged(nameof(HasResult));
+
+            // 낡은 목록을 최신인 척 두지 않는다. 다른 대상의 브랜치를 병합하는 사고도 여기서 막는다.
+            _previewGeneration++;
+            _preview = null;
+            _selectedBranch = null;
+            OnPropertyChanged(nameof(SelectedBranch));
+            UnmergedBranches.Clear();
+            PreviewText = null;
+            OnPropertyChanged(nameof(MergeTargetBranch));
+            OnPropertyChanged(nameof(IsTargetMaster));
+            OnPropertyChanged(nameof(CanMerge));
+
             RaiseCanExecuteChanged();
         }
 
@@ -358,6 +421,211 @@ namespace DBVC.Vsix.ViewModels
                 : comparedText + $" {result.FailedObjects.Count}개는 판정하지 못했습니다.";
         }
 
+        private void LoadBranches()
+        {
+            if (!HasTarget) return;
+            var server = _serverName!;
+            var database = _databaseName!;
+
+            Busy.IsBusy = true;
+            Busy.IsCancellable = false;
+            Busy.ProgressText = "원격에서 병합할 브랜치를 확인하는 중...";
+
+            _scheduler.Run(
+                () => _gitManager.GetUnmergedBranches(server, database),
+                branches =>
+                {
+                    EndBusy();
+                    // 이전 대상의 브랜치를 새 대상의 목록으로 보여 주면 다른 대상에 병합하는 사고가 된다.
+                    if (!IsCurrentTarget(server, database)) return;
+                    _previewGeneration++;
+                    _preview = null;
+                    _selectedBranch = null;
+                    OnPropertyChanged(nameof(SelectedBranch));
+                    UnmergedBranches.Clear();
+                    foreach (var branch in branches) UnmergedBranches.Add(new UnmergedBranchItemViewModel(branch));
+                    PreviewText = UnmergedBranches.Count == 0
+                        ? $"'{MergeTargetBranch}'에 병합되지 않은 브랜치가 없습니다."
+                        : null;
+                    OnPropertyChanged(nameof(IsTargetMaster));
+                    OnPropertyChanged(nameof(CanMerge));
+                    RaiseCanExecuteChanged();
+                },
+                ex =>
+                {
+                    EndBusy();
+                    _notifier.ShowError("DBVC 병합할 브랜치 확인 실패", ex.Message);
+                });
+        }
+
+        private void LoadPreview()
+        {
+            // 세대를 먼저 올린다 - 선택을 지우기만 해도(다음 선택 없이) 이전 요청은 낡은
+            // 것이 되어야 한다. 여기서 건너뛰면 지운 뒤 늦게 도착한 응답이 PreviewText를
+            // 도로 채운다.
+            var generation = ++_previewGeneration;
+
+            _preview = null;
+            PreviewText = null;
+            OnPropertyChanged(nameof(CanMerge));
+            RaiseCanExecuteChanged();
+
+            var selected = SelectedBranch;
+            if (selected == null || !HasTarget) return;
+
+            var server = _serverName!;
+            var database = _databaseName!;
+
+            _scheduler.Run(
+                () => _gitManager.PreviewMerge(server, database, selected.Name),
+                preview =>
+                {
+                    if (generation != _previewGeneration) return;
+                    _preview = preview;
+                    PreviewText = BuildPreviewText(preview, MergeTargetBranch);
+                    OnPropertyChanged(nameof(CanMerge));
+                    RaiseCanExecuteChanged();
+                },
+                ex =>
+                {
+                    if (generation != _previewGeneration) return;
+                    PreviewText = "미리보기를 계산하지 못했습니다: " + ex.Message;
+                });
+        }
+
+        private static string BuildPreviewText(MergePreview preview, string? target)
+        {
+            if (preview.AlreadyMerged) return "이미 병합되어 있습니다.";
+
+            var sb = new StringBuilder();
+            if (preview.ConflictPaths.Count > 0)
+            {
+                sb.AppendLine($"충돌 {preview.ConflictPaths.Count}개 — 병합할 수 없습니다.");
+                foreach (var path in preview.ConflictPaths) sb.AppendLine("  " + path);
+                sb.AppendLine();
+                sb.AppendLine("도구 안에서는 충돌을 풀 수 없습니다. 브랜치 작성자가 GitLab이나 Git 클라이언트에서 풀어야 합니다.");
+                sb.Append("develop을 티켓 브랜치로 병합해서 풀면 안 됩니다 — 운영 병합 때 develop 전체가 딸려 갑니다.");
+                return sb.ToString();
+            }
+
+            sb.AppendLine($"'{target}'에서 바뀌는 파일 {preview.ChangedPaths.Count}개");
+            foreach (var path in preview.ChangedPaths) sb.AppendLine("  " + path);
+
+            if (preview.Leaks.Count > 0)
+            {
+                sb.AppendLine();
+                sb.Append(BuildLeakText(preview.Leaks));
+            }
+
+            return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>경고 A 문구. 방향을 모르므로 "딸려 왔다"고 단정하지 않는다(스펙 3.4 한계 1).</summary>
+        private static string BuildLeakText(IReadOnlyList<PromotionLeak> leaks)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"확인 필요 {leaks.Count}건 — 아직 운영에 병합되지 않은 다른 브랜치와 같은 줄이 있습니다.");
+            foreach (var leak in leaks)
+            {
+                sb.AppendLine($"  {leak.Path} — {leak.BranchName} 브랜치에도 같은 줄이 {leak.Lines.Count}개 있습니다. (예: {leak.Lines[0]})");
+            }
+            sb.Append("그 브랜치의 변경이 딸려 왔는지 확인하세요.");
+            return sb.ToString();
+        }
+
+        private void Merge()
+        {
+            if (!CanMerge || SelectedBranch == null) return;
+
+            var server = _serverName!;
+            var database = _databaseName!;
+            var source = SelectedBranch.Name;
+            var target = MergeTargetBranch;
+            var preview = _preview!;
+
+            var question = $"'{source}' 브랜치를 '{target}'에 병합하고 원격에 올립니다.";
+            if (preview.Leaks.Count > 0)
+            {
+                question += Environment.NewLine + Environment.NewLine + BuildLeakText(preview.Leaks);
+            }
+            if (!_notifier.Confirm("DBVC 병합", question)) return;
+
+            Busy.IsBusy = true;
+            Busy.IsCancellable = false;
+            Busy.ProgressText = $"'{source}'을(를) '{target}'에 병합하는 중...";
+
+            _scheduler.Run(
+                () => _gitManager.MergeAndPush(server, database, source, preview.SourceSha),
+                outcome =>
+                {
+                    EndBusy();
+                    if (!IsCurrentTarget(server, database))
+                    {
+                        // 목록을 고치거나 차이 검사를 제안하면 바뀐 대상(운영일 수 있다)에 적용된다. 병합은
+                        // 이미 원격에 올라갔을 수 있으므로 버리지 않고, 어느 대상의 결과인지 밝혀 알리기만 한다.
+                        var summary = outcome.Kind == MergeOutcomeKind.Merged
+                            ? $"{source}을 {target}에 병합하고 올렸습니다."
+                            : outcome.Message ?? outcome.Kind.ToString();
+                        _notifier.ShowInfo("DBVC 병합", $"'{server}.{database}'의 병합 결과: {summary}");
+                        return;
+                    }
+                    ApplyMergeOutcome(outcome, source, target);
+                },
+                ex =>
+                {
+                    EndBusy();
+                    _notifier.ShowError("DBVC 병합 실패", ex.Message);
+                });
+        }
+
+        private void ApplyMergeOutcome(MergeOutcome outcome, string source, string? target)
+        {
+            switch (outcome.Kind)
+            {
+                case MergeOutcomeKind.Merged:
+                case MergeOutcomeKind.AlreadyMerged:
+                    var merged = UnmergedBranches.FirstOrDefault(b => b.Name == source);
+                    if (merged != null) UnmergedBranches.Remove(merged);
+                    _previewGeneration++;
+                    _preview = null;
+                    _selectedBranch = null;
+                    OnPropertyChanged(nameof(SelectedBranch));
+                    PreviewText = null;
+                    OnPropertyChanged(nameof(CanMerge));
+                    RaiseCanExecuteChanged();
+                    break;
+            }
+
+            if (outcome.Kind == MergeOutcomeKind.Merged)
+            {
+                // 자동으로 돌리지 않는다 - 운영 DB 전체 추출은 오래 걸려 시작 시점은 사람이 정한다.
+                // 병합과 배포 사이가 끊기면 "병합했으니 나갔겠지"가 생기므로 여기서 묻는다.
+                var message = $"{source}을 {target}에 병합하고 올렸습니다." + Environment.NewLine + Environment.NewLine +
+                              "DB는 병합만으로 바뀌지 않습니다. 지금 차이 검사를 시작해 반영할 것을 확인할까요?";
+                if (_notifier.Confirm("DBVC 병합 완료", message) && CompareCommand.CanExecute(null))
+                {
+                    CompareCommand.Execute(null);
+                }
+                return;
+            }
+
+            if (outcome.Kind == MergeOutcomeKind.AlreadyMerged)
+            {
+                _notifier.ShowInfo("DBVC 병합", outcome.Message ?? "이미 병합되어 있습니다.");
+                return;
+            }
+
+            var detail = outcome.Paths.Count == 0
+                ? string.Empty
+                : Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, outcome.Paths);
+            if (outcome.Kind == MergeOutcomeKind.Conflicts)
+            {
+                detail += Environment.NewLine + Environment.NewLine +
+                          "develop을 티켓 브랜치로 병합해서 풀면 안 됩니다 — 운영 병합 때 develop 전체가 딸려 갑니다.";
+            }
+            _notifier.ShowError("DBVC 병합", (outcome.Message ?? string.Empty) + detail);
+        }
+
         private void SaveScript()
         {
             if (_lastResult == null || !HasTarget) return;
@@ -404,6 +672,13 @@ namespace DBVC.Vsix.ViewModels
             _notifier.ShowInfo("DBVC 배포 스크립트", message);
         }
 
+        /// <summary>
+        /// 백그라운드 결과가 시작한 대상에 아직 속하는지. SetTarget은 작업 도중에도 개체 탐색기 선택으로 불린다.
+        /// </summary>
+        private bool IsCurrentTarget(string server, string database) =>
+            string.Equals(_serverName, server, StringComparison.Ordinal)
+            && string.Equals(_databaseName, database, StringComparison.Ordinal);
+
         private void EndBusy()
         {
             Busy.IsBusy = false;
@@ -422,6 +697,8 @@ namespace DBVC.Vsix.ViewModels
         {
             (CompareCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (SaveScriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (LoadBranchesCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (MergeCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

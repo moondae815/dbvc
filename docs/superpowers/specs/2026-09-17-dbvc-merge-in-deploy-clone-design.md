@@ -174,6 +174,13 @@ public sealed class MergeOutcome
 LibGit2Sharp 0.32.0의 net472 XML 문서에서 실재를 확인했다. `ChangedPaths`는 목적지 끝 트리와 그
 병합 트리의 `TreeChanges`다.
 
+> **2026-09-17 보강 (최종 리뷰 반영).** `MergePreview`에 `string SourceSha`(미리보기를 계산한 원본 끝,
+> 충돌·이미 병합됨에서도 채움)를 더하고, 시그니처를
+> `MergeAndPush(string serverName, string databaseName, string sourceBranch, string expectedSourceSha)`로
+> 바꾼다. 화면은 미리보기의 `SourceSha`를 넘긴다 — 병합은 다시 Fetch하므로, 고정하지 않으면 DBA가 바뀌는
+> 파일도 경고 A도 보지 못한 커밋이 함께 병합된다. `GetUnmergedBranches`·병합·원격 확인이 함께 쓰는
+> Fetch는 `Prune`한다 — GitLab에서 지운 브랜치가 목록에 남아 병합으로 되살아나지 않게 한다.
+
 ### 3.3 `MergeAndPush` 순서
 
 1. **입구 검사.** `EnsureAllowed(Merge)`는 기존 메서드와 같이 `OperationNotAllowedException`을
@@ -196,6 +203,16 @@ LibGit2Sharp 0.32.0의 net472 XML 문서에서 실재를 확인했다. `ChangedP
 
 **hard reset이 안전한 근거는 1번이다.** 트리가 깨끗했다는 사실이 되돌리기의 전제이므로, 1번의
 검사를 옮기거나 느슨하게 하면 7번이 사용자 파일을 지운다. 그 자리에 주석으로 남긴다.
+
+> **2026-09-17 보강 (최종 리뷰 반영).**
+> - 2번 뒤: Fetch한 원본 끝이 `expectedSourceSha`와 다르면 `Refused`("미리보기 뒤 … 새 커밋이 올라왔습니다").
+> - 3번의 "원격"은 **HEAD가 추적하는 브랜치**(`repo.Head.TrackedBranch`)다 — 7번의 Push가 올리는 곳과 같아야
+>   섞여 나갈 커밋을 놓치지 않는다. 추적 ref가 없으면(원격에서 지워짐, Prune으로 사라짐) 건너뛰지 않고 `Refused`다.
+> - 되돌리기 구간은 7번만이 아니라 **5번 `repo.Merge`부터 Commit·Diff·Push까지 하나**다. 체크아웃이 도중에
+>   실패하거나(잠긴 파일) Commit·Diff가 던져도 `headBefore`로 hard reset하고, 체크아웃이 먼저 쓴 미추적 파일 중
+>   원본 트리에 있는 것을 지운 뒤 `CurrentOperation`이 `None`인지 확인한다. 거부는 `PushRejected`, 그 밖은 원래
+>   예외를 다시 던진다. 되돌리기마저 실패하면 원래 메시지를 앞세운 `GitMergeRollbackException`(원래 예외는
+>   `InnerException`)으로 알린다.
 
 **`ExtractionBaseline`과 무관하다.** 배포·감사 클론은 추출하지 않는다.
 
@@ -260,8 +277,10 @@ IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyCollection<stri
    > `PROJ-123` 브랜치를 `master`에 병합하고 원격에 올립니다.
    > (경고 A가 있으면 그 목록)
 
-4. `Merged`면 **차이 검사를 이어서 시작할지** 묻는다(기본 버튼 "차이 검사 시작"). 자동으로 돌리지
-   않는다 — 운영 DB 전체 추출은 오래 걸려 시작 시점은 사람이 정한다.
+4. `Merged`면 **차이 검사를 이어서 시작할지** 묻는다.
+   기존 확인 대화상자(`IUserNotifier.Confirm`)로 묻는다. 기본 선택이 취소인 것은 그대로 둔다 —
+   잘못 눌러도 검사를 시작하지 않을 뿐 잃는 것이 없다.
+   자동으로 돌리지 않는다 — 운영 DB 전체 추출은 오래 걸려 시작 시점은 사람이 정한다.
 
 `CanExecute`는 `MappingPolicy.IsAllowed(mode, DbvcOperation.Merge)`와 바쁨 상태로 판정한다. 작업
 트리가 더러운 클론은 `WorkingTreeDirty` 차단 화면이라 병합 영역에 닿지 않는다.
