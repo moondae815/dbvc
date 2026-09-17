@@ -458,6 +458,11 @@ namespace DBVC.Vsix.ViewModels
 
         private void LoadPreview()
         {
+            // 세대를 먼저 올린다 - 선택을 지우기만 해도(다음 선택 없이) 이전 요청은 낡은
+            // 것이 되어야 한다. 여기서 건너뛰면 지운 뒤 늦게 도착한 응답이 PreviewText를
+            // 도로 채운다.
+            var generation = ++_previewGeneration;
+
             _preview = null;
             PreviewText = null;
             OnPropertyChanged(nameof(CanMerge));
@@ -468,7 +473,6 @@ namespace DBVC.Vsix.ViewModels
 
             var server = _serverName!;
             var database = _databaseName!;
-            var generation = ++_previewGeneration;
 
             _scheduler.Run(
                 () => _gitManager.PreviewMerge(server, database, selected.Name),

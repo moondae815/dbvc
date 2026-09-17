@@ -28,6 +28,11 @@ namespace DBVC.Vsix.Tests.ViewModels
 
         private DeploymentViewModel NewViewModel(MappingMode mode, string branch)
         {
+            return NewViewModel(mode, branch, new InlineBackgroundScheduler());
+        }
+
+        private DeploymentViewModel NewViewModel(MappingMode mode, string branch, IBackgroundScheduler scheduler)
+        {
             var mapping = new MappingConfig
             {
                 ServerName = Server, DatabaseName = Database, GitPath = Path.GetTempPath(), Mode = mode, Branch = branch
@@ -42,7 +47,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             var vm = new DeploymentViewModel(
                 _config.Object, _git.Object, _smo.Object,
                 new ScriptExporter(_config.Object, _git.Object),
-                _notifier, new RecordingSaveDialog(), new InlineBackgroundScheduler(), new BusyState());
+                _notifier, new RecordingSaveDialog(), scheduler, new BusyState());
             vm.SetTarget(Server, Database, mode);
             return vm;
         }
@@ -178,6 +183,31 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(vm.UnmergedBranches, Is.Empty);
             Assert.That(vm.SelectedBranch, Is.Null);
+            Assert.That(vm.PreviewText, Is.Null);
+        }
+
+        /// <summary>
+        /// 선택을 지운 것과 다음 선택이 없는 것은 같은 사건이다 - 둘 다 "지금 뜬 미리보기는
+        /// 무효"라는 뜻이어야 한다. 세대를 선택이 있을 때만 올리면, 지우기 직전에 날아간
+        /// 요청의 응답이 나중에 도착해 지운 화면을 도로 채운다.
+        /// </summary>
+        [Test]
+        public void SelectedBranch_IgnoresLatePreview_WhenSelectionIsCleared()
+        {
+            var scheduler = new DeferredBackgroundScheduler();
+            var vm = NewViewModel(MappingMode.Deploy, "develop", scheduler);
+            _git.Setup(g => g.GetUnmergedBranches(Server, Database)).Returns(new[] { Branch("PROJ-1") });
+            _git.Setup(g => g.PreviewMerge(Server, Database, "PROJ-1"))
+                .Returns(new MergePreview { ChangedPaths = new[] { "a.sql" } });
+
+            vm.LoadBranchesCommand.Execute(null);
+            scheduler.FlushAll();
+
+            vm.SelectedBranch = vm.UnmergedBranches.First();   // PreviewMerge 요청이 대기열에 걸린다
+            vm.SelectedBranch = null;                          // 응답이 오기 전에 선택을 지운다
+
+            scheduler.FlushAll();                              // 늦게 도착한 응답을 흘려보낸다
+
             Assert.That(vm.PreviewText, Is.Null);
         }
     }
