@@ -272,7 +272,7 @@ namespace DBVC.Vsix.ViewModels
             // 남으면 새 대상의 화면이 엉뚱한 저장소를 근거로 덮인다.
             CurrentBranch = null;
             // 원격 상태도 이전 대상의 것이다. 남으면 엉뚱한 저장소의 숫자를 읽는다.
-            RemoteStatusText = null;
+            LastRemoteStatus = null;
             BlockMessage = null;
             // 대상이 바뀌면 "개체 탐색기 선택이 다릅니다"의 판정 근거가 사라진다.
             // 여전히 다르다면 다음 CheckSsmsSelection()에서 다시 뜬다.
@@ -972,25 +972,35 @@ namespace DBVC.Vsix.ViewModels
 
         public ICommand CheckRemoteCommand { get; }
 
-        private string? _remoteStatusText;
+        private RemoteStatus? _lastRemoteStatus;
 
         /// <summary>
         /// 마지막으로 원격을 확인한 결과. 누르기 전에는 <c>null</c>이다 —
         /// 낡은 숫자를 최신인 척 보여주는 것이 아무것도 안 보여주는 것보다 나쁘다.
         /// </summary>
-        public string? RemoteStatusText
+        public RemoteStatus? LastRemoteStatus
         {
-            get => _remoteStatusText;
+            get => _lastRemoteStatus;
             private set
             {
-                if (_remoteStatusText == value) return;
-                _remoteStatusText = value;
+                if (ReferenceEquals(_lastRemoteStatus, value)) return;
+                _lastRemoteStatus = value;
                 OnPropertyChanged();
-                OnPropertyChanged(nameof(HasRemoteStatus));
+                OnPropertyChanged(nameof(PullButtonText));
+                OnPropertyChanged(nameof(PushButtonText));
             }
         }
 
-        public bool HasRemoteStatus => !string.IsNullOrWhiteSpace(RemoteStatusText);
+        /// <summary>
+        /// 숫자를 그것이 가리키는 행동 옆에 둔다. 0이어도 붙인다 - "확인했고 받을 것이 없다"와
+        /// "확인하지 않았다"를 가르는 것이 이 숫자의 목적이다.
+        /// </summary>
+        public string PullButtonText =>
+            LastRemoteStatus == null ? "Pull" : $"Pull ↓{LastRemoteStatus.BehindBy}";
+
+        /// <inheritdoc cref="PullButtonText"/>
+        public string PushButtonText =>
+            LastRemoteStatus == null ? "Push" : $"Push ↑{LastRemoteStatus.AheadBy}";
 
         private bool CanCheckRemote() => IsMapped && !IsBusy && !IsBlocked;
 
@@ -1015,14 +1025,14 @@ namespace DBVC.Vsix.ViewModels
                 {
                     IsBusy = false;
                     ProgressText = null;
-                    RemoteStatusText = $"받을 커밋 {status.BehindBy}개 · 올릴 커밋 {status.AheadBy}개";
+                    LastRemoteStatus = status;
                     RaiseActionCanExecuteChanged();
                 },
                 ex =>
                 {
                     IsBusy = false;
                     ProgressText = null;
-                    RemoteStatusText = null;
+                    LastRemoteStatus = null;
                     RaiseActionCanExecuteChanged();
                     _notifier.ShowError("DBVC 원격 확인 실패", ex.Message);
                 });
@@ -1132,9 +1142,9 @@ namespace DBVC.Vsix.ViewModels
 
                 case PullResult.Pulled:
                     // Pull이 뒤처짐을 줄였으므로 마지막 원격 확인 숫자는 낡았다. 지우지 않으면
-                    // "받을 커밋 3개"가 방금 다 받은 뒤에도 그대로 남아, 낡은 숫자를 최신인 척
+                    // "Pull ↓3"이 방금 다 받은 뒤에도 그대로 남아, 낡은 숫자를 최신인 척
                     // 보여주지 않는다는 이 필드의 존재 이유와 어긋난다.
-                    RemoteStatusText = null;
+                    LastRemoteStatus = null;
 
                     // 받은 스크립트가 어디 놓였는지 말하지 않으면 사용자가 찾지 못한다 -
                     // DBVC는 파일만 가져올 뿐 데이터베이스에 적용하지 않기 때문이다.
@@ -1223,7 +1233,7 @@ namespace DBVC.Vsix.ViewModels
                     _notifier.ShowInfo("DBVC Push", "올릴 커밋이 없습니다. 원격이 이미 최신입니다.");
                     break;
                 case PushResult.Pushed:
-                    RemoteStatusText = null;
+                    LastRemoteStatus = null;
                     _notifier.ShowInfo("DBVC Push", "커밋을 원격 저장소에 올렸습니다.");
                     break;
 
@@ -1406,8 +1416,8 @@ namespace DBVC.Vsix.ViewModels
 
             // 원격 확인 숫자는 이전 브랜치의 것이다. 브랜치가 바뀌면 Pull이 줄이는 것과 달리
             // 기준 자체가 다른 브랜치로 바뀌므로, ApplyPullResult·ApplyPushResult와 같은 이유로
-            // 지운다 - 남기면 "브랜치: PROJ-123" 옆에 develop의 앞섬·뒤처짐이 뜬다.
-            RemoteStatusText = null;
+            // 지운다 - 남기면 PROJ-123으로 바꾼 뒤에도 Pull·Push 버튼에 develop의 숫자가 붙어 있다.
+            LastRemoteStatus = null;
 
             if (IsBlocked)
             {
@@ -2145,7 +2155,7 @@ namespace DBVC.Vsix.ViewModels
                     {
                         // 실제 커밋은 원격보다 앞선 개수를 바꾼다. 지우지 않으면 마지막 원격 확인
                         // 숫자가 낡은 채로 최신인 척 남는다.
-                        RemoteStatusText = null;
+                        LastRemoteStatus = null;
                     }
 
                     // Refresh보다 먼저, 그리고 WarningMessage가 아니라 상자로 알린다. ApplyRefreshOutcome이

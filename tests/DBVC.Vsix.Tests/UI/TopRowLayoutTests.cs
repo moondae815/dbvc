@@ -103,45 +103,6 @@ namespace DBVC.Vsix.Tests.UI
         }
 
         /// <summary>
-        /// 원격을 확인하기 전에는 표시가 아예 없어야 한다. Task 8이 RemoteStatusLabel을 셋째
-        /// DockPanel.Dock="Right" 자식으로 더했는데, 기본값이 Collapsed라 이 사실이 테스트 없이도
-        /// 통과해 왔다.
-        /// </summary>
-        [Test]
-        public void RemoteStatusLabel_IsHidden_WhenThereIsNoRemoteStatus()
-        {
-            var control = NewConnectedControl(
-                new RepositoryState { CurrentBranch = "main", BlockReason = RepositoryBlockReason.None });
-
-            LayoutAt(control, 600);
-
-            var remoteStatus = (FrameworkElement)control.FindName("RemoteStatusLabel");
-            Assert.That(remoteStatus.Visibility, Is.Not.EqualTo(Visibility.Visible));
-        }
-
-        /// <summary>
-        /// 원격 확인 결과가 있으면 브랜치와 버전 사이, 같은 첫째 줄에 와야 한다. XAML에서
-        /// DockPanel.Dock="Right" 자식은 먼저 나온 것이 더 바깥이라(<see cref="BranchLabel_SitsLeftOfTheVersion_OnTheFirstLine"/>와
-        /// 같은 이유), VersionLabel · BranchLabel 다음에 두어야 브랜치 왼쪽에 놓인다.
-        /// </summary>
-        [Test]
-        public void RemoteStatusLabel_SitsLeftOfTheBranchLabel_OnTheFirstLine()
-        {
-            var control = NewConnectedControl(
-                new RepositoryState { CurrentBranch = "feature/x", BlockReason = RepositoryBlockReason.None },
-                new RemoteStatus(2, 1));
-
-            LayoutAt(control, 600);
-
-            var remoteStatus = TopLeftOf(control, "RemoteStatusLabel");
-            var branch = TopLeftOf(control, "BranchLabel");
-            var version = TopLeftOf(control, "VersionLabel");
-
-            Assert.That(remoteStatus.X, Is.LessThan(branch.X), "원격 상태가 브랜치 왼쪽에 와야 한다");
-            Assert.That(remoteStatus.Y, Is.EqualTo(version.Y).Within(1), "셋은 같은 줄에 있어야 한다");
-        }
-
-        /// <summary>
         /// 차단 오버레이는 도구 줄까지 덮어야 한다. 초기화 오버레이처럼 내용 행만 덮으면
         /// Pull·배포 스크립트 같은 버튼이 어긋난 저장소를 상대로 그대로 눌린다.
         /// </summary>
