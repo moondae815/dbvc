@@ -436,6 +436,8 @@ namespace DBVC.Vsix.ViewModels
                 branches =>
                 {
                     EndBusy();
+                    // 이전 대상의 브랜치를 새 대상의 목록으로 보여 주면 다른 대상에 병합하는 사고가 된다.
+                    if (!IsCurrentTarget(server, database)) return;
                     _previewGeneration++;
                     _preview = null;
                     _selectedBranch = null;
@@ -553,10 +555,20 @@ namespace DBVC.Vsix.ViewModels
             Busy.ProgressText = $"'{source}'을(를) '{target}'에 병합하는 중...";
 
             _scheduler.Run(
-                () => _gitManager.MergeAndPush(server, database, source),
+                () => _gitManager.MergeAndPush(server, database, source, preview.SourceSha),
                 outcome =>
                 {
                     EndBusy();
+                    if (!IsCurrentTarget(server, database))
+                    {
+                        // 목록을 고치거나 차이 검사를 제안하면 바뀐 대상(운영일 수 있다)에 적용된다. 병합은
+                        // 이미 원격에 올라갔을 수 있으므로 버리지 않고, 어느 대상의 결과인지 밝혀 알리기만 한다.
+                        var summary = outcome.Kind == MergeOutcomeKind.Merged
+                            ? $"{source}을 {target}에 병합하고 올렸습니다."
+                            : outcome.Message ?? outcome.Kind.ToString();
+                        _notifier.ShowInfo("DBVC 병합", $"'{server}.{database}'의 병합 결과: {summary}");
+                        return;
+                    }
                     ApplyMergeOutcome(outcome, source, target);
                 },
                 ex =>
@@ -659,6 +671,13 @@ namespace DBVC.Vsix.ViewModels
 
             _notifier.ShowInfo("DBVC 배포 스크립트", message);
         }
+
+        /// <summary>
+        /// 백그라운드 결과가 시작한 대상에 아직 속하는지. SetTarget은 작업 도중에도 개체 탐색기 선택으로 불린다.
+        /// </summary>
+        private bool IsCurrentTarget(string server, string database) =>
+            string.Equals(_serverName, server, StringComparison.Ordinal)
+            && string.Equals(_databaseName, database, StringComparison.Ordinal);
 
         private void EndBusy()
         {

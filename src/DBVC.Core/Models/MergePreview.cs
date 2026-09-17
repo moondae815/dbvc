@@ -16,6 +16,12 @@ namespace DBVC.Core.Models
         public IReadOnlyList<PromotionLeak> Leaks { get; set; } = Array.Empty<PromotionLeak>();
 
         public bool AlreadyMerged { get; set; }
+
+        /// <summary>
+        /// 미리보기를 계산한 원본 끝 커밋. 병합이 이것을 다시 넘겨 Fetch 뒤 원본이 움직였으면 거부한다 -
+        /// 그 사이 올라온 커밋은 DBA가 바뀌는 파일도 경고 A도 보지 못한 것이다.
+        /// </summary>
+        public string SourceSha { get; set; } = string.Empty;
     }
 
     /// <summary>

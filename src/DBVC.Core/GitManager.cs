@@ -1357,7 +1357,7 @@ namespace DBVC.Core
 
             if (IsAncestor(repo, sourceTip, targetTip))
             {
-                return new MergePreview { AlreadyMerged = true };
+                return new MergePreview { AlreadyMerged = true, SourceSha = sourceTip.Sha };
             }
 
             var merged = repo.ObjectDatabase.MergeCommits(targetTip, sourceTip, new MergeTreeOptions());
@@ -1366,6 +1366,7 @@ namespace DBVC.Core
             {
                 return new MergePreview
                 {
+                    SourceSha = sourceTip.Sha,
                     ConflictPaths = merged.Conflicts
                         .Select(c => (c.Ours ?? c.Theirs ?? c.Ancestor).Path.Replace('\\', '/'))
                         .Distinct(StringComparer.Ordinal)
@@ -1381,6 +1382,7 @@ namespace DBVC.Core
 
             return new MergePreview
             {
+                SourceSha = sourceTip.Sha,
                 ChangedPaths = changedPaths,
                 // develop 병합에서 딸려 온 것은 원래 있던 곳으로 돌아갈 뿐이다(브랜치 정책 정정 3절).
                 Leaks = target == EnvironmentBranches.Master
@@ -1392,7 +1394,7 @@ namespace DBVC.Core
         /// <summary>
         /// 원본을 고정 브랜치에 병합 커밋으로 병합하고 그 커밋만 원격에 올린다.
         /// </summary>
-        public MergeOutcome MergeAndPush(string serverName, string databaseName, string sourceBranch)
+        public MergeOutcome MergeAndPush(string serverName, string databaseName, string sourceBranch, string expectedSourceSha)
         {
             EnsureAllowed(serverName, databaseName, DbvcOperation.Merge);
 
@@ -1461,6 +1463,14 @@ namespace DBVC.Core
             if (sourceTip == null)
             {
                 return MergeOutcome.Of(MergeOutcomeKind.Refused, $"원격에서 '{sourceBranch}' 브랜치를 찾을 수 없습니다.");
+            }
+
+            // 방금 받은 원본 끝을 병합하면 미리보기 뒤 올라온 커밋까지 딸려 간다. DBA가 확인한 것은
+            // 미리보기의 끝이다 - 바뀌는 파일 목록도 경고 A도 그 커밋 기준이었다.
+            if (!string.Equals(sourceTip.Sha, expectedSourceSha, StringComparison.OrdinalIgnoreCase))
+            {
+                return MergeOutcome.Of(MergeOutcomeKind.Refused,
+                    $"미리보기 뒤 '{sourceBranch}' 브랜치에 새 커밋이 올라왔습니다. [병합할 브랜치 확인]을 다시 누르고 미리보기를 다시 확인하세요.");
             }
 
             var headBefore = repo.Head.Tip;

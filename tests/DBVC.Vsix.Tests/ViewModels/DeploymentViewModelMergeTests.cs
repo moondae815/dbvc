@@ -128,14 +128,14 @@ namespace DBVC.Vsix.Tests.ViewModels
 
             Assert.That(_notifier.ConfirmCalls.Single().Message,
                 Does.Contain("PROJ-1").And.Contain("master").And.Contain("PROJ-120").And.Contain("DiscountRate DECIMAL(5,2)"));
-            _git.Verify(g => g.MergeAndPush(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            _git.Verify(g => g.MergeAndPush(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         }
 
         [Test]
         public void MergeCommand_OffersComparison_WhenMerged()
         {
             var vm = LoadedWith(MappingMode.Deploy, "develop", new MergePreview { ChangedPaths = new[] { "a.sql" } }, Branch("PROJ-1"));
-            _git.Setup(g => g.MergeAndPush(Server, Database, "PROJ-1"))
+            _git.Setup(g => g.MergeAndPush(Server, Database, "PROJ-1", It.IsAny<string>()))
                 .Returns(MergeOutcome.Of(MergeOutcomeKind.Merged, null, new[] { "a.sql" }));
             _smo.Setup(s => s.CompareWithRepository(Server, Database, It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()))
                 .Returns(new ComparisonResult { ComparedCount = 1 });
@@ -154,7 +154,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         public void MergeCommand_ShowsCoreMessage_WhenNotMerged(MergeOutcomeKind kind, string expected)
         {
             var vm = LoadedWith(MappingMode.Deploy, "develop", new MergePreview { ChangedPaths = new[] { "a.sql" } }, Branch("PROJ-1"));
-            _git.Setup(g => g.MergeAndPush(Server, Database, "PROJ-1"))
+            _git.Setup(g => g.MergeAndPush(Server, Database, "PROJ-1", It.IsAny<string>()))
                 .Returns(MergeOutcome.Of(kind, "사유: " + expected));
 
             vm.MergeCommand.Execute(null);
@@ -167,7 +167,7 @@ namespace DBVC.Vsix.Tests.ViewModels
         public void MergeCommand_ShowsError_WhenCoreThrows()
         {
             var vm = LoadedWith(MappingMode.Deploy, "develop", new MergePreview { ChangedPaths = new[] { "a.sql" } }, Branch("PROJ-1"));
-            _git.Setup(g => g.MergeAndPush(Server, Database, "PROJ-1")).Throws(new GitRemoteException("원격에 연결하지 못했습니다."));
+            _git.Setup(g => g.MergeAndPush(Server, Database, "PROJ-1", It.IsAny<string>())).Throws(new GitRemoteException("원격에 연결하지 못했습니다."));
 
             vm.MergeCommand.Execute(null);
 
@@ -184,6 +184,64 @@ namespace DBVC.Vsix.Tests.ViewModels
             Assert.That(vm.UnmergedBranches, Is.Empty);
             Assert.That(vm.SelectedBranch, Is.Null);
             Assert.That(vm.PreviewText, Is.Null);
+        }
+
+        [Test]
+        public void MergeCommand_PassesPreviewedSourceSha()
+        {
+            // 미리보기 뒤 올라온 커밋을 병합하지 않게 Core가 거부할 근거다.
+            var vm = LoadedWith(MappingMode.Deploy, "develop",
+                new MergePreview { ChangedPaths = new[] { "a.sql" }, SourceSha = "abc123" }, Branch("PROJ-1"));
+            _git.Setup(g => g.MergeAndPush(Server, Database, "PROJ-1", It.IsAny<string>()))
+                .Returns(MergeOutcome.Of(MergeOutcomeKind.Refused, "사유"));
+
+            vm.MergeCommand.Execute(null);
+
+            _git.Verify(g => g.MergeAndPush(Server, Database, "PROJ-1", "abc123"), Times.Once);
+        }
+
+        [Test]
+        public void LoadBranchesCommand_DropsLateResult_WhenTargetChanged()
+        {
+            // 이전 대상의 브랜치를 새 대상의 목록으로 보여 주면 다른 대상에 병합하는 사고가 된다.
+            var scheduler = new DeferredBackgroundScheduler();
+            var vm = NewViewModel(MappingMode.Deploy, "develop", scheduler);
+            _git.Setup(g => g.GetUnmergedBranches(Server, Database)).Returns(new[] { Branch("PROJ-1") });
+
+            vm.LoadBranchesCommand.Execute(null);
+            vm.SetTarget("Other", "Db", MappingMode.Deploy);
+            scheduler.FlushAll();
+
+            Assert.That(vm.UnmergedBranches, Is.Empty);
+            Assert.That(vm.PreviewText, Is.Null);
+            Assert.That(vm.Busy.IsBusy, Is.False);
+        }
+
+        [Test]
+        public void MergeCommand_DoesNotOfferComparison_WhenTargetChangedDuringMerge()
+        {
+            // 병합 결과가 도착했을 때 차이 검사를 제안하면 바뀐 대상(운영일 수 있다)을 검사하게 된다.
+            var scheduler = new DeferredBackgroundScheduler();
+            var vm = NewViewModel(MappingMode.Deploy, "develop", scheduler);
+            _git.Setup(g => g.GetUnmergedBranches(Server, Database)).Returns(new[] { Branch("PROJ-1") });
+            _git.Setup(g => g.PreviewMerge(Server, Database, "PROJ-1"))
+                .Returns(new MergePreview { ChangedPaths = new[] { "a.sql" }, SourceSha = "abc123" });
+            _git.Setup(g => g.MergeAndPush(Server, Database, "PROJ-1", It.IsAny<string>()))
+                .Returns(MergeOutcome.Of(MergeOutcomeKind.Merged, null, new[] { "a.sql" }));
+            vm.LoadBranchesCommand.Execute(null);
+            scheduler.FlushAll();
+            vm.SelectedBranch = vm.UnmergedBranches.First();
+            scheduler.FlushAll();
+
+            vm.MergeCommand.Execute(null);                     // 병합 확인 뒤 결과가 대기열에 걸린다
+            vm.SetTarget("Other", "Db", MappingMode.Deploy);   // 결과가 오기 전에 대상이 바뀐다
+            scheduler.FlushAll();
+
+            Assert.That(_notifier.ConfirmCalls, Has.Count.EqualTo(1), "병합 확인 외에 차이 검사를 묻지 않아야 합니다");
+            _smo.Verify(s => s.CompareWithRepository(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IProgress<ExtractionProgress>>(), It.IsAny<CancellationToken>()), Times.Never);
+            Assert.That(_notifier.InfoCalls.Single().Message, Does.Contain(Server + "." + Database).And.Contain("PROJ-1"),
+                "원격에 올라간 병합은 어느 대상의 것인지 밝혀 알립니다");
+            Assert.That(vm.Busy.IsBusy, Is.False);
         }
 
         /// <summary>
