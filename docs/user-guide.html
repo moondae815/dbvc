@@ -618,7 +618,7 @@
 
 <header class="masthead">
   <div class="wrap">
-    <p class="kicker">사용 설명서 &nbsp;/&nbsp; 개발자 · DBA &nbsp;/&nbsp; DBVC 0.9.0 &nbsp;/&nbsp; 2026-09-17</p>
+    <p class="kicker">사용 설명서 &nbsp;/&nbsp; 개발자 · DBA &nbsp;/&nbsp; DBVC 0.9.0 &nbsp;/&nbsp; 2026-09-18</p>
     <h1>스키마를 바꿨으면<br>커밋한다</h1>
     <p class="lede">
       DBVC는 SSMS 21 안에서 도는 확장입니다. 데이터베이스에 가한 스키마 변경을 <em>자동으로
@@ -1205,14 +1205,15 @@
       <p>
         <strong>도구는 <code>feature/*</code>와 <code>hotfix/*</code>를 구분하지 않습니다 —
         브랜치 정책은 같습니다.</strong> 딸려 온 변경이 문제가 되는지는 <em>어느 병합
-        단계냐</em>로 갈립니다. <code>develop</code> 병합(테스트 배포)에서는 원래
-        <code>develop</code> 쪽에 있던 변경이 돌아갈 뿐이라 무해합니다. 하지만
+        단계냐</em>로 갈립니다. <code>develop</code> 병합(테스트 배포)에서 딸려 온 변경은 대개
+        원래 <code>develop</code>에 있던 것이 돌아가는 것이고, 처음 들어가는 것이라 해도
+        도착지가 테스트 DB라 되돌릴 수 있습니다. 하지만
         <strong><code>master</code> 병합(운영 배포)에서는 <code>feature/*</code>든
         <code>hotfix/*</code>든 아직 승인되지 않은 남의 변경이 함께 운영에 나갈 수
         있습니다.</strong> <code>feature/*</code>는 그 전에 테스트 배포를 거쳐 위험이 늦춰질
         뿐이고, <code>hotfix/*</code>는 <code>master</code>에 곧바로 병합되니 그 유예도
-        없습니다. hotfix를 <code>develop</code>에도 병합해도 이미 운영에 나간 것은 되돌아오지
-        않습니다. <strong>0.8.0부터 <code>master</code> 병합 미리보기가 딸려 가는 줄을 찾아
+        없습니다. hotfix를 <code>develop</code>에도 병합해도 <strong>이미 운영에 나간 것은
+        되돌아오지 않습니다.</strong> <strong>0.8.0부터 <code>master</code> 병합 미리보기가 딸려 가는 줄을 찾아
         확인 대화상자에 목록으로 싣습니다</strong> — 막지는 않으므로 판단은 사람이 하고,
         그 앞뒤의 관문은 여전히 DBA가 배포 스크립트를 읽는 것입니다.
       </p>
