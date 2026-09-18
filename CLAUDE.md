@@ -143,6 +143,10 @@ WPF/MVVM)는 SSMS 21(VS 2022 셸) 안에서 그것을 띄운다. Core는 VS 셸�
   구현 순서로 진행한다. 새 작업을 시작하기 전에 관련 문서를 먼저 읽는다.
 - 사용자 눈에 보이는 동작이 바뀌면 `README.md`와 `docs/setup-checklist.md`를 함께 고치고,
   `src/DBVC.Vsix/source.extension.vsixmanifest`의 버전을 올린다.
+  **SSMS에서 눌러 봐야 하는 확인 항목은 `docs/ssms-manual-verification.md` 1부에 더한다** —
+  `setup-checklist.md`에 적지 않는다. 거기는 설치 절차만 담고, 검증 항목을 섞으면 0.3.0~0.9.0이
+  그랬듯 다시 쌓인다. 팀이 지켜야 할 **규칙**이 생기면 `docs/rollout-announcement.md`다.
+  네 문서의 경계는 `docs/superpowers/specs/2026-09-19-dbvc-docs-restructure-design.md` 2.3에 있다.
 - **CI가 검증하지 않는 것:** WPF 렌더링, VS 패키지 로딩, `.vsct` 메뉴 등록, 옵션 페이지 등록
   (`ProvideOptionPage`), SSMS 통합, 실제 DB 연결, 실제 AI 프로바이더 호출. 이 영역을 건드렸다면
   SSMS 21에서 직접 눌러 보기 전에는 "동작한다"고 말할 수 없다.
