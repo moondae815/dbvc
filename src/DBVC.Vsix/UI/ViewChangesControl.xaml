@@ -24,6 +24,11 @@
             한가운데에 흰 상자가 남는다(0.9.1 실기 확인). 아래 비교 창(AvalonEdit)은 일부러
             빼 둔다 - T-SQL 구문 색이 밝은 배경에 맞춰져 있어 배경만 어둡게 하면 오히려 읽기
             어려워진다. 그쪽을 칠하려면 구문 색까지 함께 바꿔야 한다.
+
+            색은 implicit 스타일이 아니라 각 요소에 직접 준다. 스타일 Setter는 기본 테마의
+            트리거에 밀려, 0.9.2에서는 화면을 몇 번 쓰고 나면 목록이 흰 바탕으로 돌아갔다 -
+            같은 화면에서 값을 직접 준 미리보기 칸만 어두운 색을 지켰다(SSMS 21 실기).
+            머리글과 선택 행은 요소에 직접 줄 자리가 없어 스타일로 둔다.
         -->
         <Style x:Key="DbvcListItemStyle" TargetType="ListViewItem"
                BasedOn="{StaticResource {x:Static GridView.GridViewItemContainerStyleKey}}">
@@ -39,25 +44,12 @@
             </Style.Triggers>
         </Style>
 
-        <Style TargetType="ListView">
-            <Setter Property="Background" Value="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"/>
-            <Setter Property="Foreground" Value="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static vsshell:VsBrushes.PanelBorderKey}}"/>
-            <Setter Property="ItemContainerStyle" Value="{StaticResource DbvcListItemStyle}"/>
-        </Style>
 
         <Style TargetType="GridViewColumnHeader">
             <Setter Property="Background" Value="{DynamicResource {x:Static vsshell:VsBrushes.GridHeadingBackgroundKey}}"/>
             <Setter Property="Foreground" Value="{DynamicResource {x:Static vsshell:VsBrushes.GridHeadingTextKey}}"/>
         </Style>
 
-        <!-- 커서도 함께 준다 - 어두운 바탕에 검은 커서는 보이지 않는다. -->
-        <Style TargetType="TextBox">
-            <Setter Property="Background" Value="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"/>
-            <Setter Property="Foreground" Value="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static vsshell:VsBrushes.PanelBorderKey}}"/>
-            <Setter Property="CaretBrush" Value="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"/>
-        </Style>
 
         <!--
             드롭다운 메뉴의 껍데기. WPF 기본 ContextMenu 템플릿은 아이콘 자리로 28px 띠를
@@ -314,6 +306,9 @@
                             ToolTip="선택한 변경의 내용을 AI에게 보내 커밋 메시지 초안을 만듭니다.&#10;커밋하지는 않습니다 - 내용을 확인하고 고친 뒤 Commit을 누르세요." />
                     <Grid>
                         <TextBox x:Name="CommitMessageBox"
+                                 Background="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"
+                                 Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"
+                                 BorderBrush="{DynamicResource {x:Static vsshell:VsBrushes.PanelBorderKey}}"
                                  Text="{Binding CommitMessage, UpdateSourceTrigger=PropertyChanged}"
                                  IsEnabled="{Binding IsMapped}"
                                  VerticalContentAlignment="Center"/>
@@ -396,7 +391,11 @@
                 </WrapPanel>
 
                 <!-- Middle Area -->
-                <ListView Grid.Row="3" x:Name="ChangeList" ItemsSource="{Binding Changes}" SelectedItem="{Binding SelectedChange}">
+                <ListView Grid.Row="3" x:Name="ChangeList" Background="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"
+                          Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"
+                          BorderBrush="{DynamicResource {x:Static vsshell:VsBrushes.PanelBorderKey}}"
+                          ItemsSource="{Binding Changes}" SelectedItem="{Binding SelectedChange}"
+                          ItemContainerStyle="{StaticResource DbvcListItemStyle}">
                     <ListView.View>
                         <GridView>
                             <GridViewColumn Header="스테이징">
@@ -469,9 +468,13 @@
                                 </Grid.RowDefinitions>
 
                                 <!-- 상단: 이력 목록 -->
-                                <ListView x:Name="HistoryListView" Grid.Row="0" ItemsSource="{Binding History.Entries}"
+                                <ListView x:Name="HistoryListView" Grid.Row="0" Background="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"
+                                          Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"
+                                          BorderBrush="{DynamicResource {x:Static vsshell:VsBrushes.PanelBorderKey}}"
+                                          ItemsSource="{Binding History.Entries}"
                                           SelectedItem="{Binding History.SelectedEntry, Mode=TwoWay}"
-                                          MouseDoubleClick="HistoryListView_MouseDoubleClick">
+                                          MouseDoubleClick="HistoryListView_MouseDoubleClick"
+                                          ItemContainerStyle="{StaticResource DbvcListItemStyle}">
                                     <ListView.View>
                                         <GridView>
                                             <GridViewColumn Header="날짜" Width="130" DisplayMemberBinding="{Binding Date}"/>
@@ -502,9 +505,13 @@
 
                                     <DockPanel x:Name="ChangedFilesPanel" Grid.Row="0" LastChildFill="True">
                                         <ListView x:Name="ChangedFilesListView"
+                                                  Background="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"
+                                                  Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"
+                                                  BorderBrush="{DynamicResource {x:Static vsshell:VsBrushes.PanelBorderKey}}"
                                                   ItemsSource="{Binding History.ChangedFiles}"
                                                   SelectedItem="{Binding History.SelectedChangedFile, Mode=TwoWay}"
-                                                  MouseDoubleClick="HistoryListView_MouseDoubleClick">
+                                                  MouseDoubleClick="HistoryListView_MouseDoubleClick"
+                                                  ItemContainerStyle="{StaticResource DbvcListItemStyle}">
                                             <ListView.View>
                                                 <GridView>
                                                     <GridViewColumn Header="상태" Width="80" DisplayMemberBinding="{Binding StateText}"/>
@@ -607,9 +614,13 @@
                             </Grid.RowDefinitions>
 
                             <!-- 목록은 작업 중에 잠근다. 명령이 없어 CanExecute가 막지 못한다(아래 차이 목록과 같은 이유). -->
-                            <ListView x:Name="MergeBranchList" Grid.Row="0" IsEnabled="{Binding Busy.IsNotBusy}"
+                            <ListView x:Name="MergeBranchList" Grid.Row="0" Background="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"
+                                      Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"
+                                      BorderBrush="{DynamicResource {x:Static vsshell:VsBrushes.PanelBorderKey}}"
+                                      IsEnabled="{Binding Busy.IsNotBusy}"
                                       ItemsSource="{Binding UnmergedBranches}"
-                                      SelectedItem="{Binding SelectedBranch, Mode=TwoWay}">
+                                      SelectedItem="{Binding SelectedBranch, Mode=TwoWay}"
+                                      ItemContainerStyle="{StaticResource DbvcListItemStyle}">
                                 <ListView.View>
                                     <GridView>
                                         <GridViewColumn Header="브랜치" Width="140" DisplayMemberBinding="{Binding Name}"/>
@@ -623,7 +634,10 @@
 
                             <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch"/>
 
-                            <TextBox x:Name="MergePreview" Grid.Row="2" IsReadOnly="True" TextWrapping="NoWrap"
+                            <TextBox x:Name="MergePreview" Grid.Row="2" Background="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"
+                                     Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"
+                                     BorderBrush="{DynamicResource {x:Static vsshell:VsBrushes.PanelBorderKey}}"
+                                     IsReadOnly="True" TextWrapping="NoWrap"
                                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                                      FontFamily="Consolas"
                                      Text="{Binding PreviewText, Mode=OneWay}"/>
@@ -654,9 +668,13 @@
                     이 안쪽 Grid의 DataContext는 Deployment이므로 Busy를 거쳐 푼다.
                 -->
                 <ListView x:Name="DeploymentDifferenceList" Grid.Row="3" Margin="5,0,5,0"
+                          Background="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"
+                          Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"
+                          BorderBrush="{DynamicResource {x:Static vsshell:VsBrushes.PanelBorderKey}}"
                           IsEnabled="{Binding Busy.IsNotBusy}"
                           ItemsSource="{Binding Differences}"
-                          SelectedItem="{Binding SelectedDifference, Mode=TwoWay}">
+                          SelectedItem="{Binding SelectedDifference, Mode=TwoWay}"
+                          ItemContainerStyle="{StaticResource DbvcListItemStyle}">
                     <ListView.View>
                         <GridView>
                             <GridViewColumn Header="객체" Width="240" DisplayMemberBinding="{Binding QualifiedName}"/>
