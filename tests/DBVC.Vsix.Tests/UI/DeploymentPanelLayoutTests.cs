@@ -56,6 +56,52 @@ namespace DBVC.Vsix.Tests.UI
         }
 
         /// <summary>
+        /// 병합 영역 머리글은 Expander의 머리 단추 안에 있다. 그 템플릿이 자기 글자색을 박아 두어
+        /// 어두운 테마에서 "병합 — 목적지: ..."가 배경에 묻혔다(2026-09-18 SSMS 21 실기).
+        /// 색을 요소에 직접 줘야 한다.
+        /// </summary>
+        [Test]
+        public void MergeHeader_TakesItsForegroundFromTheShellTheme()
+        {
+            var control = ViewChangesControlFixtures.NewConnectedControl(
+                new RepositoryState { CurrentBranch = "develop", BlockReason = RepositoryBlockReason.None },
+                mode: MappingMode.Deploy);
+            control.Resources[Microsoft.VisualStudio.Shell.VsBrushes.ToolWindowTextKey] =
+                System.Windows.Media.Brushes.Magenta;
+
+            LayoutAt(control, 700);
+
+            var header = (System.Windows.Controls.TextBlock)control.FindName("MergeHeaderText");
+            Assert.That(header, Is.Not.Null, "XAML에 MergeHeaderText가 있어야 한다");
+            Assert.That(header.Foreground, Is.SameAs(System.Windows.Media.Brushes.Magenta));
+        }
+
+        /// <summary>
+        /// 작업 중에는 목록을 잠그는 대신 클릭과 포커스만 막는다. IsEnabled를 끄면 WPF 기본
+        /// 템플릿이 배경 속성을 무시하고 #F4F4F4로 칠해, 어두운 테마에서 작업이 도는 동안만
+        /// 목록이 흰 바탕으로 바뀌었다(2026-09-18 SSMS 21 실기 + 픽셀 측정으로 확인).
+        /// </summary>
+        [Test]
+        public void ListsBlockInputWithoutDisabling_WhileWorkIsRunning()
+        {
+            var control = ViewChangesControlFixtures.NewConnectedControl(
+                new RepositoryState { CurrentBranch = "develop", BlockReason = RepositoryBlockReason.None },
+                mode: MappingMode.Deploy);
+            var vm = (DBVC.Vsix.ViewModels.ViewChangesViewModel)control.DataContext;
+            vm.Deployment.Busy.IsBusy = true;
+
+            LayoutAt(control, 700);
+
+            foreach (var name in new[] { "MergeBranchList", "DeploymentDifferenceList" })
+            {
+                var list = (System.Windows.Controls.ListView)control.FindName(name);
+                Assert.That(list.IsEnabled, Is.True, $"{name}을 잠그면 기본 템플릿이 흰 바탕으로 칠한다");
+                Assert.That(list.IsHitTestVisible, Is.False, $"{name}은 작업 중 클릭이 막혀야 한다");
+                Assert.That(list.Focusable, Is.False, $"{name}은 작업 중 키보드 선택도 막혀야 한다");
+            }
+        }
+
+        /// <summary>
         /// 병합 브랜치 목록은 다섯 열(브랜치·작성자·마지막 커밋·커밋 수·테스트 반영)로 결정을
         /// 돕는데, 미리보기를 옆에 두었더니 도킹한 창에서 작성자 뒤가 잘렸다(0.9.1 실기 확인).
         /// 미리보기를 아래로 내려 목록이 패널 폭을 다 쓰게 한다.
@@ -175,15 +221,19 @@ namespace DBVC.Vsix.Tests.UI
             var list = (ListView)control.FindName("DeploymentDifferenceList");
 
             LayoutAt(control, 600);
-            Assert.That(list.IsEnabled, Is.True,
-                "전제가 깨졌다 - 평소에도 잠겨 있으면 잠금을 확인할 수 없다");
+            Assert.That(list.IsHitTestVisible, Is.True,
+                "전제가 깨졌다 - 평소에도 막혀 있으면 막는 것을 확인할 수 없다");
 
             var viewModel = (DBVC.Vsix.ViewModels.ViewChangesViewModel)control.DataContext;
             viewModel.Deployment.Busy.IsBusy = true;
             LayoutAt(control, 600);
 
-            Assert.That(list.IsEnabled, Is.False,
+            // 막는 방법이 IsEnabled에서 클릭·포커스 차단으로 바뀌었다(0.9.4) - 잠그면 WPF 기본
+            // 템플릿이 배경을 무시하고 흰 바탕으로 칠한다. 막는다는 요구는 그대로다.
+            Assert.That(list.IsHitTestVisible, Is.False,
                 "차이 검사가 도는 중에 목록을 고르면 원문 읽기가 먼저 IsBusy를 내려놓아 검사가 겹쳐 돈다");
+            Assert.That(list.Focusable, Is.False,
+                "키보드로 고르는 길도 함께 막아야 한다");
         }
     }
 }

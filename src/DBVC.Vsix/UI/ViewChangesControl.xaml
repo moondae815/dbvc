@@ -582,7 +582,13 @@
                 -->
                 <Expander Grid.Row="0" Margin="5,5,5,0" IsExpanded="True">
                     <Expander.Header>
-                        <TextBlock>
+                        <!--
+                            글자색을 직접 준다. 머리글은 Expander의 머리 단추 안에 있고 그 템플릿이
+                            자기 색을 박아 두어, 바깥에서 준 TextElement.Foreground가 닿지 않는다 -
+                            어두운 테마에서 이 줄만 배경에 묻혔다(SSMS 21 실기).
+                        -->
+                        <TextBlock x:Name="MergeHeaderText"
+                                   Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}">
                             <Run Text="병합 — 목적지:"/>
                             <Run Text="{Binding MergeTargetBranch, Mode=OneWay}" FontWeight="SemiBold"/>
                         </TextBlock>
@@ -613,11 +619,16 @@
                                 <RowDefinition Height="1*" />
                             </Grid.RowDefinitions>
 
-                            <!-- 목록은 작업 중에 잠근다. 명령이 없어 CanExecute가 막지 못한다(아래 차이 목록과 같은 이유). -->
+                            <!--
+                                작업 중에는 클릭과 포커스만 막는다. 명령이 없어 CanExecute가 막지 못하는데,
+                                IsEnabled를 끄면 WPF 기본 템플릿이 배경 속성을 무시하고 #F4F4F4로 칠해
+                                어두운 테마에서 작업이 도는 동안만 목록이 흰 바탕이 된다(아래 차이 목록도 같다).
+                            -->
                             <ListView x:Name="MergeBranchList" Grid.Row="0" Background="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"
                                       Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"
                                       BorderBrush="{DynamicResource {x:Static vsshell:VsBrushes.PanelBorderKey}}"
-                                      IsEnabled="{Binding Busy.IsNotBusy}"
+                                      IsHitTestVisible="{Binding Busy.IsNotBusy}"
+                                      Focusable="{Binding Busy.IsNotBusy}"
                                       ItemsSource="{Binding UnmergedBranches}"
                                       SelectedItem="{Binding SelectedBranch, Mode=TwoWay}"
                                       ItemContainerStyle="{StaticResource DbvcListItemStyle}">
@@ -664,14 +675,15 @@
                     그것은 차이 검사보다 빨리 끝나므로 먼저 IsBusy를 내려놓는다 - 그러면 검사가
                     아직 도는 중에 두 버튼이 되살아나고, 다시 누른 검사가 같은 대상을 상대로
                     겹쳐 돌아 나중에 끝난 쪽이 먼저 끝난 쪽의 목록을 덮어쓴다. 버튼은
-                    CanExecute가 잠그지만 목록에는 명령이 없어 화면이 막아야 한다(IsNotBusy).
+                    CanExecute가 잠그지만 목록에는 명령이 없어 화면이 막아야 한다 - 잠그는 대신 클릭·포커스만 막는다.
                     이 안쪽 Grid의 DataContext는 Deployment이므로 Busy를 거쳐 푼다.
                 -->
                 <ListView x:Name="DeploymentDifferenceList" Grid.Row="3" Margin="5,0,5,0"
                           Background="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"
                           Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"
                           BorderBrush="{DynamicResource {x:Static vsshell:VsBrushes.PanelBorderKey}}"
-                          IsEnabled="{Binding Busy.IsNotBusy}"
+                          IsHitTestVisible="{Binding Busy.IsNotBusy}"
+                          Focusable="{Binding Busy.IsNotBusy}"
                           ItemsSource="{Binding Differences}"
                           SelectedItem="{Binding SelectedDifference, Mode=TwoWay}"
                           ItemContainerStyle="{StaticResource DbvcListItemStyle}">
