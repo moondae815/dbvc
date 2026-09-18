@@ -1,6 +1,7 @@
 #if NETFRAMEWORK
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using NUnit.Framework;
 using DBVC.Core;
 using DBVC.Core.Models;
@@ -169,6 +170,61 @@ namespace DBVC.Vsix.Tests.UI
             Assert.That(changeList.Visibility, Is.Not.EqualTo(Visibility.Visible), "전제: 변경 목록 영역은 숨는다");
             Assert.That(IsDescendantOf(Find<DependencyObject>(control, name), changeList), Is.True,
                 $"'{name}'이 변경 목록 영역 밖에 있어 배포 화면에 보인다");
+        }
+
+        /// <summary>
+        /// 목록·머리글·입력 칸은 셸 테마 색을 받아야 한다. WPF 기본값(흰 바탕)으로 두면 어두운
+        /// 테마에서 도구 창 한가운데에 흰 상자가 남는다(0.9.1 실기 확인). 기본 전경도 검정이라
+        /// 기본값과 겹치지 않는 색을 주어 "받았는지"만 가른다 - AuthorToggle 테스트와 같은 방식이다.
+        /// </summary>
+        [Test]
+        public void ListAndInput_TakeTheirColorsFromTheShellTheme()
+        {
+            var control = NewWriteControl();
+            control.Resources[Microsoft.VisualStudio.Shell.VsBrushes.ToolWindowTextKey] = Brushes.Magenta;
+            control.Resources[Microsoft.VisualStudio.Shell.VsBrushes.ToolWindowBackgroundKey] = Brushes.Cyan;
+
+            LayoutAt(control, 600);
+
+            Assert.That(Find<ListView>(control, "ChangeList").Foreground, Is.SameAs(Brushes.Magenta),
+                "변경 목록이 셸 글자색을 받아야 한다");
+            Assert.That(Find<ListView>(control, "ChangeList").Background, Is.SameAs(Brushes.Cyan),
+                "변경 목록이 셸 배경색을 받아야 한다");
+            Assert.That(Find<TextBox>(control, "CommitMessageBox").Background, Is.SameAs(Brushes.Cyan),
+                "커밋 메시지 칸이 셸 배경색을 받아야 한다");
+        }
+
+        /// <summary>
+        /// 목록을 어둡게 칠하면 선택 행이 문제가 된다 - WPF 기본 선택 배경은 밝은 그라데이션이라
+        /// 밝은 글자와 겹쳐 읽히지 않는다(탐침으로 확인). 선택 행도 셸 색을 받아야 한다.
+        /// </summary>
+        [Test]
+        public void SelectedRow_TakesTheShellHighlightColors()
+        {
+            var control = NewWriteControl();
+            control.Resources[Microsoft.VisualStudio.Shell.VsBrushes.HighlightKey] = Brushes.DarkBlue;
+            control.Resources[Microsoft.VisualStudio.Shell.VsBrushes.HighlightTextKey] = Brushes.Yellow;
+            var vm = (DBVC.Vsix.ViewModels.ViewChangesViewModel)control.DataContext;
+            vm.Changes.Add(new DBVC.Vsix.ViewModels.ChangeItemViewModel
+            {
+                ObjectName = "dbo.Users",
+                ObjectType = "Table",
+                State = "Modified",
+                RelativePath = "dbo/Tables/Users.sql",
+                Author = "DEV-PC"
+            });
+
+            LayoutAt(control, 600);
+
+            var list = Find<ListView>(control, "ChangeList");
+            var row = (ListViewItem)list.ItemContainerGenerator.ContainerFromIndex(0);
+            Assert.That(row, Is.Not.Null, "행이 만들어져야 선택 색을 볼 수 있다");
+
+            row.IsSelected = true;
+            LayoutAt(control, 600);
+
+            Assert.That(row.Background, Is.SameAs(Brushes.DarkBlue));
+            Assert.That(row.Foreground, Is.SameAs(Brushes.Yellow));
         }
 
         private static bool IsDescendantOf(DependencyObject node, DependencyObject ancestor)

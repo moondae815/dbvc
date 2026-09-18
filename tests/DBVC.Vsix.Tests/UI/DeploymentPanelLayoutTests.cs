@@ -55,6 +55,33 @@ namespace DBVC.Vsix.Tests.UI
             Assert.That(IsVisible(control, "ChangeListGrid"), Is.False);
         }
 
+        /// <summary>
+        /// 병합 브랜치 목록은 다섯 열(브랜치·작성자·마지막 커밋·커밋 수·테스트 반영)로 결정을
+        /// 돕는데, 미리보기를 옆에 두었더니 도킹한 창에서 작성자 뒤가 잘렸다(0.9.1 실기 확인).
+        /// 미리보기를 아래로 내려 목록이 패널 폭을 다 쓰게 한다.
+        /// </summary>
+        [Test]
+        public void MergePreview_SitsBelowTheBranchList_NotBesideIt()
+        {
+            var control = ViewChangesControlFixtures.NewConnectedControl(
+                new RepositoryState { CurrentBranch = "develop", BlockReason = RepositoryBlockReason.None },
+                mode: MappingMode.Deploy);
+
+            LayoutAt(control, 700);
+
+            var list = (FrameworkElement)control.FindName("MergeBranchList");
+            var preview = (FrameworkElement)control.FindName("MergePreview");
+            Assert.That(list, Is.Not.Null, "XAML에 MergeBranchList가 있어야 한다");
+            Assert.That(preview, Is.Not.Null, "XAML에 MergePreview가 있어야 한다");
+
+            var listTop = list.TranslatePoint(new Point(0, 0), control).Y;
+            var previewTop = preview.TranslatePoint(new Point(0, 0), control).Y;
+
+            Assert.That(previewTop, Is.GreaterThan(listTop + 20), "미리보기는 목록 아래에 와야 한다");
+            Assert.That(list.ActualWidth, Is.GreaterThan(560),
+                "목록이 패널 폭을 다 써야 다섯 열이 잘리지 않는다");
+        }
+
         /// <summary>Deploy(테스트) 대상도 Audit과 같은 이유로 같은 화면을 봐야 한다.</summary>
         [Test]
         public void DeployTarget_ShowsDeploymentPanel_NotSetupOverlay_WhenUninitialized()

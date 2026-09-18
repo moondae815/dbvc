@@ -20,6 +20,46 @@
         <local:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis"/>
 
         <!--
+            목록·머리글·입력 칸은 셸이 칠해 주지 않는다. 그대로 두면 어두운 테마에서 도구 창
+            한가운데에 흰 상자가 남는다(0.9.1 실기 확인). 아래 비교 창(AvalonEdit)은 일부러
+            빼 둔다 - T-SQL 구문 색이 밝은 배경에 맞춰져 있어 배경만 어둡게 하면 오히려 읽기
+            어려워진다. 그쪽을 칠하려면 구문 색까지 함께 바꿔야 한다.
+        -->
+        <Style x:Key="DbvcListItemStyle" TargetType="ListViewItem"
+               BasedOn="{StaticResource {x:Static GridView.GridViewItemContainerStyleKey}}">
+            <!--
+                선택 행은 따로 지정해야 한다. 기본 선택 배경이 밝은 그라데이션으로 박혀 있어,
+                목록만 어둡게 칠하면 밝은 글자가 밝은 배경에 겹쳐 읽히지 않는다.
+            -->
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource {x:Static vsshell:VsBrushes.HighlightKey}}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource {x:Static vsshell:VsBrushes.HighlightTextKey}}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style TargetType="ListView">
+            <Setter Property="Background" Value="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"/>
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static vsshell:VsBrushes.PanelBorderKey}}"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource DbvcListItemStyle}"/>
+        </Style>
+
+        <Style TargetType="GridViewColumnHeader">
+            <Setter Property="Background" Value="{DynamicResource {x:Static vsshell:VsBrushes.GridHeadingBackgroundKey}}"/>
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static vsshell:VsBrushes.GridHeadingTextKey}}"/>
+        </Style>
+
+        <!-- 커서도 함께 준다 - 어두운 바탕에 검은 커서는 보이지 않는다. -->
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"/>
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static vsshell:VsBrushes.PanelBorderKey}}"/>
+            <Setter Property="CaretBrush" Value="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"/>
+        </Style>
+
+        <!--
             드롭다운 메뉴의 껍데기. WPF 기본 ContextMenu 템플릿은 아이콘 자리로 28px 띠를
             #F1F1F1로 박아 그리고 그 옆에 1px 구분선 둘(#E2E3E3, #FFFFFF)을 더 그린다 —
             Background를 셸 색으로 칠해도 그 띠는 템플릿에 고정되어 있어 그대로 남고,
@@ -543,7 +583,7 @@
                     <Grid Margin="0,4,0,0">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="140" />
+                            <RowDefinition Height="260" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
@@ -554,15 +594,20 @@
                                     ToolTip="고른 브랜치를 목적지에 병합 커밋으로 병합하고 원격에 올립니다. 충돌이 있으면 누를 수 없습니다."/>
                         </WrapPanel>
 
+                        <!--
+                            목록을 위, 미리보기를 아래로 둔다. 좌우로 나누면 도킹한 창에서 목록이
+                            패널 폭의 절반만 써서 결정에 필요한 열(마지막 커밋·커밋 수·테스트 반영)이
+                            잘렸다(0.9.1 실기 확인). 미리보기는 원래 세로로 긴 내용이라 아래가 맞다.
+                        -->
                         <Grid Grid.Row="1">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="5" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="1*" />
+                                <RowDefinition Height="5" />
+                                <RowDefinition Height="1*" />
+                            </Grid.RowDefinitions>
 
                             <!-- 목록은 작업 중에 잠근다. 명령이 없어 CanExecute가 막지 못한다(아래 차이 목록과 같은 이유). -->
-                            <ListView Grid.Column="0" IsEnabled="{Binding Busy.IsNotBusy}"
+                            <ListView x:Name="MergeBranchList" Grid.Row="0" IsEnabled="{Binding Busy.IsNotBusy}"
                                       ItemsSource="{Binding UnmergedBranches}"
                                       SelectedItem="{Binding SelectedBranch, Mode=TwoWay}">
                                 <ListView.View>
@@ -576,13 +621,11 @@
                                 </ListView.View>
                             </ListView>
 
-                            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"/>
+                            <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch"/>
 
-                            <TextBox Grid.Column="2" IsReadOnly="True" TextWrapping="NoWrap"
+                            <TextBox x:Name="MergePreview" Grid.Row="2" IsReadOnly="True" TextWrapping="NoWrap"
                                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                                      FontFamily="Consolas"
-                                     Background="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowBackgroundKey}}"
-                                     Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"
                                      Text="{Binding PreviewText, Mode=OneWay}"/>
                         </Grid>
                     </Grid>
