@@ -3015,6 +3015,67 @@ namespace DBVC.Vsix.Tests.ViewModels
                 "경고할 것이 없는데 확인을 물었습니다 - 매번 뜨면 사용자가 읽지 않게 된다");
         }
 
+        [Test]
+        public void Commit_AsksForConfirmation_WhenTheCurrentBranchIsMaster()
+        {
+            _git.Setup(g => g.GetRepositoryState(It.IsAny<string>(), It.IsAny<string>()))
+                .Returns(new RepositoryState { CurrentBranch = "master", BlockReason = RepositoryBlockReason.None });
+
+            _notifier.ConfirmResult = false;
+
+            var vm = NewViewModelWithOneSelectedChange("dbo.P");
+            vm.CommitMessage = "테스트";
+            vm.CommitCommand.Execute(null);
+
+            Assert.That(_notifier.ConfirmCalls.Any(call => call.Message.Contains("master")), Is.True,
+                "어느 브랜치가 문제인지 문구에 없습니다");
+
+            _git.Verify(g => g.CommitChanges(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>()),
+                Times.Never);
+        }
+
+        [Test]
+        public void Commit_DoesNotAsk_WhenTheCurrentBranchIsDevelop()
+        {
+            // develop 직접 커밋은 팀이 허용하는 경로다. 여기까지 물으면 경고가 일상이 되어
+            // 정작 master 경고를 읽지 않게 된다.
+            _git.Setup(g => g.GetRepositoryState(It.IsAny<string>(), It.IsAny<string>()))
+                .Returns(new RepositoryState { CurrentBranch = "develop", BlockReason = RepositoryBlockReason.None });
+
+            var vm = NewViewModelWithOneSelectedChange("dbo.P");
+            vm.CommitMessage = "테스트";
+            vm.CommitCommand.Execute(null);
+
+            Assert.That(_notifier.ConfirmCallCount, Is.Zero);
+            _git.Verify(g => g.CommitChanges(
+                Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>()),
+                Times.Once);
+        }
+
+        [Test]
+        public void Commit_AsksAboutMasterOnlyOnce_WhenAnotherAuthorAlsoTouchedTheObject()
+        {
+            // CoAuthor 확인은 같은 커밋을 재진입시킨다. 브랜치 확인이 그 경로에도 있으면
+            // 사용자가 같은 질문에 두 번 답해야 한다.
+            _git.Setup(g => g.GetRepositoryState(It.IsAny<string>(), It.IsAny<string>()))
+                .Returns(new RepositoryState { CurrentBranch = "master", BlockReason = RepositoryBlockReason.None });
+            _stateTracker.Setup(s => s.GetCoAuthorWarnings(
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+                .Returns(new[] { new CoAuthorWarning { QualifiedName = "dbo.P", Author = "KIM-PC" } });
+
+            _notifier.ConfirmResult = true;
+
+            var vm = NewViewModelWithOneSelectedChange("dbo.P");
+            vm.CommitMessage = "테스트";
+            vm.CommitCommand.Execute(null);
+
+            Assert.That(_notifier.ConfirmCalls.Count(call => call.Message.Contains("master")), Is.EqualTo(1));
+            _git.Verify(g => g.CommitChanges(
+                Server, Database, It.IsAny<string>(), It.IsAny<IEnumerable<string>>()),
+                Times.Once);
+        }
+
         // ---------- 용도별 패널·명령 게이팅 ----------
 
         [Test]

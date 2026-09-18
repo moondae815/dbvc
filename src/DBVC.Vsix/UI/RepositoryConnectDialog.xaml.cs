@@ -19,6 +19,9 @@ namespace DBVC.Vsix.UI
         /// <summary>사용자가 폴더 이름을 직접 고쳤는지. 고쳤으면 제안이 덮어쓰지 않는다.</summary>
         private bool _folderNameEditedByUser;
 
+        /// <summary>사용자가 고정 브랜치를 직접 고쳤는지. 고쳤으면 용도를 바꿔도 덮어쓰지 않는다.</summary>
+        private bool _branchEditedByUser;
+
         public RepositoryConnectDialog(string serverName, string databaseName, IFolderBrowseDialog folderDialog)
         {
             InitializeComponent();
@@ -55,6 +58,29 @@ namespace DBVC.Vsix.UI
         private void FolderName_TextChanged(object sender, TextChangedEventArgs e)
         {
             _folderNameEditedByUser = true;
+        }
+
+        /// <summary>
+        /// 용도에 맞는 브랜치 이름을 채운다. 배포·감사는 어차피 입력이 필수이고, 그 값은
+        /// 조직이 정한 환경 브랜치 하나로 정해져 있다 - 매번 손으로 옮겨 적게 할 이유가 없다.
+        ///
+        /// 개발로 되돌리면 다시 비운다. 남겨 두면 브랜치가 자유로워야 할 클론이 고정된 채로
+        /// 등록되고, 그 브랜치를 벗어나는 순간 DBVC 창이 통째로 덮인다.
+        /// </summary>
+        private void UsageMode_Checked(object sender, RoutedEventArgs e)
+        {
+            // InitializeComponent가 IsChecked="True"를 적용할 때도 불린다. 그때는 아직 칸이 없다.
+            if (BranchBox == null || _branchEditedByUser) return;
+
+            // 제안이 만든 변경은 사용자가 고친 것으로 세면 안 된다.
+            _branchEditedByUser = true;
+            BranchBox.Text = EnvironmentBranches.SuggestFor(ReadMode()) ?? string.Empty;
+            _branchEditedByUser = false;
+        }
+
+        private void Branch_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            _branchEditedByUser = true;
         }
 
         private void Ok_Click(object sender, RoutedEventArgs e)
@@ -97,9 +123,7 @@ namespace DBVC.Vsix.UI
         /// </summary>
         private bool TryReadUsage(out MappingMode mode, out string? branch)
         {
-            mode = DeployMode.IsChecked == true ? MappingMode.Deploy
-                 : AuditMode.IsChecked == true ? MappingMode.Audit
-                 : MappingMode.Write;
+            mode = ReadMode();
 
             branch = string.IsNullOrWhiteSpace(BranchBox.Text) ? null : BranchBox.Text.Trim();
 
@@ -111,6 +135,13 @@ namespace DBVC.Vsix.UI
             }
 
             return true;
+        }
+
+        private MappingMode ReadMode()
+        {
+            return DeployMode.IsChecked == true ? MappingMode.Deploy
+                 : AuditMode.IsChecked == true ? MappingMode.Audit
+                 : MappingMode.Write;
         }
 
         private void ShowError(string message)

@@ -48,18 +48,21 @@
         <GroupBox Header="용도" Margin="0,10,0,0">
             <StackPanel Margin="8">
                 <RadioButton x:Name="WriteMode" GroupName="Mode" IsChecked="True" Margin="0,0,0,4"
+                             Checked="UsageMode_Checked"
                              Content="개발 — 변경을 추적하고 커밋합니다"/>
                 <RadioButton x:Name="DeployMode" GroupName="Mode" Margin="0,0,0,4"
+                             Checked="UsageMode_Checked"
                              Content="배포 — 차이를 검사하고 배포 스크립트를 만듭니다 (커밋하지 않습니다)"/>
                 <RadioButton x:Name="AuditMode" GroupName="Mode" Margin="0,0,0,8"
+                             Checked="UsageMode_Checked"
                              Content="감사 — 차이만 확인합니다 (커밋하지 않고 트리거도 설치하지 않습니다)"/>
 
                 <DockPanel>
                     <TextBlock Text="고정 브랜치:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBox x:Name="BranchBox"/>
+                    <TextBox x:Name="BranchBox" TextChanged="Branch_TextChanged"/>
                 </DockPanel>
                 <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Foreground="Gray"
-                           Text="배포·감사는 브랜치를 반드시 고정해야 합니다(예: 배포는 develop, 감사는 master). 개발은 비워 두면 전환이 자유롭습니다."/>
+                           Text="용도를 고르면 그 용도가 흔히 쓰는 브랜치가 채워집니다 — 이름이 다르면 고쳐 적으세요. 배포·감사는 브랜치를 반드시 고정해야 합니다. 개발은 비워 두면 전환이 자유롭습니다."/>
             </StackPanel>
         </GroupBox>
 

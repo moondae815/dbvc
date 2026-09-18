@@ -2012,7 +2012,42 @@ namespace DBVC.Vsix.ViewModels
         /// 스테이징은 객체 3000개 기준 15초가 걸린다(libgit2 고유 비용이라 API를 바꿔도 줄지 않는다).
         /// 그래서 커밋도 UI 스레드에서 하지 않는다.
         /// </summary>
-        private void Commit() => Commit(coAuthorConfirmed: false, identityPrompted: false);
+        private void Commit()
+        {
+            // 브랜치 확인은 여기에만 둔다. 아래 두 확인(신원·CoAuthor)은 같은 커밋을 재진입시키는데,
+            // 그 경로에도 있으면 사용자가 같은 질문에 두 번 답하게 된다. 커맨드가 묶인 진입점은
+            // 이 무인자 메서드 하나뿐이라 재진입은 여기를 지나지 않는다.
+            //
+            // 그리고 맨 앞이어야 한다. 신원·CoAuthor를 지나서 뜨면 이미 확인을 두 번 누른 뒤이고,
+            // 여기서 취소하면 그 둘은 애초에 물을 필요가 없었던 것이 된다.
+            //
+            // DB도 Git도 읽지 않고 이미 화면에 있는 값만 보므로 배경 스레드로 넘기지 않는다.
+            if (EnvironmentBranches.WarnsBeforeCommit(Mode, CurrentBranch)
+                && !AskToCommitOnMaster())
+            {
+                return;
+            }
+
+            Commit(coAuthorConfirmed: false, identityPrompted: false);
+        }
+
+        /// <summary>
+        /// 차단이 아니라 확인이다. master에서 hotfix 브랜치를 따는 것은 정상 흐름이고
+        /// (모든 브랜치가 master에서 분기한다 - 워크플로 설계), 거기 머문 채로 커밋하는 것이
+        /// 언제나 틀렸다고 단정할 근거도 없다. 다만 대가가 크므로 반드시 눈에 걸리게 한다.
+        /// </summary>
+        private bool AskToCommitOnMaster()
+        {
+            return _notifier.Confirm(
+                "DBVC 커밋 확인",
+                $"현재 브랜치는 '{EnvironmentBranches.Master}'입니다."
+                + Environment.NewLine + Environment.NewLine
+                + "개발 DB에는 아직 운영에 나가면 안 되는 변경이 함께 들어 있고, 지금 커밋하면 "
+                + "그것이 운영 기준선이 됩니다. 감사 클론은 그 내용을 '운영에 있어야 할 것'으로 "
+                + "읽으므로 실제 차이를 보지 못하게 됩니다."
+                + Environment.NewLine + Environment.NewLine
+                + "그대로 커밋할까요?");
+        }
 
         /// <param name="coAuthorConfirmed">
         /// 사용자가 이미 "남의 변경이 딸려 온다"는 확인에 동의했는지. 확인 대화상자는 UI
