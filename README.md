@@ -393,7 +393,8 @@ dotnet test tests/DBVC.Baseline.Tests -f net48
 `Microsoft.Data.SqlClient`가 net462 구현체를 `runtimes/win` 아래에만 배포하기 때문이며,
 Mono를 설치해도 해결되지 않습니다.
 
-**CI로 검증되지 않는 것:** WPF 렌더링, VS 패키지 로딩, `.vsct` 메뉴 등록, SSMS 통합, 실제 DB 연결.
+**CI로 검증되지 않는 것:** WPF 렌더링, VS 패키지 로딩, `.vsct` 메뉴 등록, 옵션 페이지 등록
+(`ProvideOptionPage`), SSMS 통합, 실제 DB 연결, 실제 AI 프로바이더 호출.
 이들은 SSMS 21 실행 환경에서 수동으로 확인해야 합니다.
 
 ## 라이선스
