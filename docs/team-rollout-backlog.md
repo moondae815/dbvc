@@ -164,7 +164,7 @@ P1이 된다.
 | — | 기존 저장소의 `.gitattributes` 조사 | 2026-09-09 확인 | 개발 PC의 저장소 셋만 봤다. **팀의 실제 저장소는 각자 확인해야 한다** — 여럿이 쓰는 개발 저장소가 비어 있으면 누가 먼저 커밋하느냐에 따라 그 파일이 LF로 굳어 MR이 지저분해진다 |
 | — | "무시"와 30일 보존 | 2026-09-09 확인 | 업그레이드(v5→v6)와 신규 v6 둘 다. **이 검증이 실제로 결함을 잡았다** — 업그레이드 도중 옛 트리거가 DBVC 자신의 DDL을 기록하던 자리로, 자동 테스트 613개가 전부 초록인 채였다 |
 | — | AI 커밋 메시지 | 0.7.0 · 0.7.1 | 백로그 항목은 아니었다 — [설계](superpowers/specs/2026-09-16-dbvc-ai-commit-message-design.md). 배포 관점에서 남은 것은 위 1번의 서버 주소 건 하나다 |
-| — | 배포·감사 클론 병합 | 0.8.0 | 팀이 GitLab 없이 DBVC 안에서 병합하기를 원했다 — [설계](superpowers/specs/2026-09-17-dbvc-merge-in-deploy-clone-design.md). **보호 브랜치를 "MR로만 병합"으로 바꾸면 이 기능이 멈춘다** |
+| — | 배포·감사 클론 병합 | 0.8.0 | 팀이 GitLab 없이 DBVC 안에서 병합하기를 원했다 — [설계](superpowers/specs/2026-09-17-dbvc-merge-in-deploy-clone-design.md). **GitLab 설정 하나로 조용히 멈출 수 있다** — 전제는 [`rollout-announcement.md`](rollout-announcement.md) 2.8에 있다 |
 
 ## 남은 검증
 

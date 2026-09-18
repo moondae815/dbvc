@@ -186,12 +186,12 @@ Step 4에서 옮기다 "이미 다른 묶음이 같은 것을 본다"로 판정�
 
 ```bash
 cd C:/git-root/dbvc
-awk '/^## 2부/,/^## 3부/' docs/ssms-manual-verification.md | grep -c '^- \[ \]'
+awk '/^# 2부/,/^# 3부/' docs/ssms-manual-verification.md | grep -c '^- \[ \]'
 ```
 Expected: `0` — 2부에 미확인 체크박스가 하나도 없다.
 
 ```bash
-grep -c '^## 1부\|^## 2부\|^## 3부' docs/ssms-manual-verification.md
+grep -c '^# [123]부' docs/ssms-manual-verification.md
 ```
 Expected: `3`
 
@@ -699,7 +699,7 @@ grep -n '^### 0\.' docs/setup-checklist.md
 Expected: 출력 없음.
 
 ```bash
-awk '/^## 2부/,/^## 3부/' docs/ssms-manual-verification.md | grep -c '^- \[ \]'
+awk '/^# 2부/,/^# 3부/' docs/ssms-manual-verification.md | grep -c '^- \[ \]'
 ```
 Expected: `0`.
 
