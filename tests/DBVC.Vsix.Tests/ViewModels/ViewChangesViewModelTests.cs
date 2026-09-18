@@ -1713,30 +1713,59 @@ namespace DBVC.Vsix.Tests.ViewModels
         // ---------- 원격 확인 ----------
 
         [Test]
-        public void CheckRemoteCommand_ShowsAheadAndBehindCounts_WhenTheRemoteAnswers()
+        public void CheckRemoteCommand_PutsTheCountsOnPullAndPush_WhenTheRemoteAnswers()
         {
+            // 생성자 순서는 (aheadBy, behindBy)다 - 올릴 커밋 2개, 받을 커밋 1개.
             _git.Setup(g => g.FetchRemoteStatus(Server, Database)).Returns(new RemoteStatus(2, 1));
             var vm = NewConnectedViewModel();
 
             vm.CheckRemoteCommand.Execute(null);
 
-            Assert.That(vm.RemoteStatusText, Does.Contain("받을 커밋 1개"));
-            Assert.That(vm.RemoteStatusText, Does.Contain("올릴 커밋 2개"));
-            Assert.That(vm.HasRemoteStatus, Is.True);
+            Assert.That(vm.PullButtonText, Is.EqualTo("Pull ↓1"));
+            Assert.That(vm.PushButtonText, Is.EqualTo("Push ↑2"));
         }
 
         [Test]
-        public void RemoteStatusText_IsEmpty_BeforeTheUserAsks()
+        public void PullButtonText_ShowsZero_WhenCheckedAndNothingToPull()
         {
-            // 누르기 전에는 아무것도 뜨지 않는다. 낡은 숫자를 최신인 척 보여주지 않기 위해서다.
+            // 0을 생략하면 "확인했고 받을 것이 없다"와 "확인하지 않았다"가 같은 글자가 된다.
+            _git.Setup(g => g.FetchRemoteStatus(Server, Database)).Returns(new RemoteStatus(0, 0));
             var vm = NewConnectedViewModel();
 
-            Assert.That(vm.HasRemoteStatus, Is.False);
+            vm.CheckRemoteCommand.Execute(null);
+
+            Assert.That(vm.PullButtonText, Is.EqualTo("Pull ↓0"));
+            Assert.That(vm.PushButtonText, Is.EqualTo("Push ↑0"));
+        }
+
+        [Test]
+        public void PullButtonText_HasNoCount_BeforeTheUserAsks()
+        {
+            // 누르기 전에는 숫자가 없다. 낡은 숫자를 최신인 척 보여주지 않기 위해서다.
+            var vm = NewConnectedViewModel();
+
+            Assert.That(vm.LastRemoteStatus, Is.Null);
+            Assert.That(vm.PullButtonText, Is.EqualTo("Pull"));
+            Assert.That(vm.PushButtonText, Is.EqualTo("Push"));
             _git.Verify(g => g.FetchRemoteStatus(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         }
 
         [Test]
-        public void RemoteStatusText_IsCleared_WhenTheTargetChanges()
+        public void PullButtonText_RaisesPropertyChanged_WhenTheRemoteIsChecked()
+        {
+            _git.Setup(g => g.FetchRemoteStatus(Server, Database)).Returns(new RemoteStatus(2, 1));
+            var vm = NewConnectedViewModel();
+            var raised = new List<string?>();
+            vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            vm.CheckRemoteCommand.Execute(null);
+
+            Assert.That(raised, Does.Contain(nameof(ViewChangesViewModel.PullButtonText)));
+            Assert.That(raised, Does.Contain(nameof(ViewChangesViewModel.PushButtonText)));
+        }
+
+        [Test]
+        public void LastRemoteStatus_IsCleared_WhenTheTargetChanges()
         {
             _git.Setup(g => g.FetchRemoteStatus(Server, Database)).Returns(new RemoteStatus(2, 1));
             var vm = NewConnectedViewModel();
@@ -1746,24 +1775,39 @@ namespace DBVC.Vsix.Tests.ViewModels
                 .Returns(new SsmsConnectionInfo("S2", "D2", SqlAuthMode.Windows, null, null, null));
             vm.ConnectCommand.Execute(null);
 
-            Assert.That(vm.HasRemoteStatus, Is.False,
+            Assert.That(vm.PullButtonText, Is.EqualTo("Pull"),
                 "다른 대상의 원격 상태가 남으면 사용자가 엉뚱한 저장소의 숫자를 읽습니다");
         }
 
         [Test]
-        public void RemoteStatusText_IsCleared_AfterASuccessfulPull()
+        public void LastRemoteStatus_IsCleared_AfterASuccessfulPull()
         {
             // Pull이 뒤처짐을 줄이므로 원격 확인이 보여준 숫자는 낡는다. 지우지 않으면
-            // 다 받은 뒤에도 "받을 커밋 n개"가 최신인 척 남는다.
+            // 다 받은 뒤에도 "Pull ↓3"이 최신인 척 남는다.
             _git.Setup(g => g.FetchRemoteStatus(Server, Database)).Returns(new RemoteStatus(0, 3));
             _git.Setup(g => g.PullChanges(Server, Database)).Returns(PullResult.Pulled);
             var vm = NewConnectedViewModel();
             vm.CheckRemoteCommand.Execute(null);
-            Assert.That(vm.HasRemoteStatus, Is.True, "선행 조건: 원격 확인으로 값을 채워 둔다");
+            Assert.That(vm.PullButtonText, Is.EqualTo("Pull ↓3"), "선행 조건: 원격 확인으로 값을 채워 둔다");
 
             vm.PullCommand.Execute(null);
 
-            Assert.That(vm.HasRemoteStatus, Is.False);
+            Assert.That(vm.LastRemoteStatus, Is.Null);
+            Assert.That(vm.PullButtonText, Is.EqualTo("Pull"));
+        }
+
+        [Test]
+        public void LastRemoteStatus_IsCleared_AfterASuccessfulPush()
+        {
+            _git.Setup(g => g.FetchRemoteStatus(Server, Database)).Returns(new RemoteStatus(2, 0));
+            _git.Setup(g => g.PushChanges(Server, Database)).Returns(PushResult.Pushed);
+            var vm = NewConnectedViewModel();
+            vm.CheckRemoteCommand.Execute(null);
+            Assert.That(vm.PushButtonText, Is.EqualTo("Push ↑2"), "선행 조건: 원격 확인으로 값을 채워 둔다");
+
+            vm.PushCommand.Execute(null);
+
+            Assert.That(vm.PushButtonText, Is.EqualTo("Push"));
         }
 
         [Test]
@@ -1776,7 +1820,7 @@ namespace DBVC.Vsix.Tests.ViewModels
             vm.CheckRemoteCommand.Execute(null);
 
             Assert.That(_notifier.Errors, Is.Not.Empty);
-            Assert.That(vm.HasRemoteStatus, Is.False);
+            Assert.That(vm.LastRemoteStatus, Is.Null);
         }
 
         [Test]
@@ -1793,6 +1837,83 @@ namespace DBVC.Vsix.Tests.ViewModels
             var vm = NewConnectedViewModel();
 
             Assert.That(vm.CheckRemoteCommand.CanExecute(null), Is.False);
+        }
+
+        // ---------- 체크한 항목 ----------
+
+        private ViewChangesViewModel NewViewModelWithThreeChanges()
+        {
+            _stateTracker.Setup(s => s.GetPendingChanges(Server, Database)).Returns(new List<ChangeRecord>
+            {
+                Record("dbo", "Users", "Modified", "dbo/Tables/Users.sql"),
+                Record("dbo", "Orders", "Modified", "dbo/Tables/Orders.sql"),
+                Record("dbo", "Items", "Modified", "dbo/Tables/Items.sql")
+            });
+            var vm = NewConnectedViewModel();
+            vm.RefreshCommand.Execute(null);
+            Assert.That(vm.Changes.Count, Is.EqualTo(3), "전제: 새로고침이 세 항목을 채워야 합니다");
+            return vm;
+        }
+
+        [Test]
+        public void CheckedCount_CountsOnlyCheckedItems_WhenSomeAreUnchecked()
+        {
+            var vm = NewViewModelWithThreeChanges();
+            Assert.That(vm.CheckedCount, Is.EqualTo(3), "새로고침 직후에는 모두 체크되어 있습니다");
+
+            vm.Changes.Single(c => c.ObjectName == "dbo.Orders").IsSelected = false;
+
+            Assert.That(vm.CheckedCount, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void CheckedCount_RaisesPropertyChanged_WhenAnItemIsUnchecked()
+        {
+            var vm = NewViewModelWithThreeChanges();
+            var raised = new List<string?>();
+            vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            vm.Changes[0].IsSelected = false;
+
+            Assert.That(raised, Does.Contain(nameof(ViewChangesViewModel.CheckedCount)),
+                "알리지 않으면 '체크한 항목 n개'가 체크를 바꿔도 그대로 남습니다");
+        }
+
+        [Test]
+        public void DiscardCommand_RaisesCanExecuteChanged_WhenAnItemIsUnchecked()
+        {
+            // RelayCommand는 RequerySuggested를 쓰지 않는다. 체크는 명령을 거치지 않고 바인딩으로
+            // 바로 바뀌므로, 여기서 알리지 않으면 체크를 다 풀어도 버튼이 켜진 채 남는다.
+            var vm = NewViewModelWithThreeChanges();
+            var discardRaised = 0;
+            var commitRaised = 0;
+            var scriptRaised = 0;
+            vm.DiscardCommand.CanExecuteChanged += (_, __) => discardRaised++;
+            vm.CommitCommand.CanExecuteChanged += (_, __) => commitRaised++;
+            vm.GenerateDeploymentScriptCommand.CanExecuteChanged += (_, __) => scriptRaised++;
+
+            foreach (var item in vm.Changes) item.IsSelected = false;
+
+            Assert.That(discardRaised, Is.GreaterThan(0));
+            Assert.That(commitRaised, Is.GreaterThan(0));
+            Assert.That(scriptRaised, Is.GreaterThan(0));
+            Assert.That(vm.DiscardCommand.CanExecute(null), Is.False);
+        }
+
+        [Test]
+        public void CheckedCount_IsZero_AfterTheTargetChanges()
+        {
+            var vm = NewViewModelWithThreeChanges();
+            var raised = new List<string?>();
+            vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            _ssms.Setup(s => s.TryGetCurrent())
+                .Returns(new SsmsConnectionInfo("S2", "D2", SqlAuthMode.Windows, null, null, null));
+            vm.ConnectCommand.Execute(null);
+
+            Assert.That(vm.CheckedCount, Is.EqualTo(0));
+            Assert.That(raised, Does.Contain(nameof(ViewChangesViewModel.CheckedCount)),
+                "Clear도 알려야 합니다 - 이전 대상의 개수가 화면에 남습니다");
         }
 
         // ---------- Commit ----------
@@ -4210,8 +4331,8 @@ namespace DBVC.Vsix.Tests.ViewModels
         {
             // CheckRemote가 이전 브랜치에서 남긴 숫자다. 브랜치가 바뀌면 Pull이 뒤처짐을 줄이는
             // 것과 달리 비교 기준 자체가 다른 브랜치로 바뀌므로, ApplyPullResult·ApplyPushResult와
-            // 같은 이유로 지워야 한다 - 남으면 "브랜치: develop" 옆에 이전 브랜치의 앞섬·뒤처짐이
-            // 최신인 척 그대로 뜬다.
+            // 같은 이유로 지워야 한다 - 남으면 develop 브랜치의 Pull·Push 버튼에 이전 브랜치의
+            // 앞섬·뒤처짐이 최신인 척 그대로 뜬다.
             _branchDialog.ExistingToReturn = "develop";
             _git.Setup(g => g.GetBranches(Server, Database))
                 .Returns(new[] { new BranchInfo { Name = "develop" } });
@@ -4221,11 +4342,11 @@ namespace DBVC.Vsix.Tests.ViewModels
             _git.Setup(g => g.FetchRemoteStatus(Server, Database)).Returns(new RemoteStatus(2, 1));
             var vm = NewConnectedViewModel();
             vm.CheckRemoteCommand.Execute(null);
-            Assert.That(vm.HasRemoteStatus, Is.True, "전제: 확인한 숫자가 이미 떠 있어야 합니다");
+            Assert.That(vm.LastRemoteStatus, Is.Not.Null, "전제: 확인한 숫자가 이미 떠 있어야 합니다");
 
             vm.SwitchBranchCommand.Execute(null);
 
-            Assert.That(vm.RemoteStatusText, Is.Null,
+            Assert.That(vm.LastRemoteStatus, Is.Null,
                 "낡은 숫자를 최신인 척 보여주면 안 됩니다 - 브랜치가 바뀌면 그 숫자는 다른 브랜치의 것입니다");
         }
 

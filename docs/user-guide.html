@@ -618,7 +618,7 @@
 
 <header class="masthead">
   <div class="wrap">
-    <p class="kicker">사용 설명서 &nbsp;/&nbsp; 개발자 · DBA &nbsp;/&nbsp; DBVC 0.7.2 &nbsp;/&nbsp; 2026-09-17</p>
+    <p class="kicker">사용 설명서 &nbsp;/&nbsp; 개발자 · DBA &nbsp;/&nbsp; DBVC 0.9.0 &nbsp;/&nbsp; 2026-09-17</p>
     <h1>스키마를 바꿨으면<br>커밋한다</h1>
     <p class="lede">
       DBVC는 SSMS 21 안에서 도는 확장입니다. 데이터베이스에 가한 스키마 변경을 <em>자동으로
@@ -930,11 +930,11 @@
 
     <figure>
       <div class="scroller">
-        <svg viewBox="0 0 900 470" role="img"
+        <svg viewBox="0 0 900 500" role="img"
              aria-label="DBVC 도구 창의 구조 — 위에서부터 대상 줄, 배너, 동작 버튼 줄, 변경 목록, 비교·이력 탭">
 
           <!-- 창 -->
-          <rect class="box" x="8" y="8" width="600" height="454" rx="4"></rect>
+          <rect class="box" x="8" y="8" width="600" height="484" rx="4"></rect>
 
           <!-- 대상 줄 -->
           <rect class="band" x="8" y="8" width="600" height="44"></rect>
@@ -942,31 +942,36 @@
           <text class="t-mono" x="24" y="42">SQL Server 인증 · sa</text>
           <rect class="btn" x="360" y="18" width="46" height="20" rx="2"></rect>
           <text class="t-mono" x="383" y="32" text-anchor="middle">연결</text>
-          <text class="t-mono" x="592" y="26" text-anchor="end">브랜치: develop</text>
-          <text class="t-mono" x="592" y="42" text-anchor="end">DBVC 0.7.2</text>
+          <rect class="btn" x="462" y="17" width="66" height="19" rx="2"></rect>
+          <text class="t-mono" x="495" y="31" text-anchor="middle">develop ▾</text>
+          <text class="t-mono" x="592" y="31" text-anchor="end">DBVC 0.9.0</text>
 
           <!-- 배너 -->
           <rect class="box-accent" x="16" y="60" width="584" height="26" rx="2"></rect>
           <text class="t-edge" x="26" y="77">배너 — 추적기가 구버전이거나, 작성자가 없거나, 인코딩이 옛것일 때만 뜹니다</text>
 
-          <!-- 동작 버튼 줄 -->
-          <rect class="band" x="16" y="94" width="584" height="52" rx="2"></rect>
+          <!-- 동작 버튼 줄: 동기화 · 커밋 · 체크한 항목 -->
+          <rect class="band" x="16" y="94" width="584" height="82" rx="2"></rect>
           <g class="t-edge">
-            <rect class="btn" x="26"  y="104" width="52" height="19" rx="2"></rect><text x="52"  y="117" text-anchor="middle">새로고침</text>
-            <rect class="btn" x="84"  y="104" width="70" height="19" rx="2"></rect><text x="119" y="117" text-anchor="middle">전체 다시 추출</text>
-            <rect class="btn" x="160" y="104" width="96" height="19" rx="2"></rect><text x="208" y="117" text-anchor="middle">커밋 메시지…</text>
-            <rect class="btn" x="262" y="104" width="44" height="19" rx="2"></rect><text x="284" y="117" text-anchor="middle">AI 생성</text>
-            <rect class="btn" x="312" y="104" width="46" height="19" rx="2"></rect><text x="335" y="117" text-anchor="middle">Commit</text>
-            <rect class="btn" x="364" y="104" width="50" height="19" rx="2"></rect><text x="389" y="117" text-anchor="middle">되돌리기</text>
-            <rect class="btn" x="420" y="104" width="34" height="19" rx="2"></rect><text x="437" y="117" text-anchor="middle">무시</text>
-            <rect class="btn" x="460" y="104" width="34" height="19" rx="2"></rect><text x="477" y="117" text-anchor="middle">Pull</text>
-            <rect class="btn" x="500" y="104" width="34" height="19" rx="2"></rect><text x="517" y="117" text-anchor="middle">Push</text>
-            <rect class="btn" x="540" y="104" width="52" height="19" rx="2"></rect><text x="566" y="117" text-anchor="middle">원격 확인</text>
-            <rect class="btn" x="26" y="131" width="10" height="10" rx="1"></rect>
-            <text x="42" y="139">다른 사람 변경도 보기</text>
-            <text x="592" y="139" text-anchor="end">받을 커밋 0개 · 올릴 커밋 2개</text>
+            <rect class="btn" x="26"  y="100" width="52" height="19" rx="2"></rect><text x="52"  y="113" text-anchor="middle">새로고침</text>
+            <rect class="btn" x="80"  y="100" width="14" height="19" rx="2"></rect><text x="87"  y="113" text-anchor="middle">▾</text>
+            <rect class="btn" x="110" y="100" width="46" height="19" rx="2"></rect><text x="133" y="113" text-anchor="middle">Pull ↓0</text>
+            <rect class="btn" x="160" y="100" width="46" height="19" rx="2"></rect><text x="183" y="113" text-anchor="middle">Push ↑2</text>
+            <rect class="btn" x="210" y="100" width="52" height="19" rx="2"></rect><text x="236" y="113" text-anchor="middle">원격 확인</text>
+
+            <rect class="btn" x="26"  y="126" width="452" height="19" rx="2"></rect><text x="34" y="139">커밋 메시지</text>
+            <rect class="btn" x="484" y="126" width="44" height="19" rx="2"></rect><text x="506" y="139" text-anchor="middle">AI 생성</text>
+            <rect class="btn" x="534" y="126" width="56" height="19" rx="2"></rect><text x="562" y="139" text-anchor="middle">Commit</text>
+
+            <text x="26" y="165">체크한 항목 2개</text>
+            <rect class="btn" x="106" y="152" width="50" height="19" rx="2"></rect><text x="131" y="165" text-anchor="middle">되돌리기</text>
+            <rect class="btn" x="160" y="152" width="34" height="19" rx="2"></rect><text x="177" y="165" text-anchor="middle">무시</text>
+            <rect class="btn" x="198" y="152" width="58" height="19" rx="2"></rect><text x="227" y="165" text-anchor="middle">스크립트 ▾</text>
+            <rect class="btn" x="272" y="156" width="10" height="10" rx="1"></rect>
+            <text x="288" y="165">다른 사람 변경도 보기</text>
           </g>
 
+          <g transform="translate(0,30)">
           <!-- 변경 목록 -->
           <rect class="box" x="16" y="154" width="584" height="150" rx="2"></rect>
           <line x1="16" y1="176" x2="600" y2="176" stroke="var(--rule-strong)" stroke-width="1"></line>
@@ -1015,6 +1020,7 @@
             <text x="320" y="412">    Qty int NOT NULL,</text>
             <text x="320" y="428">    Discount real NOT NULL</text>
           </g>
+          </g>
 
           <!-- 설명 -->
           <g>
@@ -1026,26 +1032,32 @@
             <text class="t-note" x="668" y="69">평소엔 없습니다.</text>
             <text class="t-note" x="668" y="84">뜨면 시키는 대로 한 번 누릅니다.</text>
 
-            <path class="flow-dash" d="M 608 118 L 660 118"></path>
-            <text class="t-note" x="668" y="114">누르는 것은 전부 이 줄에.</text>
-            <text class="t-note" x="668" y="129">왼쪽이 저장소 쪽,</text>
-            <text class="t-note" x="668" y="144">오른쪽이 원격 쪽 일입니다.</text>
+            <path class="flow-dash" d="M 608 135 L 660 135"></path>
+            <text class="t-note" x="668" y="116">위에서부터 원격과 주고받기,</text>
+            <text class="t-note" x="668" y="131">커밋하기,</text>
+            <text class="t-note" x="668" y="146">체크한 것에 할 일.</text>
+            <text class="t-note" x="668" y="161">가끔 쓰는 것은 ▾ 메뉴 안에.</text>
 
+            <g transform="translate(0,30)">
             <path class="flow-dash" d="M 608 210 L 660 210"></path>
             <text class="t-note" x="668" y="200">기본은 내 PC에서 바꾼 것만.</text>
             <text class="t-note" x="668" y="215">체크한 것만 커밋됩니다.</text>
             <text class="t-note" x="668" y="230">변경자는 사람이 아니라 접속 PC.</text>
+            </g>
 
+            <g transform="translate(0,30)">
             <path class="flow-dash" d="M 608 385 L 660 385"></path>
             <text class="t-note" x="668" y="375">왼쪽이 저장소, 오른쪽이 DB.</text>
             <text class="t-note" x="668" y="390">항목을 고르면 그 객체의 차이가</text>
             <text class="t-note" x="668" y="405">여기 그려집니다.</text>
+            </g>
           </g>
         </svg>
       </div>
       <figcaption>
         개발 용도로 연결했을 때의 DBVC 창. 배포·감사 용도로 연결하면 목록과 버튼 줄 대신
-        <span class="b">차이 검사</span>·<span class="b">배포 스크립트 저장...</span> 둘만 있는
+        병합 영역(<span class="b">병합할 브랜치 확인</span>·<span class="b">병합</span>)과
+        <span class="b">차이 검사</span>·<span class="b">배포 스크립트 저장...</span>이 있는
         별도 패널이 뜹니다(<a href="#dba">3장</a>).
       </figcaption>
     </figure>
@@ -1215,10 +1227,10 @@
       </p>
       <p>
         브랜치 자체는 자유입니다. 저장소를 연결할 때 <strong>고정 브랜치 칸은 비웁니다.</strong>
-        전환은 <span class="b">새 브랜치</span>·<span class="b">브랜치 전환</span> 버튼으로
+        전환은 오른쪽 위 브랜치 이름 버튼(<code>develop ▾</code>)의 메뉴로
         합니다 → <a href="#dev">2.8</a>. 두 브랜치를 하나로 합치는 것만 GitLab MR이나 외부
         Git 클라이언트로 합니다. 지금 어느 브랜치인지는 도구 창 오른쪽 위, 버전 왼쪽의
-        <code>브랜치: …</code>에서 봅니다.
+        그 버튼의 이름에서 봅니다.
       </p>
     </div>
 
@@ -1291,7 +1303,7 @@
       <p>
         <span class="b">새로고침</span>은 <strong>변경 로그가 아는 것만</strong> 추출합니다.
         빠른 대신, 로그가 모르는 차이는 잡지 못합니다.
-        <span class="b">전체 다시 추출</span>은 모든 객체를 다시 스크립팅합니다 — 느리지만
+        <span class="b">전체 다시 추출</span>(새로고침 옆 <span class="b">▾</span> 메뉴)은 모든 객체를 다시 스크립팅합니다 — 느리지만
         저장소를 데이터베이스의 현재 상태와 맞추는 확실한 방법입니다.
       </p>
       <p><strong>전체 다시 추출이 필요한 경우는 정해져 있습니다.</strong></p>
@@ -1332,7 +1344,7 @@
         <tbody>
           <tr>
             <td class="q"><span class="b">원격 확인</span></td>
-            <td>원격을 받아 <code>받을 커밋 n개 · 올릴 커밋 n개</code>를 위쪽에 띄웁니다</td>
+            <td>원격을 받아 받을 커밋과 올릴 커밋의 수를 <span class="b">Pull ↓n</span>·<span class="b">Push ↑n</span>처럼 두 버튼에 붙입니다</td>
             <td><strong>누를 때만 네트워크를 씁니다.</strong> 자동으로 갱신되지 않습니다 — 새로고침에 붙이면 응답 없는 원격이 변경 목록을 보는 일까지 느리게 만듭니다</td>
           </tr>
           <tr>
@@ -1420,7 +1432,7 @@
       </li>
       <li>
         <strong><span class="b">배포 스크립트</span>·<span class="b">롤백 스크립트</span>:</strong>
-        개발 화면에도 있지만 <strong>참고용</strong>입니다. 선택한 객체의 DDL을 단일 파일로
+        변경 목록 바로 위 줄의 <span class="b">스크립트 ▾</span> 메뉴에 있습니다. 개발 화면에도 있지만 <strong>참고용</strong>입니다. 선택한 객체의 DDL을 단일 파일로
         병합하며, 배포 쪽은 현재 DB 기준 최신 코드를, 롤백 쪽은 각 객체가 마지막으로 커밋되기
         직전의 코드를 담습니다. 실제 배포는 3장의 절차로 합니다.
       </li>
@@ -1430,8 +1442,7 @@
 
     <div class="prose">
       <p>
-        도구 창에 <span class="b">새 브랜치</span>·<span class="b">브랜치 전환</span> 두 버튼이
-        있습니다. 2.1의 하루의 흐름이 <em>한 브랜치 위에서</em> 도는 절차라면, 여기는 티켓
+        도구 창 오른쪽 위 브랜치 이름 버튼(<code>develop ▾</code>)을 누르면 <span class="b">새 브랜치</span>·<span class="b">브랜치 전환</span> 두 메뉴 항목이 나옵니다. 2.1의 하루의 흐름이 <em>한 브랜치 위에서</em> 도는 절차라면, 여기는 티켓
         하나를 받아 브랜치를 열고 닫는 <em>바깥쪽 한 바퀴</em>입니다.
       </p>
     </div>
@@ -1485,11 +1496,11 @@
     </div>
 
     <div class="caution">
-      <h4>두 버튼은 개발 클론에서만 눌립니다</h4>
+      <h4>두 메뉴 항목은 개발 클론에서만 눌립니다</h4>
       <p>
         배포·감사 클론은 <strong>고정 브랜치가 필수</strong>입니다 — 브랜치를 옮기는 순간
         비교 기준이 무너지므로, <span class="b">새 브랜치</span>·<span class="b">브랜치 전환</span>
-        둘 다 그 클론에서는 처음부터 비활성화되어 있습니다.
+        둘 다 그 클론에서는 메뉴를 열면 잠긴 채 보입니다.
       </p>
     </div>
 
@@ -1871,11 +1882,11 @@
       </div>
       <div class="qa-row">
         <dt>인덱스를 만들었는데 목록에 안 뜹니다</dt>
-        <dd>XML 인덱스나 공간 인덱스라면 <b>생성이 감지되지 않습니다</b> — SQL Server가 그때만 다른 유형으로 알려 줍니다. <span class="b">전체 다시 추출</span>을 한 번 누르세요. 일반 인덱스는 부모 테이블의 수정으로 정상 감지됩니다.</dd>
+        <dd>XML 인덱스나 공간 인덱스라면 <b>생성이 감지되지 않습니다</b> — SQL Server가 그때만 다른 유형으로 알려 줍니다. 새로고침 옆 <span class="b">▾</span> 메뉴의 <span class="b">전체 다시 추출</span>을 한 번 누르세요. 일반 인덱스는 부모 테이블의 수정으로 정상 감지됩니다.</dd>
       </div>
       <div class="qa-row">
         <dt>내가 바꾼 것이 목록에 없습니다</dt>
-        <dd>사람은 <b>접속 PC</b>로 구분합니다. 다른 PC에서 만든 변경이라면 <em>다른 사람 변경도 보기</em>를 켜세요. 트리거 설치 전의 변경이라면 <span class="b">전체 다시 추출</span>입니다.</dd>
+        <dd>사람은 <b>접속 PC</b>로 구분합니다. 다른 PC에서 만든 변경이라면 <em>다른 사람 변경도 보기</em>를 켜세요. 트리거 설치 전의 변경이라면 새로고침 옆 <span class="b">▾</span> 메뉴의 <span class="b">전체 다시 추출</span>입니다.</dd>
       </div>
       <div class="qa-row">
         <dt>커밋했는데 항목이 새로고침마다 되살아납니다</dt>

@@ -52,31 +52,36 @@
                     브랜치는 버전 왼쪽에 붙인다. DockPanel은 먼저 Dock된 것이 더 바깥이라
                     VersionLabel 다음에 두어야 이 순서가 나온다. 비교 기준이 브랜치 내용이므로
                     이것이 보이지 않으면 사용자가 diff를 오독한다.
+
+                    이름 자체가 메뉴 버튼이다. 새 브랜치·전환을 따로 버튼으로 두었을 때는 대상 표시
+                    바로 뒤에 붙어 "Windows 인증"을 가렸다. 배포·감사 클론에서도 메뉴는 열린다 - 두
+                    항목이 잠긴 채 보이는 것이 "이 클론은 브랜치가 고정되어 있다"를 말한다.
+                    메뉴를 여는 버튼에는 명령이 없어 CanExecute로 잠기지 않으므로 작업 중에는
+                    IsNotBusy로 잠근다.
                 -->
-                <TextBlock x:Name="BranchLabel" DockPanel.Dock="Right"
-                           Text="{Binding CurrentBranch, StringFormat=브랜치: {0}}"
-                           VerticalAlignment="Top" Margin="8,4,0,4"
-                           Visibility="{Binding HasCurrentBranch, Converter={StaticResource BoolToVis}}"
-                           Foreground="{DynamicResource {x:Static vsshell:VsBrushes.GrayTextKey}}"
-                           ToolTip="저장소가 지금 가리키는 브랜치입니다. 커밋은 이 브랜치에 담깁니다."/>
-                <TextBlock x:Name="RemoteStatusLabel" DockPanel.Dock="Right"
-                           Text="{Binding RemoteStatusText}"
-                           VerticalAlignment="Top" Margin="8,4,0,4"
-                           Visibility="{Binding HasRemoteStatus, Converter={StaticResource BoolToVis}}"
-                           Foreground="{DynamicResource {x:Static vsshell:VsBrushes.GrayTextKey}}"
-                           ToolTip="마지막으로 '원격 확인'을 누른 시점의 값입니다. 자동으로 갱신되지 않습니다."/>
+                <Button x:Name="BranchMenuButton" DockPanel.Dock="Right"
+                        Content="{Binding CurrentBranch}" ContentStringFormat="{}{0} ▾"
+                        VerticalAlignment="Top" Margin="8,0,0,4" Padding="8,1"
+                        Visibility="{Binding HasCurrentBranch, Converter={StaticResource BoolToVis}}"
+                        IsEnabled="{Binding IsNotBusy}"
+                        ContextMenuService.IsEnabled="False"
+                        Click="OnDropDownButtonClick"
+                        ToolTip="저장소가 지금 가리키는 브랜치입니다. 커밋은 이 브랜치에 담깁니다.&#10;눌러서 다른 브랜치로 전환하거나 새 브랜치를 만듭니다.">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="브랜치 전환..." Command="{Binding SwitchBranchCommand}"
+                                      ToolTipService.ShowOnDisabled="True"
+                                      ToolTip="다른 브랜치로 갈아탑니다.&#10;커밋되지 않은 변경이 있으면 갈아타지 않고 무엇이 남았는지 알려 줍니다.&#10;배포·감사 클론은 브랜치가 고정되어 있어 잠깁니다."/>
+                            <MenuItem Header="새 브랜치..." Command="{Binding CreateBranchCommand}"
+                                      ToolTipService.ShowOnDisabled="True"
+                                      ToolTip="지금 브랜치에서 새 브랜치를 만들고 갈아탑니다. 작업 중인 파일은 그대로 남습니다.&#10;배포·감사 클론은 브랜치가 고정되어 있어 잠깁니다."/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
                 <WrapPanel Orientation="Horizontal">
                     <Button x:Name="ConnectButton" Content="연결" Command="{Binding ConnectCommand}" Width="70" Margin="0,0,10,4"
                             ToolTip="SSMS 개체 탐색기에서 선택한 데이터베이스로 접속합니다. 인증 정보는 그 연결에서만 오며 디스크에 저장되지 않습니다."/>
                     <TextBlock x:Name="TargetLabel" Text="{Binding TargetSummary}" VerticalAlignment="Center" Margin="0,0,0,4"/>
-                    <!--
-                        고정 브랜치 클론(배포용)에서는 CanExecute가 항상 false라 눌러도 반응이 없다 -
-                        여기서 또 IsEnabled/Visibility를 걸면 같은 판정이 두 곳에 생긴다.
-                    -->
-                    <Button Content="새 브랜치" Command="{Binding CreateBranchCommand}" Width="80" Margin="0,0,6,4"
-                            ToolTip="지금 브랜치에서 새 브랜치를 만들고 갈아탑니다. 작업 중인 파일은 그대로 남습니다."/>
-                    <Button Content="브랜치 전환" Command="{Binding SwitchBranchCommand}" Width="90" Margin="0,0,10,4"
-                            ToolTip="다른 브랜치로 갈아탑니다.&#10;커밋되지 않은 변경이 있으면 갈아타지 않고 무엇이 남았는지 알려 줍니다."/>
                 </WrapPanel>
             </DockPanel>
 
@@ -179,58 +184,156 @@
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="5" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
                 <!--
-                    Top Area. 버튼이 늘어 좁게 도킹하면 잘리므로 WrapPanel로 줄바꿈되게 한다.
+                    도구 줄은 무리 단위로 줄바꿈한다. 버튼을 한 WrapPanel에 흘려 두었을 때는 좁게
+                    도킹하면 Pull만 윗줄에 남고 Push가 아랫줄로 떨어져, 함께 읽어야 할 숫자가 갈라졌다.
+
+                    컨테이너에 TextElement.Foreground를 걸지 않는다. 이 영역은 위쪽 StackPanel 바깥이라
+                    상속을 받지 못하는데, 여기서 걸면 커밋 메시지 TextBox까지 흘러 들어가 어두운 테마에서
+                    흰 바탕에 흰 글씨가 된다. 글자를 가진 TextBlock·CheckBox에만 직접 준다.
                 -->
-                <WrapPanel Grid.Row="0" Orientation="Horizontal" Margin="5">
-                    <Button Content="새로고침" Command="{Binding RefreshCommand}" Width="80" Margin="0,0,6,4"
-                            ToolTip="DDL 로그가 기록한 변경만 다시 추출합니다. 빠릅니다."/>
-                    <Button Content="전체 다시 추출" Command="{Binding RefreshAllCommand}" Width="110" Margin="0,0,10,4"
-                            ToolTip="데이터베이스의 모든 객체를 다시 추출합니다. 느리지만, DDL 트리거가 없던 동안의 변경처럼 변경 로그가 모르는 차이를 되찾는 유일한 방법입니다."/>
-                    <TextBox Text="{Binding CommitMessage, UpdateSourceTrigger=PropertyChanged}"
-                             Width="240" Margin="0,0,10,4"
-                             IsEnabled="{Binding IsMapped}"/>
-                    <Button Content="AI 생성" Command="{Binding GenerateCommitMessageCommand}" Width="70" Margin="0,0,10,4"
+                <WrapPanel Grid.Row="0" Orientation="Horizontal" Margin="5,5,5,0">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
+                        <Button x:Name="RefreshButton" Content="새로고침" Command="{Binding RefreshCommand}"
+                                MinWidth="80" Padding="8,1"
+                                ToolTip="DDL 로그가 기록한 변경만 다시 추출합니다. 빠릅니다."/>
+                        <!--
+                            전체 다시 추출은 새로고침의 느린 변형이고 DB 전체를 긁는다. 가끔 쓰므로 접는다.
+                            메뉴를 여는 버튼에는 명령이 없어 CanExecute로 잠기지 않으므로 작업 중에는
+                            IsNotBusy로 잠근다 - 열린 메뉴가 작업 종료 뒤에 남는 경로를 만들지 않는다.
+                        -->
+                        <Button x:Name="RefreshMenuButton" Content="▾" Width="22" Margin="1,0,0,0"
+                                IsEnabled="{Binding IsNotBusy}"
+                                ContextMenuService.IsEnabled="False"
+                                Click="OnDropDownButtonClick"
+                                ToolTip="다른 추출 방법">
+                            <Button.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="전체 다시 추출 (느림)" Command="{Binding RefreshAllCommand}"
+                                              ToolTipService.ShowOnDisabled="True"
+                                              ToolTip="데이터베이스의 모든 객체를 다시 추출합니다. 느리지만, DDL 트리거가 없던 동안의 변경처럼 변경 로그가 모르는 차이를 되찾는 유일한 방법입니다."/>
+                                </ContextMenu>
+                            </Button.ContextMenu>
+                        </Button>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <Button x:Name="PullButton" Content="{Binding PullButtonText}" Command="{Binding PullCommand}"
+                                MinWidth="70" Padding="8,1" Margin="0,0,6,0"
+                                ToolTip="원격 저장소의 변경을 로컬 저장소로 가져옵니다. 데이터베이스에는 적용하지 않습니다.&#10;숫자는 마지막으로 '원격 확인'을 누른 시점의 값입니다. 자동으로 갱신되지 않습니다." />
+                        <Button x:Name="PushButton" Content="{Binding PushButtonText}" Command="{Binding PushCommand}"
+                                MinWidth="70" Padding="8,1" Margin="0,0,6,0"
+                                ToolTip="로컬 저장소의 커밋을 원격 저장소에 올립니다.&#10;숫자는 마지막으로 '원격 확인'을 누른 시점의 값입니다. 자동으로 갱신되지 않습니다." />
+                        <Button x:Name="CheckRemoteButton" Content="원격 확인" Command="{Binding CheckRemoteCommand}"
+                                MinWidth="80" Padding="8,1"
+                                ToolTip="원격을 받아 받을 커밋과 올릴 커밋의 수를 셉니다. 작업 트리는 건드리지 않습니다.&#10;누를 때만 네트워크를 씁니다 - 자동으로 갱신되지 않습니다."/>
+                    </StackPanel>
+                </WrapPanel>
+
+                <!--
+                    메시지 칸은 남는 폭을 모두 쓴다. 폭 240 고정의 이름 없는 칸이었을 때는 무엇을 적는
+                    곳인지 화면이 말하지 않았다. TextBox에는 placeholder가 없어 같은 셀에 TextBlock을
+                    겹친다 - 클릭이 칸으로 가도록 IsHitTestVisible을 끈다.
+                -->
+                <DockPanel Grid.Row="1" Margin="5,0,5,4" LastChildFill="True">
+                    <Button x:Name="CommitButton" DockPanel.Dock="Right" Content="Commit" Command="{Binding CommitCommand}"
+                            MinWidth="70" Padding="8,1" Margin="6,0,0,0" />
+                    <Button x:Name="GenerateMessageButton" DockPanel.Dock="Right" Content="AI 생성"
+                            Command="{Binding GenerateCommitMessageCommand}"
+                            MinWidth="70" Padding="8,1" Margin="6,0,0,0"
                             ToolTip="선택한 변경의 내용을 AI에게 보내 커밋 메시지 초안을 만듭니다.&#10;커밋하지는 않습니다 - 내용을 확인하고 고친 뒤 Commit을 누르세요." />
-                    <Button Content="Commit" Command="{Binding CommitCommand}" Width="70" Margin="0,0,10,4" />
-                    <Button Content="되돌리기" Command="{Binding DiscardCommand}" Width="70" Margin="0,0,10,4"
+                    <Grid>
+                        <TextBox x:Name="CommitMessageBox"
+                                 Text="{Binding CommitMessage, UpdateSourceTrigger=PropertyChanged}"
+                                 IsEnabled="{Binding IsMapped}"
+                                 VerticalContentAlignment="Center"/>
+                        <TextBlock x:Name="CommitMessagePlaceholder" Text="커밋 메시지"
+                                   Margin="5,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                                   Foreground="{DynamicResource {x:Static vsshell:VsBrushes.GrayTextKey}}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Text, ElementName=CommitMessageBox}" Value="">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Text, ElementName=CommitMessageBox}" Value="{x:Null}">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                </DockPanel>
+
+                <!--
+                    체크한 항목에 작용하는 것만 모은다. 목록 바로 위에 두어 적용 대상을 자리가 말하게
+                    한다. 체크가 없어도 줄은 남는다 - 체크할 때마다 목록이 밀리지 않고, 처음 쓰는 사람도
+                    기능이 있다는 것을 안다(스펙 2.4). 잠금은 명령의 CanExecute가 맡는다.
+
+                    우클릭 메뉴로 옮기지 않는다. 우클릭은 클릭한 행을 가리키는데 이 명령들은 체크한
+                    항목에 작용하므로, 화면이 무엇이 되돌아가는지 거짓말을 하게 된다(스펙 2.3).
+                -->
+                <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="5,0,5,4">
+                    <TextBlock x:Name="CheckedCountLabel"
+                               Text="{Binding CheckedCount, StringFormat='체크한 항목 {0}개'}"
+                               VerticalAlignment="Center" Margin="0,0,10,0"
+                               Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"/>
+                    <Button x:Name="DiscardButton" Content="되돌리기" Command="{Binding DiscardCommand}"
+                            MinWidth="70" Padding="8,1" Margin="0,0,6,0"
                             ToolTip="선택한 파일을 저장소의 마지막 커밋 내용으로 되돌립니다. 데이터베이스의 변경은 남아 다음 새로고침에서 다시 추출됩니다." />
-                    <Button Content="무시" Command="{Binding IgnoreCommand}" Width="70" Margin="0,0,10,4"
+                    <Button x:Name="IgnoreButton" Content="무시" Command="{Binding IgnoreCommand}"
+                            MinWidth="70" Padding="8,1" Margin="0,0,6,0"
                             ToolTip="선택한 파일을 되돌리고 변경 로그에서 닫습니다. 이 데이터베이스를 함께 쓰는 모두에게 적용됩니다." />
-                    <Button Content="Pull" Command="{Binding PullCommand}" Width="70" Margin="0,0,10,4"
-                            ToolTip="원격 저장소의 변경을 로컬 저장소로 가져옵니다. 데이터베이스에는 적용하지 않습니다." />
-                    <Button Content="Push" Command="{Binding PushCommand}" Width="70" Margin="0,0,10,4"
-                            ToolTip="로컬 저장소의 커밋을 원격 저장소에 올립니다." />
-                    <Button Content="원격 확인" Command="{Binding CheckRemoteCommand}" Width="80" Margin="0,0,16,4"
-                            ToolTip="원격을 받아 받을 커밋과 올릴 커밋의 수를 셉니다. 작업 트리는 건드리지 않습니다.&#10;누를 때만 네트워크를 씁니다 - 자동으로 갱신되지 않습니다."/>
-                    <Button Content="배포 스크립트" Command="{Binding GenerateDeploymentScriptCommand}" Width="100" Margin="0,0,6,4"
-                            ToolTip="선택한 객체의 현재 DDL을 단일 .sql 파일로 병합합니다." />
-                    <Button Content="롤백 스크립트" Command="{Binding GenerateRollbackScriptCommand}" Width="100" Margin="0,0,0,4"
-                            ToolTip="선택한 객체가 마지막으로 커밋되기 직전 코드를 단일 .sql 파일로 병합합니다." />
                     <!--
+                        배포·롤백 스크립트는 같은 산출물의 두 방향이라 한 메뉴로 접는다. 메뉴를 여는
+                        버튼은 체크가 없어도 열린다 - 두 항목이 잠긴 채 보인다.
+                    -->
+                    <Button x:Name="ScriptMenuButton" Content="스크립트 ▾"
+                            MinWidth="80" Padding="8,1"
+                            IsEnabled="{Binding IsNotBusy}"
+                            ContextMenuService.IsEnabled="False"
+                            Click="OnDropDownButtonClick"
+                            ToolTip="체크한 객체로 배포·롤백 스크립트를 만듭니다.">
+                        <Button.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="배포 스크립트..." Command="{Binding GenerateDeploymentScriptCommand}"
+                                          ToolTipService.ShowOnDisabled="True"
+                                          ToolTip="선택한 객체의 현재 DDL을 단일 .sql 파일로 병합합니다." />
+                                <MenuItem Header="롤백 스크립트..." Command="{Binding GenerateRollbackScriptCommand}"
+                                          ToolTipService.ShowOnDisabled="True"
+                                          ToolTip="선택한 객체가 마지막으로 커밋되기 직전 코드를 단일 .sql 파일로 병합합니다." />
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
+                    <!--
+                        목록을 거르는 옵션이라 이 줄 맨 뒤에 둔다. 오른쪽 끝에 붙이지 않는다 - DockPanel은
+                        줄바꿈하지 않아 좁은 창에서 버튼과 겹친다.
+
                         작업 중에는 잠근다. 체크박스에는 CanExecute가 없어 버튼과 달리 스스로 막히지
                         않는데, 여기서 새로고침이 겹쳐 돌면 서로의 결과를 덮어쓴다.
-                    -->
-                    <!--
-                        이 WrapPanel은 위쪽 StackPanel 바깥이라 TextElement.Foreground 상속을 받지
-                        못한다. 버튼은 VS가 자기 스타일로 칠해 주지만 맨 CheckBox는 WPF 기본값(검정)이
-                        남아, 어두운 테마에서 어두운 바탕에 검은 글씨로 사라졌다.
+
+                        Foreground를 직접 준다. 맨 CheckBox는 WPF 기본값(검정)이 남아, 어두운 테마에서
+                        어두운 바탕에 검은 글씨로 사라졌다.
                     -->
                     <CheckBox x:Name="AuthorToggle" Content="다른 사람 변경도 보기"
                               IsChecked="{Binding ShowAllAuthors, Mode=TwoWay}"
                               IsEnabled="{Binding IsNotBusy}"
                               Foreground="{DynamicResource {x:Static vsshell:VsBrushes.ToolWindowTextKey}}"
                               ToolTip="공용 계정이라 사람은 접속 PC로 구분합니다. 평소에는 자기 변경만 보이는 편이 안전합니다."
-                              Margin="16,0,0,4" VerticalAlignment="Center" />
+                              Margin="16,0,0,0" VerticalAlignment="Center" />
                 </WrapPanel>
 
                 <!-- Middle Area -->
-                <ListView Grid.Row="1" ItemsSource="{Binding Changes}" SelectedItem="{Binding SelectedChange}">
+                <ListView Grid.Row="3" x:Name="ChangeList" ItemsSource="{Binding Changes}" SelectedItem="{Binding SelectedChange}">
                     <ListView.View>
                         <GridView>
                             <GridViewColumn Header="스테이징">
@@ -248,10 +351,10 @@
                     </ListView.View>
                 </ListView>
 
-                <GridSplitter Grid.Row="2" Height="5" HorizontalAlignment="Stretch" />
+                <GridSplitter Grid.Row="4" Height="5" HorizontalAlignment="Stretch" />
 
                 <!-- Bottom Area: 선택된 객체에 대한 두 가지 뷰 -->
-                <TabControl Grid.Row="3" SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}">
+                <TabControl Grid.Row="5" SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}">
                     <TabItem Header="비교">
                         <Grid>
                             <Grid.ColumnDefinitions>

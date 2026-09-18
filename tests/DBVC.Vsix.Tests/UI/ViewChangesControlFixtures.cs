@@ -1,6 +1,7 @@
 #if NETFRAMEWORK
 using System;
 using System.Collections.Generic;
+using System.Windows;
 using Moq;
 using DBVC.Core;
 using DBVC.Core.Models;
@@ -75,7 +76,7 @@ namespace DBVC.Vsix.Tests.UI
                 Mock.Of<ISqlCredentialStore>(), ssms.Object);
             vm.ConnectCommand.Execute(null);
 
-            // 원격 확인은 수동 버튼으로만 돌므로, RemoteStatusLabel을 채우려면 여기서 직접 눌러야 한다.
+            // 원격 확인은 수동 버튼으로만 돌므로, Pull·Push 버튼의 숫자를 채우려면 여기서 직접 눌러야 한다.
             if (remoteStatus != null)
             {
                 vm.CheckRemoteCommand.Execute(null);
@@ -83,6 +84,22 @@ namespace DBVC.Vsix.Tests.UI
 
             return new ViewChangesControl(vm, null);
         }
+
+        /// <summary>폭을 고정하고 높이는 내용이 원하는 만큼 주어 배치한다.</summary>
+        public static void LayoutAt(ViewChangesControl control, double width)
+        {
+            control.Measure(new Size(width, double.PositiveInfinity));
+            control.Arrange(new Rect(0, 0, width, control.DesiredSize.Height));
+            control.UpdateLayout();
+        }
+
+        public static Point TopLeftOf(ViewChangesControl control, string name)
+            => Find<FrameworkElement>(control, name).TranslatePoint(new Point(0, 0), control);
+
+        /// <summary>이름이 틀리면 null 대신 이름을 밝혀 실패한다 - XAML에서 이름을 바꾸고 테스트를 놓친 경우다.</summary>
+        public static T Find<T>(ViewChangesControl control, string name) where T : class
+            => control.FindName(name) as T
+               ?? throw new System.InvalidOperationException($"XAML에서 '{name}'({typeof(T).Name})을 찾지 못했습니다.");
     }
 }
 #endif
