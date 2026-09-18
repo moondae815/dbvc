@@ -80,6 +80,31 @@ namespace DBVC.Vsix.Tests.UI
         }
 
         /// <summary>
+        /// WPF 기본 ContextMenu 템플릿은 아이콘 자리로 28px 띠를 #F1F1F1로 박아 그린다 — 배경을
+        /// 셸 색으로 칠해도 그 띠는 그대로라, 어두운 테마에서 글자 앞에 흰 여백으로 남는다
+        /// (2026-09-18 SSMS 21에서 실제로 그렇게 보였다). 그래서 템플릿을 통째로 바꾼다.
+        /// </summary>
+        [TestCase("BranchMenuButton")]
+        [TestCase("RefreshMenuButton")]
+        [TestCase("ScriptMenuButton")]
+        public void Prepare_ReplacesTheMenuTemplate_SoTheFixedColorIconGutterIsGone(string buttonName)
+        {
+            var control = NewControl();
+            LayoutAt(control, 600);
+
+            var menu = DropDownMenu.Prepare(Find<Button>(control, buttonName))!;
+
+            var style = control.TryFindResource(DropDownMenu.MenuStyleKey) as Style;
+            Assert.That(style, Is.Not.Null, $"'{DropDownMenu.MenuStyleKey}' 스타일이 컨트롤 리소스에 있어야 한다");
+            Assert.That(menu.Style, Is.SameAs(style), "여는 쪽이 스타일을 붙여야 새 메뉴도 함께 고쳐진다");
+
+            var content = menu.Template.LoadContent();
+            Assert.That(content, Is.TypeOf<Border>(), "템플릿 뿌리는 배경을 물려받는 Border여야 한다");
+            Assert.That(((Border)content).Child, Is.TypeOf<ItemsPresenter>(),
+                "Border 안에 항목만 둔다 - 기본 템플릿이 그리던 아이콘 띠가 여기 없어야 한다");
+        }
+
+        /// <summary>
         /// 배포·감사 클론의 윗줄에도 브랜치 버튼은 보이고 메뉴도 열리지만, 두 항목은 잠겨 있어야 한다
         /// (스펙 2.7). 고정 브랜치를 옮기는 길이 메뉴로 새어 나오면, 병합 영역이 가리키는 목적지와
         /// 저장소가 어긋나 차단 오버레이가 뜨는 상태를 사용자가 스스로 만든다.

@@ -18,6 +18,29 @@
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <local:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis"/>
+
+        <!--
+            드롭다운 메뉴의 껍데기. WPF 기본 ContextMenu 템플릿은 아이콘 자리로 28px 띠를
+            #F1F1F1로 박아 그리고 그 옆에 1px 구분선 둘(#E2E3E3, #FFFFFF)을 더 그린다 —
+            Background를 셸 색으로 칠해도 그 띠는 템플릿에 고정되어 있어 그대로 남고,
+            어두운 테마에서는 글자 앞의 흰 여백이 된다(2026-09-18 SSMS 21에서 확인).
+            그래서 배경을 물려받는 Border 하나와 항목만 남긴다. 항목 글자가 왼쪽에서
+            22px 떨어지는 것은 MenuItem 템플릿의 체크 표시 자리라 그대로 둔다 - 숨겨져
+            있을 뿐 자리는 차지하며, 일반적인 메뉴 모양이다.
+        -->
+        <Style x:Key="DbvcDropDownMenuStyle" TargetType="ContextMenu">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1" Padding="2">
+                            <ItemsPresenter/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
     <Grid>
