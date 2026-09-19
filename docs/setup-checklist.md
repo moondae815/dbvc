@@ -41,17 +41,17 @@ Pull이 거부되고, 폴더가 Git 저장소가 아니면 DBVC가 매핑을 거
 - [ ] **폐쇄망 방화벽 개방 요청을 넣는다.** 운영 PC → 사내 GitLab 호스트, **TCP 22번(SSH) 아웃바운드**.
       이것이 이 문서 전체에서 리드타임이 가장 긴 항목이고, 승인이 안 나면 6단계 전체가 막힌다.
       요청 사유: "Git over SSH로 DB 스키마 형상 관리 도구를 사용".
-- [ ] 사내 GitLab에서 **새 프로젝트를 만들 권한**이 있는지 확인한다. 없으면 관리자에게 요청한다.
-- [ ] 개발 노트북에 **Visual Studio 2022**가 설치되어 있고 **Visual Studio 확장 개발** 워크로드가
+- [x] 사내 GitLab에서 **새 프로젝트를 만들 권한**이 있는지 확인한다. 없으면 관리자에게 요청한다.
+- [x] 개발 노트북에 **Visual Studio 2022**가 설치되어 있고 **Visual Studio 확장 개발** 워크로드가
       포함되어 있는지 확인한다. `.vsix`를 만들려면 이 워크로드가 필요하다.
-- [ ] 두 기계에 **SSMS 21**이 설치되어 있는지 확인한다.
-- [ ] 두 기계가 **Windows 11**인지 확인한다. Windows 10에서도 동작하지만 이 문서의 설정 앱 경로는
+- [x] 두 기계에 **SSMS 21**이 설치되어 있는지 확인한다.
+- [x] 두 기계가 **Windows 11**인지 확인한다. Windows 10에서도 동작하지만 이 문서의 설정 앱 경로는
       Windows 11 기준이다.
   ```powershell
   Get-ComputerInfo -Property OsName,OsVersion | Format-List
   ```
   `OsName`에 `Windows 11`이 나오면 된다 (`OsVersion`은 Windows 11도 `10.0.x`로 시작한다 — 정상이다).
-- [ ] 두 기계에서 **로컬 관리자 권한**이 있는지 확인한다. `.vsix` 설치가 전체 사용자 설치라
+- [x] 두 기계에서 **로컬 관리자 권한**이 있는지 확인한다. `.vsix` 설치가 전체 사용자 설치라
       UAC 승인이 필요하다 (4단계). 없으면 그 단계에서 막힌다.
       Windows 11 Home / Pro 어느 쪽이든 상관없다.
   ```powershell
@@ -60,13 +60,13 @@ Pull이 거부되고, 폴더가 Git 저장소가 아니면 DBVC가 매핑을 거
   `BUILTIN\Administrators` 줄이 보이면 통과다. 관리자 권한 없이 연 창에서는 그 줄에
   `Group used for deny only`(권한 거부용) 가 함께 붙는데, **정상이다** — UAC가 승인 전까지
   권한을 낮춰 둔 것뿐이고 4단계에서 "예"를 누르면 올라간다. 줄 자체가 안 나오면 관리자가 아니다.
-- [ ] 각 기계에서 **어떤 인증으로 SQL Server에 붙을지** 정한다. DBVC는 **Windows 통합 인증과
+- [x] 각 기계에서 **어떤 인증으로 SQL Server에 붙을지** 정한다. DBVC는 **Windows 통합 인증과
       SQL Server 인증을 모두** 지원하며, (서버, 데이터베이스)마다 따로 기억한다.
       개발 노트북은 Windows 인증, 폐쇄망 운영 PC는 SQL 인증처럼 섞어 써도 된다.
   - SQL 인증을 쓸 서버는 **혼합 모드**여야 한다:
     `SELECT SERVERPROPERTY('IsIntegratedSecurityOnly');` 이 `0`이면 SQL 인증 가능(`1`이면 Windows 전용).
 
-- [ ] 위에서 정한 계정으로 대상 데이터베이스에 다음이 가능한지 확인한다.
+- [x] 위에서 정한 계정으로 대상 데이터베이스에 다음이 가능한지 확인한다.
   - 테이블 생성 (`DBVC_ChangeLog` 생성용)
   - DDL 트리거 생성 (`CREATE TRIGGER ... ON DATABASE`)
   - 스키마 객체 조회 (스크립트 추출용)
@@ -76,11 +76,11 @@ Pull이 거부되고, 폴더가 Git 저장소가 아니면 DBVC가 매핑을 거
 > `SELECT HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'CREATE TABLE');` 이 `1`이면 통과.
 > Windows 계정으로 확인해 놓고 DBVC에서는 SQL 로그인을 쓰면 권한이 다를 수 있다.
 
-- [ ] **[`rollout-announcement.md`](rollout-announcement.md)의 운영 규칙을 팀이 읽었고, 답이
-      적혔는지 확인한다.** "채워 넣을 칸" 셋(GitLab 배포 프로젝트·릴리스 담당자·공지 채널)과
-      3절 "조직이 정해야 할 것"(차이 검사 주기, `develop` 리셋 정책 등)이 비어 있으면 설치는
-      되지만 운영이 사람마다 갈린다. **이것은 설치자가 정하는 것이 아니라 팀이 정하는 것이다** —
-      리드 타임이 있으므로 0단계에 둔다.
+- [ ] **[`rollout-announcement.md`](rollout-announcement.md)를 팀이 읽었는지 확인한다.**
+      "채워 넣을 칸" 셋과 3절 "조직이 정해야 할 것"은 2026-09-19에 채워 두었다 — 그래서 이제
+      확인할 것은 빈칸이 아니라 **팀이 그 답에 실제로 동의했는가**다. 특히 3절의 `db_owner`
+      유지는 잔여 위험을 알고 고른 쪽이라, 그 위험을 아는 사람이 팀에 있어야 한다.
+      **이것은 설치자가 정하는 것이 아니다** — 리드 타임이 있으므로 0단계에 둔다.
 
 ---
 
