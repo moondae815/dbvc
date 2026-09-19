@@ -76,7 +76,7 @@ Pull이 거부되고, 폴더가 Git 저장소가 아니면 DBVC가 매핑을 거
 > `SELECT HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'CREATE TABLE');` 이 `1`이면 통과.
 > Windows 계정으로 확인해 놓고 DBVC에서는 SQL 로그인을 쓰면 권한이 다를 수 있다.
 
-- [ ] **[`rollout-announcement.md`](rollout-announcement.md)를 팀이 읽었는지 확인한다.**
+- [x] **[`rollout-announcement.md`](rollout-announcement.md)를 팀이 읽었는지 확인한다.**
       "채워 넣을 칸" 셋과 3절 "조직이 정해야 할 것"은 2026-09-19에 채워 두었다 — 그래서 이제
       확인할 것은 빈칸이 아니라 **팀이 그 답에 실제로 동의했는가**다. 특히 3절의 `db_owner`
       유지는 잔여 위험을 알고 고른 쪽이라, 그 위험을 아는 사람이 팀에 있어야 한다.
@@ -113,16 +113,16 @@ PowerShell에서는 줄바꿈 기호가 `^`가 아니라 백틱(`` ` ``)이다. 
 > 폐쇄망 PC에서는 `winget`이 원격 저장소에 닿지 못하므로 이 방법을 쓸 수 없다. 다만 폐쇄망 PC는
 > `.vsix`를 받아 설치만 하므로 빌드 도구 자체가 필요 없다 (6단계).
 
-- [ ] 소스를 받는다.
+- [x] 소스를 받는다.
   ```powershell
   git clone https://github.com/moondae815/dbvc.git
   cd dbvc
   ```
-- [ ] 빌드한다. 일반 PowerShell 창에서 그대로 된다 — 개발자용 셸은 필요하지 않다.
+- [x] 빌드한다. 일반 PowerShell 창에서 그대로 된다 — 개발자용 셸은 필요하지 않다.
   ```powershell
   dotnet build src\DBVC.Vsix\DBVC.Vsix.csproj -c Release
   ```
-- [ ] 산출물이 실제로 생겼는지 확인한다. **경로에 `net48`이 들어간다.**
+- [x] 산출물이 실제로 생겼는지 확인한다. **경로에 `net48`이 들어간다.**
   ```powershell
   Get-ChildItem src\DBVC.Vsix\bin\Release\net48\*.vsix |
     Select-Object Name, @{ n = 'MB'; e = { [math]::Round($_.Length / 1MB, 1) } }
@@ -141,7 +141,7 @@ PowerShell에서는 줄바꿈 기호가 `^`가 아니라 백틱(`` ` ``)이다. 
 > msbuild src\DBVC.Vsix\DBVC.Vsix.csproj -restore -p:Configuration=Release
 > ```
 
-- [ ] 만들어진 `.vsix` 파일을 **따로 보관한다.** 6단계에서 폐쇄망 PC로 옮겨야 한다.
+- [x] 만들어진 `.vsix` 파일을 **따로 보관한다.** 6단계에서 폐쇄망 PC로 옮겨야 한다.
 
 ---
 
@@ -150,7 +150,7 @@ PowerShell에서는 줄바꿈 기호가 `^`가 아니라 백틱(`` ` ``)이다. 
 DBVC는 자격 증명을 묻지도 저장하지도 않는다. libgit2가 시스템 `ssh`에 그대로 넘기므로,
 평소 쓰는 Git과 똑같은 SSH 설정을 그대로 물려받는다.
 
-- [ ] **OpenSSH 클라이언트가 있는지 확인한다.** Windows 11에는 기본으로 들어 있어
+- [x] **OpenSSH 클라이언트가 있는지 확인한다.** Windows 11에는 기본으로 들어 있어
       대개 그냥 통과한다.
   ```powershell
   ssh -V
@@ -166,7 +166,7 @@ DBVC는 자격 증명을 묻지도 저장하지도 않는다. libgit2가 시스�
   start ms-settings:optionalfeatures
   ```
 
-- [ ] **키를 만든다.** 이미 `~\.ssh\id_ed25519`가 있으면 건너뛴다.
+- [x] **키를 만든다.** 이미 `~\.ssh\id_ed25519`가 있으면 건너뛴다.
   ```powershell
   ssh-keygen -t ed25519 -C "본인메일@example.com"
   ```
@@ -180,7 +180,7 @@ DBVC는 자격 증명을 묻지도 저장하지도 않는다. libgit2가 시스�
   ssh-add $env:USERPROFILE\.ssh\id_ed25519
   ```
 
-- [ ] **공개키를 GitHub에 등록한다.** `~\.ssh\id_ed25519.pub` 내용을 통째로 복사해
+- [x] **공개키를 GitHub에 등록한다.** `~\.ssh\id_ed25519.pub` 내용을 통째로 복사해
       GitHub > Settings > SSH and GPG keys > New SSH key.
   ```powershell
   # 화면으로 확인
@@ -190,7 +190,7 @@ DBVC는 자격 증명을 묻지도 저장하지도 않는다. libgit2가 시스�
   ```
   > `.pub` 이 붙은 **공개키** 파일이다. 확장자 없는 `id_ed25519`(개인키)는 절대 올리지 않는다.
 
-- [ ] **접속을 확인한다.** 이 단계가 `known_hosts` 등록을 겸한다.
+- [x] **접속을 확인한다.** 이 단계가 `known_hosts` 등록을 겸한다.
   ```powershell
   ssh -T git@github.com
   ```
@@ -214,11 +214,11 @@ DBVC는 자격 증명을 묻지도 저장하지도 않는다. libgit2가 시스�
 > 물을 수 없어, 2단계의 `ssh -T`를 건너뛴 경우 **아무 말 없이 멈춘다** — 터미널이면 `yes`를
 > 입력하라고 물어보고 지나간다.
 
-- [ ] GitHub에서 **새 저장소를 만든다.** 이름 예: `db-schema-<데이터베이스명>`.
+- [x] GitHub에서 **새 저장소를 만든다.** 이름 예: `db-schema-<데이터베이스명>`.
       **"Add a README file"을 체크한다** — 빈 저장소는 clone해도 브랜치가 없다.
       사내 스키마이므로 **Private**로 만든다.
 
-- [ ] **터미널에서 clone한다.**
+- [x] **터미널에서 clone한다.**
   ```powershell
   git clone git@github.com:<계정>/db-schema-<데이터베이스명>.git
   ```
@@ -228,7 +228,7 @@ DBVC는 자격 증명을 묻지도 저장하지도 않는다. libgit2가 시스�
   > **받을 위치.** OneDrive가 동기화하는 폴더(바탕 화면·문서)는 피한다. Windows 11에서는
   > 이 폴더들이 기본으로 OneDrive 백업 대상이라 `.git` 내부 파일이 동기화와 충돌할 수 있다.
 
-- [ ] **추적 브랜치가 설정됐는지 확인한다.** clone 직후에는 보통 되어 있지만 확인해 둔다.
+- [x] **추적 브랜치가 설정됐는지 확인한다.** clone 직후에는 보통 되어 있지만 확인해 둔다.
   ```powershell
   git -C db-schema-<데이터베이스명> status -sb
   ```
@@ -238,10 +238,10 @@ DBVC는 자격 증명을 묻지도 저장하지도 않는다. libgit2가 시스�
   git -C db-schema-<데이터베이스명> push -u origin main
   ```
 
-- [ ] **clone된 폴더의 전체 경로를 적어둔다.** 4단계에서 **저장소 연결...** 을 누를 때 그대로
+- [x] **clone된 폴더의 전체 경로를 적어둔다.** 4단계에서 **저장소 연결...** 을 누를 때 그대로
       입력한다.
 
-- [ ] **`develop`과 `master` 브랜치를 만든다.** 8단계의 배포·감사 클론이 고정 브랜치로 쓸
+- [x] **`develop`과 `master` 브랜치를 만든다.** 8단계의 배포·감사 클론이 고정 브랜치로 쓸
       브랜치들이라 지금 만들어 둔다.
   ```powershell
   git -C db-schema-<데이터베이스명> checkout -b develop
@@ -255,8 +255,8 @@ DBVC는 자격 증명을 묻지도 저장하지도 않는다. libgit2가 시스�
 
 ## 4단계 — SSMS에 설치하고 첫 연결 (개발 노트북)
 
-- [ ] **SSMS 21을 완전히 종료한다.**
-- [ ] 1단계에서 만든 `.vsix`를 더블클릭해 설치한다. **UAC 창이 뜨면 "예"를 누른다.**
+- [x] **SSMS 21을 완전히 종료한다.**
+- [x] 1단계에서 만든 `.vsix`를 더블클릭해 설치한다. **UAC 창이 뜨면 "예"를 누른다.**
       DBVC는 전체 사용자 설치(매니페스트의 `AllUsers="true"`)라 관리자 권한이 필요하다.
       설치 위치는 `...\SSMS 21\Release\Common7\IDE\Extensions\` 아래다.
   > 다른 기계에서 복사해 온 파일이면 Windows가 차단 표시를 붙여 설치가 막힐 수 있다
@@ -269,35 +269,35 @@ DBVC는 자격 증명을 묻지도 저장하지도 않는다. libgit2가 시스�
 
   > 개발 노트북에 **Visual Studio도 설치되어 있다면** 설치 대상이 SSMS 21인지 확인한다.
   > DBVC는 `Microsoft.VisualStudio.Ssms`만 대상으로 하므로 VS에는 설치되지 않는 것이 정상이다.
-- [ ] SSMS 21을 실행하고 **View(보기) 메뉴 > DBVC**를 연다. 메뉴 아래쪽에 있다.
+- [x] SSMS 21을 실행하고 **View(보기) 메뉴 > DBVC**를 연다. 메뉴 아래쪽에 있다.
       메뉴에 항목이 없으면 설치가 안 된 것이다 — SSMS를 껐다 켜고 다시 확인한다.
   > "다른 창(Other Windows)" 안이 **아니다.** SSMS에서는 그 하위 메뉴 자체가 숨겨져 있어
   > 거기에 넣으면 보이지 않는다 (Visual Studio와 다른 점이다).
 
-- [ ] **개체 탐색기**에서 0단계에서 정한 계정으로 대상 데이터베이스(또는 그 하위 개체)에 먼저
+- [x] **개체 탐색기**에서 0단계에서 정한 계정으로 대상 데이터베이스(또는 그 하위 개체)에 먼저
       접속해 둔다. Server/Database, 인증 방식, 계정은 모두 그 연결에서 그대로 온다 — DBVC 창에는
       입력란이 없다.
 
       인증 정보는 개체 탐색기의 연결에서 그대로 오며 디스크에 저장되지 않는다.
       SSMS를 다시 열면 개체 탐색기에 접속한 뒤 연결을 한 번 더 누른다.
 
-- [ ] 개체 탐색기에서 대상 데이터베이스를 선택한 뒤 **연결** 을 누른다. 접속에 실패하면 배너에
+- [x] 개체 탐색기에서 대상 데이터베이스를 선택한 뒤 **연결** 을 누른다. 접속에 실패하면 배너에
       한국어 사유가 뜬다 (로그인 실패, 서버 도달 불가 등). 성공하면 아래 매핑 경고로 넘어간다.
 
-- [ ] 경고 배너 `현재 데이터베이스에 연결된 Git 저장소가 없습니다.` 가 뜨는지 확인한다.
+- [x] 경고 배너 `현재 데이터베이스에 연결된 Git 저장소가 없습니다.` 가 뜨는지 확인한다.
       **뜨는 것이 정상이다** — 아직 매핑하지 않았다.
 
-- [ ] 배너의 **"저장소 연결..."** 버튼을 누르고 **"이미 받아둔 폴더를 연결합니다"** 를 고른 뒤,
+- [x] 배너의 **"저장소 연결..."** 버튼을 누르고 **"이미 받아둔 폴더를 연결합니다"** 를 고른 뒤,
       3단계에서 적어 둔 폴더를 선택한다. 배너가 사라지면 성공이다.
   > Git 저장소가 아닌 폴더를 고르면 오류가 나고 매핑되지 않는다. `.git` 폴더가 있는
   > 최상위 폴더를 골라야 한다.
 
-- [ ] 매핑이 저장됐는지 확인한다.
+- [x] 매핑이 저장됐는지 확인한다.
   ```powershell
   Get-Content $env:APPDATA\DBVC\mappings.json
   ```
 
-- [ ] `%APPDATA%\DBVC` 에 `credentials.json` 이 **없는지** 확인한다. 이전 버전이 남긴 파일이
+- [x] `%APPDATA%\DBVC` 에 `credentials.json` 이 **없는지** 확인한다. 이전 버전이 남긴 파일이
       있었다면 확장이 처음 로드될 때 지워진다.
   ```powershell
   # 아무것도 출력되지 않으면 통과
