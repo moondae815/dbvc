@@ -145,7 +145,7 @@ P1이 된다.
 
 | # | 항목 | 닫힌 자리 | 사유 |
 | --- | --- | --- | --- |
-| 1 | `.vsix` 배포·갱신 채널 | 2026-09-07 · 빈칸은 2026-09-19 | [`rollout-announcement.md`](rollout-announcement.md) 1절 — GitLab 릴리스 + 5영업일 기한부. "채워 넣을 칸" 셋도 채웠다: 배포 프로젝트 `tools/dbvc`, 담당 페이먼츠플랫폼팀, 공지는 메일 |
+| 1 | `.vsix` 배포·갱신 채널 | 2026-09-07 · 빈칸은 2026-09-19 | [`rollout-announcement.md`](rollout-announcement.md) 1절 — GitLab 릴리스 + 5영업일 기한부. "채워 넣을 칸" 셋도 채웠다: 배포 프로젝트 `tools/dbvc`, 담당 페이먼츠플랫폼팀, 공지는 `poqdev@payletter.com` |
 | 2 | 작업 트리 되돌리기(discard) | 0.5.18 (0.5.19에서 잠긴 파일 집계 보정) | [설계](superpowers/specs/2026-09-07-dbvc-discard-changes-design.md). **파일까지만 되돌린다** — `DBVC_ChangeLog` 행을 닫는 것은 "무시"(4·5번)의 몫이다 |
 | 3 | 브랜치 전환 | 정책 | 도구에 전환을 넣으면 미커밋 변경을 안은 채 갈아타는 사고를 거들게 된다. `develop` 고정으로 닫았다가 그 규칙이 브랜치 흐름 자체를 막아 2026-09-09에 철회했다 — [설계](superpowers/specs/2026-09-09-dbvc-branch-policy-correction-design.md). 도구 안의 전환은 0.6.0에서 **깨끗할 때만** 되도록 열었다 |
 | 4 | ChangeLog 보존 정책 | 0.5.21 | `dbo.DBVC_PurgeChangeLog`가 30일 지난 행을 `IsProcessed`와 무관하게 5000행씩 지운다 — [설계](superpowers/specs/2026-09-07-dbvc-changelog-retention-and-ignore-design.md) 2·3절 |
